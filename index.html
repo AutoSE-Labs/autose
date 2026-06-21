@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoSE, autonomous software engineering under your control</title>
+  <meta name="description" content="AutoSE turns plain-English requirements into reviewed, governed code that runs entirely on infrastructure you own. Local-first, org-aware, zero cloud." />
+  <meta property="og:title" content="AutoSE, autonomous software engineering under your control" />
+  <meta property="og:description" content="A sovereign, local-first SDLC runtime. No cloud. No data leaving your machine." />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- blueprint grid backdrop -->
+  <div class="blueprint-grid" aria-hidden="true"></div>
+
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top">
+        <span class="brand-mark" aria-hidden="true"></span>
+        Auto<span class="brand-accent">SE</span>
+      </a>
+      <div class="nav-links">
+        <a href="#workflow">Workflow</a>
+        <a href="#features">Capabilities</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/AutoSE-Labs/autose" class="nav-ext">GitHub ↗</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="wrap">
+      <p class="eyebrow"><span class="tick"></span>SOVEREIGN ENGINEERING RUNTIME / v0.1 POC</p>
+      <h1 class="hero-title">
+        Autonomous software<br />engineering, <span class="ink-underline">under your&nbsp;control.</span>
+      </h1>
+      <p class="hero-sub">
+        AutoSE turns a plain-English requirement into reviewed, governed code. It runs the whole
+        workflow on your machine, from requirements analysis to architecture, ADRs, code generation,
+        and your sign-off. No cloud. Nothing leaves your infrastructure.
+      </p>
+
+      <!-- install command, the first thing you can act on -->
+      <div class="install-card" id="install-card">
+        <div class="install-tabs" role="tablist" aria-label="Operating system">
+          <button class="tab is-active" data-os="unix" role="tab" aria-selected="true">macOS / Linux</button>
+          <button class="tab" data-os="win" role="tab" aria-selected="false">Windows</button>
+        </div>
+        <div class="install-body">
+          <pre class="install-cmd" data-os="unix"><span class="prompt">$</span> <code>curl -fsSL https://autose-labs.github.io/autose/install.sh | sh</code></pre>
+          <pre class="install-cmd is-hidden" data-os="win"><span class="prompt">&gt;</span> <code>irm https://autose-labs.github.io/autose/install.ps1 | iex</code></pre>
+          <button class="copy-btn" id="copy-btn" aria-label="Copy install command">
+            <span class="copy-label">Copy</span>
+          </button>
+        </div>
+        <p class="install-foot">Requires <strong>Node.js&nbsp;≥&nbsp;20</strong>, <strong>git</strong>, and <a href="https://ollama.com">Ollama</a> for local inference.</p>
+      </div>
+
+      <div class="hero-meta">
+        <span><span class="dot"></span>Runs offline</span>
+        <span><span class="dot"></span>Org-grounded</span>
+        <span><span class="dot"></span>Human-in-the-loop</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- research credibility -->
+  <aside class="research-band">
+    <div class="wrap research-inner">
+      <p><span class="tick"></span>AutoSE is backed by peer-reviewed research from the <a href="https://sa4s-serc.github.io">SA4S research group</a>.</p>
+    </div>
+  </aside>
+
+  <!-- SIGNATURE: the SDLC pipeline as a blueprint diagram -->
+  <section class="pipeline-section" id="workflow">
+    <div class="wrap">
+      <p class="section-label"><span class="tick"></span>THE WORKFLOW</p>
+      <h2 class="section-title">One request flows through the whole lifecycle.</h2>
+      <p class="section-lede">Typed artifacts pass between phases. Quality gates guard the transitions. You approve before anything is written.</p>
+
+      <ol class="pipeline" aria-label="AutoSE SDLC pipeline">
+        <li class="stage">
+          <span class="stage-id">PH-01</span>
+          <h3>Requirements</h3>
+          <p>Plain-English intent is parsed into a structured requirement.</p>
+        </li>
+        <li class="stage">
+          <span class="stage-id">PH-02</span>
+          <h3>Architecture</h3>
+          <p>AutoSE plans structure and reasons about trade-offs and constraints.</p>
+        </li>
+        <li class="stage">
+          <span class="stage-id">PH-03</span>
+          <h3>ADRs</h3>
+          <p>Decisions are recorded, linked, and proposed for review.</p>
+        </li>
+        <li class="stage">
+          <span class="stage-id">PH-04</span>
+          <h3>Generation</h3>
+          <p>Complete code files are produced against your standards.</p>
+        </li>
+        <li class="stage is-gate">
+          <span class="stage-id">GATE</span>
+          <h3>Your review</h3>
+          <p>Inspect, diff, approve, or reject. Nothing writes without sign-off.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- CAPABILITIES: spec cards with crop marks -->
+  <section class="features" id="features">
+    <div class="wrap">
+      <p class="section-label"><span class="tick"></span>CAPABILITIES</p>
+      <h2 class="section-title">Engineering you can account for.</h2>
+
+      <div class="spec-grid">
+        <article class="spec">
+          <span class="spec-tag">SOVEREIGNTY</span>
+          <h3>Runs on what you own</h3>
+          <p>All inference goes through Ollama on your machine or an org-hosted endpoint. It calls no third-party APIs and sends no telemetry.</p>
+        </article>
+        <article class="spec">
+          <span class="spec-tag">CONTEXT</span>
+          <h3>Grounded in your org</h3>
+          <p>A profile encodes your coding standards, approved libraries, and architectural rules. Every output is shaped by them.</p>
+        </article>
+        <article class="spec">
+          <span class="spec-tag">GOVERNANCE</span>
+          <h3>Traceable by default</h3>
+          <p>Requirements link to decisions, decisions to code, and code to review. The audit trail is part of how the runtime works.</p>
+        </article>
+        <article class="spec">
+          <span class="spec-tag">CONTROL</span>
+          <h3>You hold the pen</h3>
+          <p>Human review is a built-in step. Agents prepare and propose. You approve, refine, or reject.</p>
+        </article>
+        <article class="spec">
+          <span class="spec-tag">ROUTING</span>
+          <h3>Right model per task</h3>
+          <p>Work is routed between smaller and larger local models by complexity, which keeps quality high while controlling speed and cost.</p>
+        </article>
+        <article class="spec">
+          <span class="spec-tag">SURFACE</span>
+          <h3>CLI or VS Code</h3>
+          <p>Drive workflows from an interactive terminal session, or from a sidebar panel inside your editor.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- INSTALL detail -->
+  <section class="install-detail" id="install">
+    <div class="wrap install-detail-inner">
+      <div class="install-detail-copy">
+        <p class="section-label"><span class="tick"></span>GET STARTED</p>
+        <h2 class="section-title">Three commands to your first workflow.</h2>
+        <p class="section-lede">The installer clones AutoSE, builds it, and links the <code>autose</code> launcher onto your PATH.</p>
+        <ol class="run-list">
+          <li><span class="run-n">1</span><div><strong>Install AutoSE</strong><br />Run the install command shown above.</div></li>
+          <li><span class="run-n">2</span><div><strong>Start Ollama &amp; pull a model</strong><br /><code>ollama pull qwen2.5-coder:14b</code></div></li>
+          <li><span class="run-n">3</span><div><strong>Initialize &amp; chat</strong><br /><code>autose init --workspace .</code> then <code>autose chat</code></div></li>
+        </ol>
+      </div>
+
+      <div class="install-detail-panel">
+        <div class="panel-row">
+          <span class="panel-os">macOS / Linux</span>
+          <pre class="panel-cmd"><span class="prompt">$</span> <code id="cmd-unix">curl -fsSL https://autose-labs.github.io/autose/install.sh | sh</code></pre>
+          <button class="copy-btn copy-mini" data-copy="#cmd-unix" aria-label="Copy macOS/Linux command"><span class="copy-label">Copy</span></button>
+        </div>
+        <div class="panel-row">
+          <span class="panel-os">Windows (PowerShell)</span>
+          <pre class="panel-cmd"><span class="prompt">&gt;</span> <code id="cmd-win">irm https://autose-labs.github.io/autose/install.ps1 | iex</code></pre>
+          <button class="copy-btn copy-mini" data-copy="#cmd-win" aria-label="Copy Windows command"><span class="copy-label">Copy</span></button>
+        </div>
+        <p class="panel-note">Want to read it first? Both scripts are plain text.
+          See <a href="install.sh">install.sh</a> and <a href="install.ps1">install.ps1</a>.
+          You can also build from source by following the <a href="https://github.com/AutoSE-Labs/autose#install">README</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        Auto<span class="brand-accent">SE</span>
+        <p>A research-grade, sovereign engineering runtime. Local-first by design.</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/AutoSE-Labs/autose">Repository</a>
+        <a href="https://github.com/AutoSE-Labs/autose/blob/main/docs/VISION.md">Vision</a>
+        <a href="https://github.com/AutoSE-Labs/autose/tree/main/docs/adr">ADRs</a>
+        <a href="https://ollama.com">Ollama</a>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <span>© 2026 AutoSE Labs</span>
+      <span class="footer-coords">52.000N · BUILD/POC · 127.0.0.1:8765</span>
+    </div>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>
