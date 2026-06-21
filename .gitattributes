@@ -1,0 +1,3 @@
+# Always serve the shell installer with LF so `curl | sh` works.
+*.sh text eol=lf
+*.ps1 text eol=crlf
