@@ -6,14 +6,14 @@
 # Honors these environment variables:
 #   AUTOSE_HOME     where to clone AutoSE        (default: $HOME\.autose-cli)
 #   AUTOSE_BIN_DIR  where to place the launcher  (default: $env:LOCALAPPDATA\AutoSE\bin)
-#   AUTOSE_REF      git ref to check out         (default: feature/cli)
+#   AUTOSE_REF      git ref to check out         (default: poc)
 
 $ErrorActionPreference = 'Stop'
 
 $RepoUrl    = 'https://github.com/AutoSE-Labs/autose.git'
 $InstallDir = if ($env:AUTOSE_HOME)    { $env:AUTOSE_HOME }    else { Join-Path $HOME '.autose-cli' }
 $BinDir     = if ($env:AUTOSE_BIN_DIR) { $env:AUTOSE_BIN_DIR } else { Join-Path $env:LOCALAPPDATA 'AutoSE\bin' }
-$Ref        = if ($env:AUTOSE_REF)     { $env:AUTOSE_REF }     else { 'feature/cli' }
+$Ref        = if ($env:AUTOSE_REF)     { $env:AUTOSE_REF }     else { 'poc' }
 
 function Step($m) {
   Write-Host '> ' -ForegroundColor DarkYellow -NoNewline

@@ -7,14 +7,14 @@
 # Honors these environment variables:
 #   AUTOSE_HOME     where to clone AutoSE        (default: $HOME/.autose-cli)
 #   AUTOSE_BIN_DIR  where to place the launcher  (default: $HOME/.local/bin)
-#   AUTOSE_REF      git ref to check out         (default: feature/cli)
+#   AUTOSE_REF      git ref to check out         (default: poc)
 
 set -eu
 
 REPO_URL="https://github.com/AutoSE-Labs/autose.git"
 INSTALL_DIR="${AUTOSE_HOME:-$HOME/.autose-cli}"
 BIN_DIR="${AUTOSE_BIN_DIR:-$HOME/.local/bin}"
-REF="${AUTOSE_REF:-feature/cli}"
+REF="${AUTOSE_REF:-poc}"
 
 # Pretty output
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
