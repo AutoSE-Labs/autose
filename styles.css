@@ -381,6 +381,34 @@ code { font-family: var(--font-mono); }
 }
 .spec p { font-size: 0.94rem; color: var(--slate); }
 
+/* --- video showcase ----------------------------------------- */
+.showcase-section { padding: 5rem 0; border-top: 1px solid var(--line-soft); }
+.video-container {
+  position: relative;
+  margin-top: 3rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  padding: 0.5rem;
+  border-radius: 4px;
+  box-shadow: 0 1px 0 var(--line), 8px 8px 0 -1px var(--bone-2);
+}
+.video-container::before, .video-container::after {
+  content: "";
+  position: absolute;
+  width: 12px; height: 12px;
+  border-color: var(--signal);
+  border-style: solid;
+}
+.video-container::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+.video-container::after  { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+.video-container video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 2px;
+  border: 1px solid var(--line-soft);
+}
+
 /* --- install detail ----------------------------------------- */
 .install-detail { padding: 5rem 0; border-top: 1px solid var(--line-soft); }
 .install-detail-inner {
