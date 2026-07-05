@@ -1,7 +1,7 @@
 # AutoSE GitHub Pages
 
 This branch (`gh-pages`) is the published site for AutoSE, served at
-**https://autose-labs.github.io/autose/**.
+**https://autose.dev/**.
 
 It is generated/maintained separately from the application code on `main`.
 
@@ -18,12 +18,12 @@ It is generated/maintained separately from the application code on `main`.
 
 ```sh
 # macOS / Linux
-curl -fsSL https://autose-labs.github.io/autose/install.sh | sh
+curl -fsSL https://autose.dev/install.sh | sh
 ```
 
 ```powershell
 # Windows (PowerShell)
-irm https://autose-labs.github.io/autose/install.ps1 | iex
+irm https://autose.dev/install.ps1 | iex
 ```
 
 The installer clones AutoSE into `~/.autose-cli`, runs `npm install` + `npm run build`,

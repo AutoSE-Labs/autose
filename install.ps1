@@ -1,7 +1,7 @@
 # AutoSE installer (Windows / PowerShell)
 # Clones the AutoSE repo, builds it, and links the `autose` CLI onto your PATH.
 #
-#   irm https://autose-labs.github.io/autose/install.ps1 | iex
+#   irm https://autose.dev/install.ps1 | iex
 #
 # Honors these environment variables:
 #   AUTOSE_HOME     where to clone AutoSE        (default: $HOME\.autose-cli)

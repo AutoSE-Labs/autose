@@ -2,7 +2,7 @@
 # AutoSE installer (macOS / Linux)
 # Clones the AutoSE repo, builds it, and links the `autose` CLI onto your PATH.
 #
-#   curl -fsSL https://autose-labs.github.io/autose/install.sh | sh
+#   curl -fsSL https://autose.dev/install.sh | sh
 #
 # Honors these environment variables:
 #   AUTOSE_HOME     where to clone AutoSE        (default: $HOME/.autose-cli)

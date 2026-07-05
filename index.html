@@ -4,19 +4,87 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AutoSE, autonomous software engineering under your control</title>
+  <title>AutoSE — Autonomous Software Engineering Under Your Control</title>
   <meta name="description"
     content="AutoSE turns plain-English requirements into reviewed, governed code that runs entirely on infrastructure you own. Local-first, org-aware, zero cloud." />
-  <meta property="og:title" content="AutoSE, autonomous software engineering under your control" />
+  <meta name="keywords"
+    content="autonomous software engineering, local-first AI coding, sovereign AI, self-hosted code generation, Ollama, small language models, architecture decision records, human-in-the-loop, offline AI developer tool" />
+  <meta name="author" content="AutoSE Labs / SA4S Research Group" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta name="theme-color" content="#efebe0" />
+  <link rel="canonical" href="https://autose.dev/" />
+
+  <!-- Icons -->
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="AutoSE — Autonomous Software Engineering Under Your Control" />
   <meta property="og:description"
-    content="A sovereign, local-first SDLC runtime. No cloud. No data leaving your machine." />
+    content="A sovereign, local-first SDLC runtime. Plain-English intent to reviewed, governed code. No cloud. Nothing leaves your machine." />
   <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://autose.dev/" />
+  <meta property="og:site_name" content="AutoSE" />
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:image" content="https://autose.dev/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="AutoSE — autonomous software engineering, under your control." />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="AutoSE — Autonomous Software Engineering Under Your Control" />
+  <meta name="twitter:description"
+    content="A sovereign, local-first SDLC runtime. Plain-English intent to reviewed, governed code. No cloud." />
+  <meta name="twitter:image" content="https://autose.dev/og-image.png" />
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
     href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
     rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+
+  <!-- Structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "name": "AutoSE",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS, Linux, Windows",
+        "url": "https://autose.dev/",
+        "downloadUrl": "https://autose.dev/",
+        "softwareVersion": "0.1",
+        "description": "AutoSE is a sovereign, local-first SDLC runtime that turns plain-English requirements into reviewed, governed code. It runs the whole workflow — requirements, architecture, ADRs, code generation, and human sign-off — on infrastructure you own, with no cloud and no telemetry.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "author": {
+          "@type": "Organization",
+          "name": "AutoSE Labs",
+          "url": "https://sa4s-serc.github.io"
+        },
+        "codeRepository": "https://github.com/AutoSE-Labs/autose"
+      },
+      {
+        "@type": "Organization",
+        "name": "AutoSE Labs",
+        "url": "https://autose.dev/",
+        "logo": "https://autose.dev/apple-touch-icon.png",
+        "sameAs": [
+          "https://github.com/AutoSE-Labs/autose",
+          "https://sa4s-serc.github.io"
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
 
 <body>
@@ -60,9 +128,9 @@
         </div>
         <div class="install-body">
           <pre class="install-cmd"
-            data-os="unix"><span class="prompt">$</span> <code>curl -fsSL https://autose-labs.github.io/autose/install.sh | sh</code></pre>
+            data-os="unix"><span class="prompt">$</span> <code>curl -fsSL https://autose.dev/install.sh | sh</code></pre>
           <pre class="install-cmd is-hidden"
-            data-os="win"><span class="prompt">&gt;</span> <code>irm https://autose-labs.github.io/autose/install.ps1 | iex</code></pre>
+            data-os="win"><span class="prompt">&gt;</span> <code>irm https://autose.dev/install.ps1 | iex</code></pre>
           <button class="copy-btn" id="copy-btn" aria-label="Copy install command">
             <span class="copy-label">Copy</span>
           </button>
@@ -213,14 +281,14 @@
         <div class="panel-row">
           <span class="panel-os">macOS / Linux</span>
           <pre
-            class="panel-cmd"><span class="prompt">$</span> <code id="cmd-unix">curl -fsSL https://autose-labs.github.io/autose/install.sh | sh</code></pre>
+            class="panel-cmd"><span class="prompt">$</span> <code id="cmd-unix">curl -fsSL https://autose.dev/install.sh | sh</code></pre>
           <button class="copy-btn copy-mini" data-copy="#cmd-unix" aria-label="Copy macOS/Linux command"><span
               class="copy-label">Copy</span></button>
         </div>
         <div class="panel-row">
           <span class="panel-os">Windows (PowerShell)</span>
           <pre
-            class="panel-cmd"><span class="prompt">&gt;</span> <code id="cmd-win">irm https://autose-labs.github.io/autose/install.ps1 | iex</code></pre>
+            class="panel-cmd"><span class="prompt">&gt;</span> <code id="cmd-win">irm https://autose.dev/install.ps1 | iex</code></pre>
           <button class="copy-btn copy-mini" data-copy="#cmd-win" aria-label="Copy Windows command"><span
               class="copy-label">Copy</span></button>
         </div>
