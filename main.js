@@ -65,7 +65,7 @@
 
   // --- scroll reveal ---------------------------------------------------------
   var reveals = [].slice.call(
-    document.querySelectorAll(".section-title, .section-lede, .stage, .spec, .install-card, .hero-sub, .hero-meta, .install-detail-panel")
+    document.querySelectorAll(".section-title, .section-lede, .stage, .spec, .pub, .install-card, .hero-sub, .hero-meta, .install-detail-panel")
   );
   reveals.forEach(function (el) { el.classList.add("reveal"); });
 

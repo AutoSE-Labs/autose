@@ -867,3 +867,154 @@ button:focus-visible {
     transition: none;
   }
 }
+
+/* ============================================================
+   Research / publications page
+   ============================================================ */
+.page-hero {
+  padding: 5.5rem 0 1rem;
+}
+
+.pub-section {
+  padding: 2.5rem 0 5rem;
+}
+
+.pub-count {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.1em;
+  color: var(--slate);
+  margin-top: 2.6rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.pub-list {
+  list-style: none;
+  margin-top: 1.4rem;
+  display: grid;
+  gap: 1.1rem;
+}
+
+.pub {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--line);
+  padding: 1.7rem 1.7rem 1.5rem;
+  display: grid;
+  grid-template-columns: 3ch 1fr;
+  gap: 1.5rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pub:hover {
+  transform: translateY(-3px);
+  box-shadow: 6px 6px 0 -1px var(--bone-2);
+}
+
+/* blueprint corner crop-marks, matching the spec cards */
+.pub::before,
+.pub::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-color: var(--signal);
+  border-style: solid;
+}
+
+.pub::before {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+}
+
+.pub::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+.pub-index {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--slate);
+  padding-top: 0.25rem;
+}
+
+.pub-venue {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--card);
+  background: var(--signal-deep);
+  padding: 0.34rem 0.72rem;
+  border-radius: 3px;
+  box-shadow: 3px 3px 0 -1px var(--bone-2);
+}
+
+.pub-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.24rem;
+  line-height: 1.22;
+  letter-spacing: -0.01em;
+  margin: 0.55rem 0 0.5rem;
+}
+
+.pub-title a {
+  text-decoration: none;
+}
+
+.pub-title a:hover {
+  color: var(--signal-deep);
+}
+
+.pub-authors {
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  margin-bottom: 0.65rem;
+}
+
+.pub-authors .self {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom: 1.5px solid var(--signal);
+}
+
+.pub-desc {
+  font-size: 0.94rem;
+  color: var(--slate);
+}
+
+.pub-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.95rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--signal-deep);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.pub-link:hover {
+  border-bottom-color: var(--signal-deep);
+}
+
+@media (max-width: 600px) {
+  .pub {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+
+  .pub-index {
+    padding-top: 0;
+  }
+}

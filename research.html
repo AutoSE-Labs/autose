@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Research · AutoSE</title>
+  <meta name="description"
+    content="Peer-reviewed research behind AutoSE: LLMs and small language models for architecture decision records, agentic knowledge management, function calling, and energy-efficient issue resolution." />
+  <meta property="og:title" content="Research · AutoSE" />
+  <meta property="og:description"
+    content="The peer-reviewed work behind AutoSE, from the SA4S research group." />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <!-- blueprint grid backdrop -->
+  <div class="blueprint-grid" aria-hidden="true"></div>
+
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="index.html#top">
+        <span class="brand-mark" aria-hidden="true"></span>
+        Auto<span class="brand-accent">SE</span>
+      </a>
+      <div class="nav-links">
+        <a href="index.html#demo">Demo</a>
+        <a href="index.html#workflow">Workflow</a>
+        <a href="index.html#features">Capabilities</a>
+        <a href="index.html#install">Install</a>
+        <a href="research.html" aria-current="page">Research</a>
+        <a href="https://github.com/AutoSE-Labs/autose" class="nav-ext">GitHub ↗</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero page-hero" id="top">
+    <div class="wrap">
+      <p class="eyebrow"><span class="tick"></span>RESEARCH / PEER-REVIEWED FOUNDATIONS</p>
+      <h1 class="hero-title">
+        The science behind<br /><span class="ink-underline">sovereign engineering.</span>
+      </h1>
+      <p class="hero-sub">
+        AutoSE is not a demo bolted onto a chatbot. Its pipeline, from architecture decision records to
+        model routing and energy-aware execution, is grounded in peer-reviewed work from the
+        <a href="https://sa4s-serc.github.io">SA4S research group</a> at IIIT Hyderabad. These are some of
+        the studies shaping how we build it.
+      </p>
+    </div>
+  </header>
+
+  <section class="pub-section">
+    <div class="wrap">
+      <p class="section-label"><span class="tick"></span>SELECTED PUBLICATIONS</p>
+      <h2 class="section-title">Work we've been doing in this space.</h2>
+
+      <p class="pub-count">05 PAPERS · 2024 — 2026</p>
+
+      <ol class="pub-list">
+        <li class="pub">
+          <span class="pub-index">01</span>
+          <div class="pub-body">
+            <span class="pub-venue">EASE · 2026</span>
+            <h3 class="pub-title">
+              <a href="https://arxiv.org/abs/2604.03826">Context Matters: Evaluating Context Strategies for
+                Automated ADR Generation Using LLMs</a>
+            </h3>
+            <p class="pub-authors">Aviral Gupta, Rudra Dhar, Daniel Feitosa, Karthik Vaidhyanathan</p>
+            <p class="pub-desc">
+              A study of five context strategies for generating Architecture Decision Records, built on a
+              dataset of sequential ADRs from 750 open-source projects. Context-aware prompting improves
+              fidelity more than raw model scale, with the best results from a narrow window of 3–5 prior
+              records.
+            </p>
+            <a class="pub-link" href="https://arxiv.org/abs/2604.03826">Read paper ↗</a>
+          </div>
+        </li>
+
+        <li class="pub">
+          <span class="pub-index">02</span>
+          <div class="pub-body">
+            <span class="pub-venue">AGENTS @ ICSE · 2026</span>
+            <h3 class="pub-title">
+              <a href="https://arxiv.org/abs/2602.04445">AgenticAKM: Enroute to Agentic Architecture Knowledge
+                Management</a>
+            </h3>
+            <p class="pub-authors">Rudra Dhar, Karthik Vaidhyanathan, Vasudeva Varma</p>
+            <p class="pub-desc">
+              An agentic framework that decomposes architecture recovery and documentation into specialized
+              extraction, retrieval, generation, and validation agents. Instantiated to generate ADRs from code
+              repositories and validated in a user study across 29 repositories.
+            </p>
+            <a class="pub-link" href="https://arxiv.org/abs/2602.04445">Read paper ↗</a>
+          </div>
+        </li>
+
+        <li class="pub">
+          <span class="pub-index">03</span>
+          <div class="pub-body">
+            <span class="pub-venue">AGENTS @ ICSE · 2026</span>
+            <h3 class="pub-title">
+              <a href="https://dl.acm.org/doi/10.1145/3786167.3788406">SWEnergy: An Empirical Study on Energy
+                Efficiency in Agentic Issue Resolution Frameworks with SLMs</a>
+            </h3>
+            <p class="pub-authors"><span class="self">Arihant Tripathy</span>, Ch Pavan Harshit, Karthik
+              Vaidhyanathan</p>
+            <p class="pub-desc">
+              A controlled evaluation of four agentic frameworks running small language models on SWE-bench
+              Verified Mini, measuring energy, duration, tokens, and memory. Framework architecture, not the
+              model, is the primary driver of energy use, and much of that energy is spent on unproductive
+              reasoning loops.
+            </p>
+            <a class="pub-link" href="https://dl.acm.org/doi/10.1145/3786167.3788406">Read paper ↗</a>
+          </div>
+        </li>
+
+        <li class="pub">
+          <span class="pub-index">04</span>
+          <div class="pub-body">
+            <span class="pub-venue">EASE · 2025</span>
+            <h3 class="pub-title">
+              <a href="https://dl.acm.org/doi/10.1145/3756681.3757001">Small Models, Big Tasks: An Exploratory
+                Empirical Study on Small Language Models for Function Calling</a>
+            </h3>
+            <p class="pub-authors">Ishan Kavathekar, Raghav Donakanti, Ponnurangam Kumaraguru, Karthik
+              Vaidhyanathan</p>
+            <p class="pub-desc">
+              An empirical look at whether small language models can drive reliable function and tool calling,
+              the capability that lets AutoSE route work to smaller local models by task complexity while keeping
+              quality high.
+            </p>
+            <a class="pub-link" href="https://dl.acm.org/doi/10.1145/3756681.3757001">Read paper ↗</a>
+          </div>
+        </li>
+
+        <li class="pub">
+          <span class="pub-index">05</span>
+          <div class="pub-body">
+            <span class="pub-venue">ICSA · 2024</span>
+            <h3 class="pub-title">
+              <a href="https://ieeexplore.ieee.org/document/10592785">Can LLMs Generate Architectural Design
+                Decisions? — An Exploratory Empirical Study</a>
+            </h3>
+            <p class="pub-authors">Rudra Dhar, Karthik Vaidhyanathan, Vasudeva Varma</p>
+            <p class="pub-desc">
+              The foundational study on generating Architecture Decision Records with LLMs given a decision
+              context. GPT-4 shows strong capability, and smaller fine-tuned models such as Flan-T5 reach
+              comparable results, motivating AutoSE's local-first, right-model-per-task approach.
+            </p>
+            <a class="pub-link" href="https://ieeexplore.ieee.org/document/10592785">Read paper ↗</a>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        Auto<span class="brand-accent">SE</span>
+        <p>A research-grade, sovereign engineering runtime. Local-first by design.</p>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="https://github.com/AutoSE-Labs/autose">Repository</a>
+        <a href="https://sa4s-serc.github.io">SA4S Research Group</a>
+        <a href="https://github.com/AutoSE-Labs/autose/blob/main/docs/VISION.md">Vision</a>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <span>© 2026 AutoSE Labs</span>
+      <span class="footer-credit">From <a href="https://sa4s-serc.github.io">SA4S</a></span>
+      <span class="footer-coords">52.000N · RESEARCH · 127.0.0.1:8765</span>
+    </div>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+
+</html>
