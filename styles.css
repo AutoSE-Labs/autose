@@ -979,11 +979,6 @@ button:focus-visible {
   margin-bottom: 0.65rem;
 }
 
-.pub-authors .self {
-  color: var(--ink);
-  font-weight: 600;
-  border-bottom: 1.5px solid var(--signal);
-}
 
 .pub-desc {
   font-size: 0.94rem;
