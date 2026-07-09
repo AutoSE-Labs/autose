@@ -1,0 +1,7 @@
+inference:
+  # OpenAI-compatible LLM backend.  Edit base_url and model for your environment.
+  provider: openai
+  base_url: http://10.2.57.222:9000/v1
+  api_key: ""
+  model: google/gemma-4-26B-A4B-it
+  context_limit: 262144

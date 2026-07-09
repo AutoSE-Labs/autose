@@ -1,0 +1,19 @@
+[project]
+name = "autose"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "rich>=15.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+autose = "autose.cli:run"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.package-dir]
+"" = "src"
