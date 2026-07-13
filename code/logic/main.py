@@ -1,19 +1,67 @@
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
+import yaml
+
+from tiers import TIERS
+
 _DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "profiles" / "config.yaml"
-_WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _user_config_path() -> Path | None:
+    if os.name == "nt":
+        base = os.environ.get("APPDATA")
+        return Path(base) / "AutoSE" / "config.yaml" if base else None
+    return Path.home() / ".config" / "autose" / "config.yaml"
 
 
 def _find_config() -> Path:
+    env_value = os.environ.get("AUTOSE_CONFIG")
+    if env_value:
+        env_path = Path(env_value)
+        if env_path.exists():
+            return env_path
+
+    user_config = _user_config_path()
+    if user_config is not None and user_config.exists():
+        return user_config
+
     if _DEFAULT_CONFIG.exists():
         return _DEFAULT_CONFIG
+
+    locations = "\n".join(
+        f"  - {location}"
+        for location in (
+            "$AUTOSE_CONFIG (environment variable)",
+            user_config or "%APPDATA%\\AutoSE\\config.yaml",
+            _DEFAULT_CONFIG,
+        )
+    )
     raise FileNotFoundError(
-        f"Config file not found. Expected at: {_DEFAULT_CONFIG}\n"
+        "Config file not found. Checked:\n"
+        f"{locations}\n"
         "Create it by copying profiles/config.yaml and filling in your inference settings."
     )
+
+
+def _resolve_workspace_root(config_path: Path) -> Path:
+    """Resolve the workspace root AutoSE should operate on.
+
+    If `workspace.root` is set to a non-empty value in config.yaml, that
+    path is used (expanding `~` and resolving it to an absolute path).
+    Otherwise, the directory the command was run from (the current working
+    directory) is used.
+    """
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+
+    configured_root = (config.get("workspace") or {}).get("root")
+    if configured_root:
+        return Path(str(configured_root)).expanduser().resolve()
+    return Path.cwd()
 
 
 def _import_session():
@@ -96,15 +144,18 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--mode",
-        choices=("auto", "lite", "standard"),
+        choices=("auto", *TIERS),
         default="auto",
         help="workflow mode for headless runs",
     )
     parser.add_argument(
         "--workspace",
         type=Path,
-        default=_WORKSPACE_ROOT,
-        help="workspace root to inspect or modify (default: AutoSE repo root)",
+        default=None,
+        help=(
+            "workspace root to inspect or modify (default: workspace.root from "
+            "config.yaml if set, otherwise the current working directory)"
+        ),
     )
     parser.add_argument("prompt", nargs="*")
     return parser.parse_args(argv)
@@ -130,20 +181,23 @@ def main() -> None:
         session_run = _import_session()
         session_run(
             config_path,
-            workspace_root=_WORKSPACE_ROOT,
+            workspace_root=_resolve_workspace_root(config_path),
             initial_prompt=initial_prompt,
         )
         return
 
     args = _parse_args(sys.argv[1:])
     initial_prompt = " ".join(args.prompt).strip()
+    workspace_explicitly_set = args.workspace is not None
+    if not workspace_explicitly_set:
+        args.workspace = _resolve_workspace_root(config_path)
     if (
         args.json
         or args.stream
         or args.events
         or args.yes
         or args.mode != "auto"
-        or args.workspace != _WORKSPACE_ROOT
+        or workspace_explicitly_set
     ):
         args.headless = True
 

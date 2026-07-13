@@ -6,6 +6,8 @@ from typing import Union
 
 import yaml
 
+from tiers import TIERS
+
 _PROMPTS_FILE = Path(__file__).parent / "prompts.json"
 
 with open(_PROMPTS_FILE, "r", encoding="utf-8") as _f:
@@ -14,7 +16,7 @@ with open(_PROMPTS_FILE, "r", encoding="utf-8") as _f:
 _SYSTEM_PROMPT: str = _PROMPTS["system"]
 _CLASSIFICATION_PROMPT: str = _PROMPTS["user"]
 
-_VALID_TYPES = frozenset({"lite", "standard"})
+_VALID_TYPES = frozenset(TIERS)
 
 
 class TaskClassifier:
@@ -32,7 +34,7 @@ class TaskClassifier:
         self._model: str = inference.get("model", "")
 
     def classify(self, prompt: str, history: list[dict] | None = None) -> str:
-        """Return 'lite' or 'standard' for the given prompt.
+        """Return one of :data:`tiers.TIERS` for the given prompt.
 
         history is an optional list of prior {"role": ..., "content": ...}
         messages (user/assistant only) providing conversation context.
@@ -101,8 +103,10 @@ class TaskClassifier:
         except (json.JSONDecodeError, KeyError, AttributeError):
             pass
 
-        # Fallback: scan the raw text for keywords (most specific first)
+        # Fallback: scan the raw text for a tier name (most complex first, so a
+        # mention of the highest applicable tier wins). Default to the simplest.
         lowered = raw.lower()
-        if "standard" in lowered:
-            return "standard"
-        return "lite"
+        for tier in reversed(TIERS):
+            if tier in lowered:
+                return tier
+        return TIERS[0]

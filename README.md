@@ -1,55 +1,36 @@
 # AutoSE
 
-An AI-powered software engineering agent with an interactive TUI.
+An AI-powered software engineering agent with an interactive TUI and a desktop app.
 
-## Requirements
+You bring your own LLM: point AutoSE at any OpenAI-compatible inference endpoint (Ollama, vLLM, LM Studio, OpenAI, etc.). AutoSE never provides or proxies models itself.
 
-- Python 3.13+
-- [uv](https://docs.astral.sh/uv/) (recommended) **or** pip
+## Desktop App (recommended for most users)
+
+Download **AutoSE-Setup.exe** from the [latest release](https://github.com/AutoSE-Labs/autose/releases/latest) and run it. No other software is required:
+
+1. The installer sets up the app for the current user (no admin prompt).
+2. On first launch, the app automatically installs its Python runtime (via [uv](https://docs.astral.sh/uv/)) — this happens once and needs an internet connection.
+3. Open **Settings** (gear icon) and enter your inference endpoint: base URL, optional API key, and model name.
+
+Settings are stored in `%APPDATA%\AutoSE\config.yaml`; the managed runtime lives in `%LOCALAPPDATA%\AutoSE`.
+
+## Terminal Version
+
+### Requirements
+
+- [uv](https://docs.astral.sh/uv/) (recommended) **or** Python 3.13+ with pip
 - An OpenAI-compatible LLM inference endpoint
 
-## Installation
-
-### Using uv (recommended)
+### Install and run
 
 ```bash
+git clone https://github.com/AutoSE-Labs/autose.git
 cd autose
 uv sync
+uv run autose
 ```
 
-This installs the package and its dependencies into a managed virtual environment.
-
-### Using pip
-
-```bash
-cd autose
-pip install -e .
-```
-
-## Configuration
-
-Copy and edit the provided config file:
-
-```bash
-cp profiles/config.yaml profiles/config.yaml   # already present — just edit it
-```
-
-`profiles/config.yaml`:
-
-```yaml
-inference:
-  provider: openai
-  base_url: http://your-llm-server/v1   # OpenAI-compatible endpoint
-  api_key: ""                            # leave empty if not required
-  model: your-model-name
-  context_limit: 16384
-```
-
-Point `base_url` at any OpenAI-compatible server (Ollama, vLLM, LM Studio, OpenAI, etc.).
-
-## Usage
-
-### With uv
+Or with pip: `pip install -e .` then run `autose`.
 
 ```bash
 # Interactive TUI
@@ -59,67 +40,43 @@ uv run autose
 uv run autose "refactor the authentication module to use JWT"
 ```
 
-### After pip install (console script)
+## Configuration
 
-```bash
-autose
-autose "write unit tests for utils.py"
+AutoSE looks for its config file in this order:
+
+1. The path in the `AUTOSE_CONFIG` environment variable
+2. `%APPDATA%\AutoSE\config.yaml` (Windows) or `~/.config/autose/config.yaml` (macOS/Linux) — this is where the desktop app's Settings screen writes
+3. `profiles/config.yaml` in the repo (terminal/git-clone installs)
+
+```yaml
+inference:
+  provider: openai
+  base_url: http://your-llm-server/v1   # OpenAI-compatible endpoint
+  api_key: ""                            # leave empty if not required
+  model: your-model-name
+  context_limit: 262144
 ```
 
-### Run directly from the repo root
+## How It Works
 
-```bash
-uv run python autose.py
-uv run python autose.py "your task here"
-```
+1. You enter a prompt in the TUI or desktop app.
+2. The **classifier** determines the complexity tier: `lite` or `standard`.
+3. The request is dispatched to the matching agent pipeline.
+4. Results are streamed back. Complexity only ever increases within a session — a lite-classified follow-up in an active standard session still uses the full pipeline.
 
-## Desktop App
+## Developing / Building from Source
 
-AutoSE also includes an early Tauri desktop shell in `desktop/`. The desktop app uses the same Python agent core as the CLI, but shows task progress, streamed events, final summaries, and artifacts in a graphical interface.
+End users never need this — the installer above is prebuilt. Building the desktop app from source requires Node.js 20+, the Rust toolchain, and uv:
 
 ```bash
 cd desktop
 npm install
-npm run doctor
-npm run dev
+npm run dev      # develop against the repo checkout
+npm run build    # produces the NSIS installer under src-tauri/target/release/bundle/nsis/
 ```
 
-If `npm run doctor` reports missing native packages, install the listed Tauri/WebKit dependencies and rerun it. In the app, enter a task, choose a workspace folder path, select a mode (`auto`, `lite`, or `standard`), then click **Run**.
+`npm run build` first stages the Python backend into `src-tauri/backend/` (see `desktop/scripts/stage-backend.mjs`) so it ships inside the installer.
 
-## How It Works
+### Releasing
 
-1. You enter a prompt in the TUI.
-2. The **classifier** determines the complexity tier: `lite` or `standard`.
-3. The request is dispatched to the matching agent pipeline.
-4. Results are streamed back in the TUI. Complexity only ever increases within a session — a lite-classified follow-up in an active standard session still uses the full pipeline.
-
-## Benchmarks
-
-### Terminal-Bench 2.1
-
-AutoSE is evaluated on [Terminal-Bench 2.1](https://www.tbench.ai/benchmarks/terminal-bench-2-1) — a benchmark of ~89 real-world terminal tasks spanning system administration, software engineering, security, data science, and machine learning.
-
-The evaluation uses AutoSE's **Standard pipeline** (Plan → Code → Test) running as a [Harbor](https://github.com/harbor-framework/harbor) external agent. Each task runs in an isolated Docker container; AutoSE explores the environment, implements a solution, and self-verifies with tests — all driven by the configured LLM endpoint.
-
-#### Running the benchmark
-
-```bash
-# Single task at a time (safe first run)
-uv run benchmarks/tbench.py
-
-# Parallel tasks
-uv run benchmarks/tbench.py --n-concurrent 4
-
-# One specific task
-uv run benchmarks/tbench.py --task crack-7z-hash
-
-# Different dataset version
-uv run benchmarks/tbench.py --dataset terminal-bench@2.0
-```
-
-Results are saved to `benchmarks/results/tbench/<run-id>/`. Each trial writes a detailed `autose.log` with the full Plan → Code → Test trace.
-
-#### Requirements
-
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) running locally
-- `harbor` CLI — installed automatically by `tbench.py` if absent (`uv tool install harbor`)
+Push a `v*` tag (matching the `version` in `desktop/src-tauri/tauri.conf.json`) and the `Release` GitHub Actions workflow builds the Windows installer and attaches it to a GitHub Release, including the stable `AutoSE-Setup.exe` alias.

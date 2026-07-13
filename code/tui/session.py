@@ -23,11 +23,11 @@ from rich.live import Live
 
 from core.session import TaskSessionRecorder
 from . import lite_tui, standard_tui
-from .display import Role, TUIState, build_layout, read_input_into_state
+from .display import Role, TUIState, build_layout, start_keyboard_listener
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "logic"))
 
-_TIER_RANK = {"lite": 0, "standard": 1}
+from tiers import TIER_RANK
 
 
 def _history_for_classifier(state: TUIState) -> list[dict]:
@@ -89,6 +89,8 @@ def run(
 
     # Don't set the tier-specific title until the first prompt is processed
 
+    start_keyboard_listener(state)
+
     with Live(build_layout(state), refresh_per_second=12, screen=True) as live:
         pending_prompt = initial_prompt
 
@@ -97,24 +99,21 @@ def run(
             # 1. Read next prompt
             # ----------------------------------------------------------------
             if not pending_prompt:
-                input_ready = threading.Event()
-                captured: list[str | None] = [None]
+                state.input_line = None
+                state.input_event.clear()
+                state.awaiting_input = True
 
-                def _read():
-                    captured[0] = read_input_into_state(state)
-                    input_ready.set()
-
-                t_input = threading.Thread(target=_read, daemon=True)
-                t_input.start()
-
-                while not input_ready.wait(timeout=0.08):
+                while not state.input_event.wait(timeout=0.08):
                     live.update(build_layout(state))
+                    if state.quit:
+                        break
+                state.awaiting_input = False
                 live.update(build_layout(state))
 
-                prompt = captured[0]
-                if prompt is None or state.quit:
+                prompt = state.input_line
+                if state.quit:
                     break
-                prompt = prompt.strip()
+                prompt = prompt.strip() if prompt else ""
                 if not prompt:
                     continue
             else:
@@ -157,7 +156,7 @@ def run(
 
             # Ratchet up — never downgrade; set title on first prompt
             new_tier = classified_tier[0]
-            if _TIER_RANK.get(new_tier, 0) > _TIER_RANK.get(current_tier, 0):
+            if TIER_RANK.get(new_tier, 0) > TIER_RANK.get(current_tier, 0):
                 current_tier = new_tier
             _set_title(current_tier)
 
@@ -195,9 +194,6 @@ def run(
             )
             t_run.start()
 
-            review_input_active = [False]
-            cmd_approval_input_active = [False]
-
             try:
                 while not done_event.wait(timeout=0.08):
                     live.update(build_layout(state))
@@ -205,35 +201,6 @@ def run(
                     # Ctrl-C while agent runs: interrupt and re-prompt
                     if state.interrupted:
                         break
-
-                    # Plan-review handshake: collect one line of input for the runner
-                    if state.plan_review and not review_input_active[0]:
-                        review_input_active[0] = True
-
-                        def _read_plan_review(_active=review_input_active):
-                            response = read_input_into_state(state)
-                            state.plan_review_response = (
-                                response if response is not None else ""
-                            )
-                            _active[0] = False
-                            state.plan_review_event.set()
-
-                        threading.Thread(target=_read_plan_review, daemon=True).start()
-
-
-                    # Terminal-command approval handshake
-                    if state.cmd_approval and not cmd_approval_input_active[0]:
-                        cmd_approval_input_active[0] = True
-
-                        def _read_cmd_approval(_active=cmd_approval_input_active):
-                            response = read_input_into_state(state)
-                            state.cmd_approval_response = (
-                                response if response is not None else "n"
-                            )
-                            _active[0] = False
-                            state.cmd_approval_event.set()
-
-                        threading.Thread(target=_read_cmd_approval, daemon=True).start()
             except KeyboardInterrupt:
                 state.interrupted = True
 

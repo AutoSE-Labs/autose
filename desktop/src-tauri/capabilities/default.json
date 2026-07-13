@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default AutoSE desktop permissions",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:window:allow-set-title"]
 }

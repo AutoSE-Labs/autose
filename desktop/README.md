@@ -2,20 +2,22 @@
 
 Tauri desktop shell for the AutoSE headless core.
 
-The desktop app keeps the agent runtime in Python. Rust is only used for the Tauri command bridge that launches:
+The agent runtime stays in Python. Rust is only the Tauri command bridge that launches:
 
 ```sh
 uv run autose --events --mode <mode> --workspace <path> "<task>"
 ```
 
-## Quick Start
+## Installing (end users)
 
-Prerequisites:
+Download **AutoSE-Setup.exe** from the [latest release](https://github.com/AutoSE-Labs/autose/releases/latest) and run it — no Rust, Node, Python, or uv required. On first launch the app installs its own Python runtime (one-time, needs internet), then asks for your OpenAI-compatible inference endpoint in Settings.
 
-- Node.js
-- Rust toolchain
-- Tauri platform dependencies
-- `uv` available on `PATH`
+- Config: `%APPDATA%\AutoSE\config.yaml`
+- Managed runtime (backend copy, venv, bundled uv): `%LOCALAPPDATA%\AutoSE`
+
+## Developing (from source)
+
+Prerequisites: Node.js 20+, Rust toolchain, Tauri platform dependencies, `uv` on `PATH`.
 
 From this directory:
 
@@ -25,15 +27,21 @@ npm run doctor
 npm run dev
 ```
 
-Use the app:
+Dev builds (`npm run dev`) run the agent straight from the repo checkout via `uv run autose`; no bootstrap is needed. The setup screen only appears in installed release builds.
 
-1. Enter a task in the task box.
-2. Set the workspace path to the project AutoSE should inspect or modify.
-3. Choose `auto`, `lite`, or `standard`.
-4. Leave **Approve commands** off unless you want shell commands approved automatically.
-5. Click **Run** and watch the live timeline, result, and artifacts.
+## Building the installer
 
-The first screen supports task input, mode selection, workspace selection, optional command auto-approval, streamed timeline events, final result rendering, and artifacts.
+```sh
+npm run build
+```
+
+This stages the Python backend into `src-tauri/backend/` (`scripts/stage-backend.mjs`), builds the frontend, compiles the Rust shell, and produces the NSIS installer under `src-tauri/target/release/bundle/nsis/`.
+
+## How the installed app bootstraps
+
+1. `backend_status` reports `needs_setup` when the staged version marker, venv, or uv is missing.
+2. `bootstrap_backend` copies the bundled backend to `%LOCALAPPDATA%\AutoSE\backend`, installs uv to `%LOCALAPPDATA%\AutoSE\uv` if not found (official installer, `UV_NO_MODIFY_PATH=1`), runs `uv sync --frozen` (uv provisions Python 3.13), and seeds the default config.
+3. Every agent run sets `AUTOSE_CONFIG` to the user config so the Python core reads the endpoint saved from the Settings screen.
 
 On Ubuntu, the native Tauri build requires Rust and the WebKit/GTK development packages. If `npm run doctor` reports missing native libraries, install:
 

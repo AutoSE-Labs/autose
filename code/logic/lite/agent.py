@@ -44,7 +44,8 @@ class LiteAgent(BaseAgent):
             messages.extend(session_context)
         messages.append({"role": "user", "content": prompt})
 
-        while True:
+        last_content = ""
+        for _round in range(self._MAX_TOOL_ROUNDS):
             try:
                 response = self._call_sync(messages, tools=TOOLS_SCHEMA)
             except ContextLengthError:
@@ -52,6 +53,8 @@ class LiteAgent(BaseAgent):
                 return
             choice = response["choices"][0]
             message = choice["message"]
+            if message.get("content"):
+                last_content = message["content"]
             tool_calls = message.get("tool_calls")
             if not tool_calls:
                 tool_calls = self._parse_text_tool_calls(message.get("content", ""))
@@ -61,7 +64,7 @@ class LiteAgent(BaseAgent):
             if not tool_calls:
                 # Model is done with tools — stream the final answer
                 yield from self._call_stream(messages, tools=TOOLS_SCHEMA)
-                break
+                return
 
             # Append assistant turn and execute each tool call
             messages.append(message)
@@ -74,3 +77,7 @@ class LiteAgent(BaseAgent):
                         "content": result,
                     }
                 )
+
+        # Tool-call round budget exhausted — surface whatever the model has
+        # already drafted rather than issuing another (possibly slow) call.
+        yield last_content

@@ -1,0 +1,9 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- AutoSE brand mark from the app header (.brand-mark in src/styles.css):
+       rotated square, ink border, signal core, on bone paper. -->
+  <rect width="1024" height="1024" fill="#efebe0"/>
+  <g transform="rotate(45 512 512)">
+    <rect x="320" y="320" width="384" height="384" fill="none" stroke="#16233d" stroke-width="64"/>
+    <rect x="400" y="400" width="224" height="224" fill="#e2603a"/>
+  </g>
+</svg>

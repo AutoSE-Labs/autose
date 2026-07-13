@@ -106,7 +106,13 @@ class StandardRunner:
 
             session_context = self.client.build_session_context(plan_agent._call_sync)
 
-            plan = self._stream_plan(plan_agent, prompt, session_context)
+            plan = self._stream_plan(plan_agent, prompt, session_context, show=False)
+            
+            artifact_path = Path(self.workspace_root) / ".autose" / "artifacts" / "plan.md"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(plan, encoding="utf-8")
+            self.client.add_assistant_message(f"Implementation Plan written to `{artifact_path.relative_to(self.workspace_root)}`")
+            
             self.client.add_artifact("plan", "Implementation plan", content=plan)
 
             plan = self._review_plan(prompt, plan, kwargs, PlanAgent)
@@ -163,12 +169,15 @@ class StandardRunner:
         plan_agent: object,
         prompt: str,
         session_context: list[dict] | None,
+        show: bool = True,
     ) -> str:
         plan_chunks: list[str] = []
         for chunk in plan_agent.run(prompt, session_context=session_context):
-            self.client.stream_assistant_chunk(chunk)
+            if show:
+                self.client.stream_assistant_chunk(chunk)
             plan_chunks.append(chunk)
-        self.client.finish_streaming()
+        if show:
+            self.client.finish_streaming()
         return "".join(plan_chunks)
 
     def _review_plan(self, prompt: str, plan: str, kwargs: dict, plan_cls) -> str:
@@ -186,11 +195,15 @@ class StandardRunner:
 
             plan_chunks: list[str] = []
             for chunk in rev_agent.run(prompt, previous_plan=plan, feedback=feedback):
-                self.client.stream_assistant_chunk(chunk)
                 plan_chunks.append(chunk)
-            self.client.finish_streaming()
 
             plan = "".join(plan_chunks)
+            
+            artifact_path = Path(self.workspace_root) / ".autose" / "artifacts" / "plan.md"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(plan, encoding="utf-8")
+            self.client.add_assistant_message(f"Revised Implementation Plan written to `{artifact_path.relative_to(self.workspace_root)}`")
+            
             self.client.add_artifact(
                 "plan",
                 "Revised implementation plan",
@@ -198,20 +211,37 @@ class StandardRunner:
             )
 
     def _patched_write_file(self, original_fn):
-        def wrapper(path: str, content: str, **kwargs) -> str:
+        def wrapper(**kwargs) -> str:
+            path = kwargs.get("path")
+            content = kwargs.get("content")
+            if path is None:
+                return "Error: missing required argument 'path'"
+            if content is None:
+                return "Error: missing required argument 'content'"
+            
             p = Path(path)
             old_text = p.read_text(encoding="utf-8") if p.exists() and p.is_file() else ""
-            result = original_fn(path=path, content=content, **kwargs)
+            result = original_fn(**kwargs)
             self.client.capture_file_update(path, old_text, content)
             return result
 
         return wrapper
 
     def _patched_edit_file(self, original_fn):
-        def wrapper(path: str, old_str: str, new_str: str, **kwargs) -> str:
+        def wrapper(**kwargs) -> str:
+            path = kwargs.get("path")
+            old_str = kwargs.get("old_str")
+            new_str = kwargs.get("new_str")
+            if path is None:
+                return "Error: missing required argument 'path'"
+            if old_str is None:
+                return "Error: missing required argument 'old_str'"
+            if new_str is None:
+                return "Error: missing required argument 'new_str'"
+            
             p = Path(path)
             old_text = p.read_text(encoding="utf-8") if p.exists() and p.is_file() else ""
-            result = original_fn(path=path, old_str=old_str, new_str=new_str, **kwargs)
+            result = original_fn(**kwargs)
             new_text = (
                 p.read_text(encoding="utf-8")
                 if p.exists() and p.is_file()

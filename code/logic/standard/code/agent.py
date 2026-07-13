@@ -40,7 +40,8 @@ class CodeAgent(BaseAgent):
             {"role": "user", "content": user_content},
         ]
 
-        while True:
+        last_content = ""
+        for _round in range(self._MAX_TOOL_ROUNDS):
             try:
                 response = self._call_sync(messages, tools=TOOLS_SCHEMA)
             except ContextLengthError:
@@ -48,6 +49,8 @@ class CodeAgent(BaseAgent):
 
             choice = response["choices"][0]
             message = choice["message"]
+            if message.get("content"):
+                last_content = message["content"]
             tool_calls = message.get("tool_calls")
             if not tool_calls:
                 tool_calls = self._parse_text_tool_calls(message.get("content", ""))
@@ -67,3 +70,7 @@ class CodeAgent(BaseAgent):
                         "content": result,
                     }
                 )
+
+        # Tool-call round budget exhausted — surface whatever the model has
+        # already drafted rather than issuing another (possibly slow) call.
+        return last_content

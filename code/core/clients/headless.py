@@ -155,22 +155,6 @@ class HeadlessClient:
         )
         return ""
 
-    def request_design_review(self) -> str:
-        self._emit(
-            "approval_requested",
-            kind="design_review",
-        )
-        self._emit(
-            "approval_resolved",
-            kind="design_review",
-            approved=True,
-            feedback="",
-        )
-        return ""
-
-    def show_verdict(self, verdict: dict) -> None:
-        self._emit("validation_verdict", verdict=verdict)
-
     def capture_file_update(self, path: str, old_text: str, new_text: str) -> None:
         self.recorder.note_changed_file(path)
         self._flush_events()

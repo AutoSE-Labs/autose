@@ -77,7 +77,13 @@ desktop.ini
 *.key
 secrets.json
 config.local.*
+.sandbox/
 
 # Logs
 *.log
 logs/
+
+# Desktop app
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/backend/

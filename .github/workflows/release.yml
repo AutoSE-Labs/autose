@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: desktop
+
+      - name: Build and publish installer
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "AutoSE ${{ github.ref_name }}"
+          releaseDraft: false
+          prerelease: false
+
+      # The NSIS filename embeds the version; also publish a stable alias the
+      # website can link to via releases/latest/download/AutoSE-Setup.exe.
+      - name: Upload versionless installer alias
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "desktop/src-tauri/target/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer not found" }
+          Copy-Item $installer.FullName "AutoSE-Setup.exe"
+          gh release upload "${{ github.ref_name }}" "AutoSE-Setup.exe" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

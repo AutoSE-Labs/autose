@@ -1,5 +1,6 @@
+from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 
 @dataclass
@@ -29,3 +30,21 @@ class Tool:
                 },
             },
         }
+
+
+def clone_tools(
+    tools: Mapping[str, Tool],
+    overrides: Mapping[str, Callable[..., str]] | None = None,
+) -> dict[str, Tool]:
+    """Return an agent-owned registry cloned from immutable definitions."""
+    handlers = overrides or {}
+    return {
+        name: Tool(
+            name=tool.name,
+            description=tool.description,
+            parameters=deepcopy(tool.parameters),
+            required=list(tool.required),
+            fn=handlers.get(name, tool.fn),
+        )
+        for name, tool in tools.items()
+    }

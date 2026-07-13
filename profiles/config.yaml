@@ -1,7 +1,8 @@
 inference:
-  # OpenAI-compatible LLM backend.  Edit base_url and model for your environment.
+  # OpenAI-compatible LLM backend.  Edit base_url and model for your setup.
+  # Works with Ollama, LM Studio, vLLM, and other local servers.
   provider: openai
-  base_url: http://10.2.57.222:9000/v1
+  base_url: http://localhost:11434/v1
   api_key: ""
-  model: google/gemma-4-26B-A4B-it
+  model: qwen2.5-coder:14b
   context_limit: 262144

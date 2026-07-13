@@ -41,9 +41,9 @@ class Role(Enum):
     ASSISTANT = auto()
     TOOL = auto()
     DIFF = auto()
-    STAGE = auto()           # stage separator used by Standard / Advanced mode
-    PLAN_REVIEW = auto()     # plan-approval prompt (Standard)
-    CMD_APPROVAL = auto()    # terminal-command approval prompt
+    STAGE = auto()  # stage separator used by Standard mode
+    PLAN_REVIEW = auto()  # plan-approval prompt (Standard)
+    CMD_APPROVAL = auto()  # terminal-command approval prompt
 
 
 @dataclass
@@ -101,6 +101,8 @@ class TUIState:
     start_time: float = field(default_factory=time.monotonic)
     quit: bool = False  # set True to exit the main loop
     chat_title: str = "AutoSE"
+    input_line: str = ""
+    input_event: threading.Event = field(default_factory=threading.Event)
     generating: bool = False  # True while streaming text from the model
     # Plan-review handshake (Standard mode only)
     plan_review: bool = False
@@ -151,137 +153,44 @@ class TUIState:
 # ---------------------------------------------------------------------------
 
 
-def read_input_into_state(state: TUIState) -> str | None:
-    """
-    Block until the user presses Enter, building state.current_input char
-    by char.  Returns the completed line, or None if the user pressed Ctrl-C
-    / Ctrl-D (which sets state.quit = True).
-
-    Must be called from a dedicated input thread (not the render thread).
-    """
+def _submit_line(state: TUIState) -> None:
+    line = state.current_input
     state.current_input = ""
-    state.awaiting_input = True
+    state.ctrl_c_pending = False
+    if state.cmd_approval:
+        state.cmd_approval_response = line
+        state.cmd_approval_event.set()
+    elif state.plan_review:
+        state.plan_review_response = line
+        state.plan_review_event.set()
+    elif state.awaiting_input:
+        state.input_line = line
+        state.input_event.set()
 
-    if sys.platform == "win32":
-        import msvcrt
 
-        while True:
-            # msvcrt.getwch() returns immediately when a key is pressed
-            ch = msvcrt.getwch()
-            if ch in ("\r", "\n"):  # Enter
-                state.awaiting_input = False
-                state.ctrl_c_pending = False
-                line = state.current_input
-                return line
-            elif ch == "\x03":  # Ctrl-C
-                if state.ctrl_c_pending:
-                    # Second Ctrl-C → quit entirely
-                    state.quit = True
-                    state.ctrl_c_pending = False
-                    state.awaiting_input = False
-                    return None
-                else:
-                    # First Ctrl-C → show hint, wait for second
-                    state.ctrl_c_pending = True
-                    state.current_input = ""
-            elif ch == "\x04":  # Ctrl-D
-                state.quit = True
-                state.ctrl_c_pending = False
-                state.awaiting_input = False
-                return None
-            elif ch in ("\x08", "\x7f"):  # Backspace
-                state.ctrl_c_pending = False
-                state.current_input = state.current_input[:-1]
-            elif ch == "\x00" or ch == "\xe0":
-                # Special / arrow keys on Windows (legacy console codes)
-                state.ctrl_c_pending = False
-                nch = msvcrt.getwch()
-                if nch == "H":  # Up
-                    state.scroll_offset = min(
-                        state.scroll_offset + 3, state._scroll_max
-                    )
-                elif nch == "P":  # Down
-                    state.scroll_offset = max(0, state.scroll_offset - 3)
-                elif nch == "I":  # PgUp
-                    state.scroll_offset = min(
-                        state.scroll_offset + 20, state._scroll_max
-                    )
-                elif nch == "Q":  # PgDn
-                    state.scroll_offset = max(0, state.scroll_offset - 20)
-                elif nch == "O":  # End
-                    state.scroll_offset = 0
-                # Unknown extended key — consume the second byte and do nothing
-            elif ch == "\x1b":
-                # VT escape sequence from Windows Terminal — consume fully so
-                # the individual bytes never reach the printable-character branch.
-                state.ctrl_c_pending = False
-                nch = msvcrt.getwch()
-                if nch == "[":  # CSI sequence
-                    # Read parameter/intermediate bytes until the final byte
-                    # (ASCII 0x40–0x7E, i.e. @–~).
-                    csi_buf = ""
-                    csi_final = ""
-                    while True:
-                        c = msvcrt.getwch()
-                        if "\x40" <= c <= "\x7e":
-                            csi_final = c
-                            break
-                        csi_buf += c
-                    if csi_final == "A":  # cursor-up / scroll up (VT arrow)
-                        state.scroll_offset = min(
-                            state.scroll_offset + 3, state._scroll_max
-                        )
-                    elif csi_final == "B":  # cursor-down / scroll down
-                        state.scroll_offset = max(0, state.scroll_offset - 3)
-                    elif csi_final == "~":
-                        n = int(csi_buf) if csi_buf.isdigit() else 0
-                        if n == 5:  # PgUp
-                            state.scroll_offset = min(
-                                state.scroll_offset + 20, state._scroll_max
-                            )
-                        elif n == 6:  # PgDn
-                            state.scroll_offset = max(0, state.scroll_offset - 20)
-                    elif csi_final == "M" and not csi_buf:
-                        # X10 mouse report: 3 raw payload bytes follow
-                        msvcrt.getwch()
-                        msvcrt.getwch()
-                        msvcrt.getwch()
-                    # All other CSI sequences (SGR mouse \x1b[<…M,
-                    # mode-set \x1b[?…h, etc.) are fully consumed above.
-                # Other ESC introducer bytes (SS2, SS3, OSC…) — intro
-                # byte already read into nch; remaining bytes are part of
-                # a sequence we don't need to act on, so leave them for
-                # the next iteration (they are non-printable in practice).
-            elif ch.isprintable():
-                state.ctrl_c_pending = False
-                state.current_input += ch
-    else:
-        import termios
-        import tty
+def start_keyboard_listener(state: TUIState) -> None:
+    """
+    Start a persistent background thread to read keyboard input char by char.
+    Handles scrolling sequences at any time, and directs text input to the
+    currently active prompt (or buffers it if none).
+    """
 
-        fd = sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            # Re-enable output processing (OPOST) so rich.Live can use \\n correctly
-            # without resulting in a staircase layout due to missing carriage returns.
-            mode = termios.tcgetattr(fd)
-            mode[1] |= termios.OPOST
-            termios.tcsetattr(fd, termios.TCSADRAIN, mode)
-            while True:
-                ch = sys.stdin.read(1)
-                if ch in ("\r", "\n"):
-                    state.awaiting_input = False
-                    state.ctrl_c_pending = False
-                    line = state.current_input
-                    return line
+    def _run():
+        if sys.platform == "win32":
+            import msvcrt
+
+            while not state.quit:
+                # msvcrt.getwch() returns immediately when a key is pressed
+                ch = msvcrt.getwch()
+                if ch in ("\r", "\n"):  # Enter
+                    _submit_line(state)
                 elif ch == "\x03":  # Ctrl-C
                     if state.ctrl_c_pending:
                         # Second Ctrl-C → quit entirely
                         state.quit = True
                         state.ctrl_c_pending = False
-                        state.awaiting_input = False
-                        return None
+                        state.input_event.set()
+                        break
                     else:
                         # First Ctrl-C → show hint, wait for second
                         state.ctrl_c_pending = True
@@ -289,30 +198,51 @@ def read_input_into_state(state: TUIState) -> str | None:
                 elif ch == "\x04":  # Ctrl-D
                     state.quit = True
                     state.ctrl_c_pending = False
-                    state.awaiting_input = False
-                    return None
+                    state.input_event.set()
+                    break
                 elif ch in ("\x08", "\x7f"):  # Backspace
                     state.ctrl_c_pending = False
                     state.current_input = state.current_input[:-1]
-                elif ch == "\x1b":  # Escape sequence
+                elif ch == "\x00" or ch == "\xe0":
+                    # Special / arrow keys on Windows (legacy console codes)
                     state.ctrl_c_pending = False
-                    seq = sys.stdin.read(1)
-                    if seq == "[":  # CSI sequence
+                    nch = msvcrt.getwch()
+                    if nch == "H":  # Up
+                        state.scroll_offset = min(
+                            state.scroll_offset + 3, state._scroll_max
+                        )
+                    elif nch == "P":  # Down
+                        state.scroll_offset = max(0, state.scroll_offset - 3)
+                    elif nch == "I":  # PgUp
+                        state.scroll_offset = min(
+                            state.scroll_offset + 20, state._scroll_max
+                        )
+                    elif nch == "Q":  # PgDn
+                        state.scroll_offset = max(0, state.scroll_offset - 20)
+                    elif nch == "O":  # End
+                        state.scroll_offset = 0
+                    # Unknown extended key — consume the second byte and do nothing
+                elif ch == "\x1b":
+                    # VT escape sequence from Windows Terminal — consume fully so
+                    # the individual bytes never reach the printable-character branch.
+                    state.ctrl_c_pending = False
+                    nch = msvcrt.getwch()
+                    if nch == "[":  # CSI sequence
                         # Read parameter/intermediate bytes until the final byte
                         # (ASCII 0x40–0x7E, i.e. @–~).
                         csi_buf = ""
                         csi_final = ""
                         while True:
-                            c = sys.stdin.read(1)
+                            c = msvcrt.getwch()
                             if "\x40" <= c <= "\x7e":
                                 csi_final = c
                                 break
                             csi_buf += c
-                        if csi_final == "A":  # Up
+                        if csi_final == "A":  # cursor-up / scroll up (VT arrow)
                             state.scroll_offset = min(
                                 state.scroll_offset + 3, state._scroll_max
                             )
-                        elif csi_final == "B":  # Down
+                        elif csi_final == "B":  # cursor-down / scroll down
                             state.scroll_offset = max(0, state.scroll_offset - 3)
                         elif csi_final == "~":
                             n = int(csi_buf) if csi_buf.isdigit() else 0
@@ -322,22 +252,110 @@ def read_input_into_state(state: TUIState) -> str | None:
                                 )
                             elif n == 6:  # PgDn
                                 state.scroll_offset = max(0, state.scroll_offset - 20)
-                        elif csi_final == "F":  # End
-                            state.scroll_offset = 0
                         elif csi_final == "M" and not csi_buf:
                             # X10 mouse report: 3 raw payload bytes follow
-                            sys.stdin.read(1)
-                            sys.stdin.read(1)
-                            sys.stdin.read(1)
-                        # All other CSI sequences (SGR mouse \x1b[<…M/m,
-                        # mode-set \x1b[?…h, focus events, etc.) fully
-                        # consumed by the loop above.
+                            msvcrt.getwch()
+                            msvcrt.getwch()
+                            msvcrt.getwch()
+                        # All other CSI sequences (SGR mouse \x1b[<…M,
+                        # mode-set \x1b[?…h, etc.) are fully consumed above.
+                    # Other ESC introducer bytes (SS2, SS3, OSC…) — intro
+                    # byte already read into nch; remaining bytes are part of
+                    # a sequence we don't need to act on, so leave them for
+                    # the next iteration (they are non-printable in practice).
                 elif ch.isprintable():
                     state.ctrl_c_pending = False
                     state.current_input += ch
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-            state.awaiting_input = False
+        else:
+            import termios
+            import tty
+            import traceback
+
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                # Re-enable output processing (OPOST) so rich.Live can use \\n correctly
+                # without resulting in a staircase layout due to missing carriage returns.
+                mode = termios.tcgetattr(fd)
+                mode[1] |= termios.OPOST
+                termios.tcsetattr(fd, termios.TCSADRAIN, mode)
+                while not state.quit:
+                    ch = sys.stdin.read(1)
+                    if not ch:
+                        break
+                    if ch in ("\r", "\n"):
+                        _submit_line(state)
+                    elif ch == "\x03":  # Ctrl-C
+                        if state.ctrl_c_pending:
+                            # Second Ctrl-C → quit entirely
+                            state.quit = True
+                            state.ctrl_c_pending = False
+                            state.input_event.set()
+                            break
+                        else:
+                            # First Ctrl-C → show hint, wait for second
+                            state.ctrl_c_pending = True
+                            state.current_input = ""
+                    elif ch == "\x04":  # Ctrl-D
+                        state.quit = True
+                        state.ctrl_c_pending = False
+                        state.input_event.set()
+                        break
+                    elif ch in ("\x08", "\x7f"):  # Backspace
+                        state.ctrl_c_pending = False
+                        state.current_input = state.current_input[:-1]
+                    elif ch == "\x1b":  # Escape sequence
+                        state.ctrl_c_pending = False
+                        seq = sys.stdin.read(1)
+                        if seq == "[":  # CSI sequence
+                            # Read parameter/intermediate bytes until the final byte
+                            # (ASCII 0x40–0x7E, i.e. @–~).
+                            csi_buf = ""
+                            csi_final = ""
+                            while True:
+                                c = sys.stdin.read(1)
+                                if "\x40" <= c <= "\x7e":
+                                    csi_final = c
+                                    break
+                                csi_buf += c
+                            if csi_final == "A":  # Up
+                                state.scroll_offset = min(
+                                    state.scroll_offset + 3, state._scroll_max
+                                )
+                            elif csi_final == "B":  # Down
+                                state.scroll_offset = max(0, state.scroll_offset - 3)
+                            elif csi_final == "~":
+                                n = int(csi_buf) if csi_buf.isdigit() else 0
+                                if n == 5:  # PgUp
+                                    state.scroll_offset = min(
+                                        state.scroll_offset + 20, state._scroll_max
+                                    )
+                                elif n == 6:  # PgDn
+                                    state.scroll_offset = max(
+                                        0, state.scroll_offset - 20
+                                    )
+                            elif csi_final == "F":  # End
+                                state.scroll_offset = 0
+                            elif csi_final == "M" and not csi_buf:
+                                # X10 mouse report: 3 raw payload bytes follow
+                                sys.stdin.read(1)
+                                sys.stdin.read(1)
+                                sys.stdin.read(1)
+                            # All other CSI sequences (SGR mouse \x1b[<…M/m,
+                            # mode-set \x1b[?…h, focus events, etc.) fully
+                            # consumed by the loop above.
+                    elif ch.isprintable():
+                        state.ctrl_c_pending = False
+                        state.current_input += ch
+            except Exception as e:
+                with open("keyboard_thread_error.log", "a") as f:
+                    f.write(traceback.format_exc() + "\n")
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
 
 
 # ---------------------------------------------------------------------------
@@ -353,21 +371,22 @@ def _render_messages_to_lines(messages: list[ChatMessage], width: int) -> list[s
     return buf.getvalue().split("\n")
 
 
-def _render_diff(old_text: str, new_text: str, filename: str) -> Syntax:
+def _render_diff(old_text: str, new_text: str, filename: str) -> Text:
+    if not old_text.strip():
+        new_lines = len(new_text.splitlines())
+        return Text(f"Created file {filename} ({new_lines} lines)", style="green")
+
     old_lines = old_text.splitlines(keepends=True)
     new_lines = new_text.splitlines(keepends=True)
-    diff_lines = list(
-        difflib.unified_diff(
-            old_lines,
-            new_lines,
-            fromfile=f"a/{filename}",
-            tofile=f"b/{filename}",
-            n=3,
-        )
+    additions = sum(
+        1 for line in difflib.ndiff(old_lines, new_lines) if line.startswith("+ ")
     )
-    diff_text = "".join(diff_lines) if diff_lines else "(no textual changes)"
-    return Syntax(
-        diff_text, "diff", theme="monokai", line_numbers=False, word_wrap=True
+    deletions = sum(
+        1 for line in difflib.ndiff(old_lines, new_lines) if line.startswith("- ")
+    )
+
+    return Text(
+        f"Updated file {filename} (+{additions} / -{deletions} lines)", style="yellow"
     )
 
 
@@ -423,11 +442,11 @@ def _render_messages(messages: list[ChatMessage]) -> Group:
             parts = msg.content.split("\x00", 1)
             old_text = parts[0] if len(parts) == 2 else ""
             new_text = parts[1] if len(parts) == 2 else parts[0]
-            syntax = _render_diff(old_text, new_text, msg.filename)
+            summary_text = _render_diff(old_text, new_text, msg.filename)
             renderables.append(
                 Panel(
-                    syntax,
-                    title=f"[yellow]diff[/yellow]  {msg.filename}",
+                    summary_text,
+                    title=f"[yellow]File Update[/yellow]",
                     border_style="yellow",
                     padding=(0, 1),
                 )

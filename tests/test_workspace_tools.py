@@ -62,7 +62,9 @@ class WorkspaceToolTests(unittest.TestCase):
                 }
             )
 
-            self.assertIn("# src/hello.txt", output)
+            # Normalize the separator so the assertion holds on Windows too,
+            # where the tool renders the OS-native "src\hello.txt".
+            self.assertIn("# src/hello.txt", output.replace("\\", "/"))
             self.assertIn("hello", output)
 
     def test_read_file_rejects_workspace_escape(self) -> None:
