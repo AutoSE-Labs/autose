@@ -316,6 +316,124 @@ code {
   color: var(--signal-deep);
 }
 
+/* download row (desktop app) */
+.download-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-top: 2.4rem;
+}
+
+.dl {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 220px;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--card);
+  text-decoration: none;
+}
+
+.dl-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--card);
+  box-shadow: 8px 8px 0 -1px var(--bone-2);
+  transition: background 0.2s, transform 0.12s, box-shadow 0.2s;
+}
+
+.dl-primary:hover {
+  background: var(--signal-deep);
+  transform: translateY(-2px);
+  box-shadow: 10px 10px 0 -1px var(--bone-2);
+}
+
+.dl-primary:active {
+  transform: translateY(0);
+  box-shadow: 6px 6px 0 -1px var(--bone-2);
+}
+
+.dl-soon {
+  background: transparent;
+  border-style: dashed;
+  color: var(--slate);
+  cursor: default;
+}
+
+.dl-top {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.dl-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+}
+
+.dl-badge {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  padding: 0.12rem 0.42rem;
+  border-radius: 2px;
+  background: var(--signal);
+  color: var(--card);
+}
+
+.dl-meta {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
+
+.dl-soon .dl-meta {
+  color: var(--slate);
+  opacity: 1;
+}
+
+.install-alt-label {
+  margin-top: 1.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+/* desktop download callout inside the install section */
+.desktop-callout {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem 0.95rem;
+  font-size: 0.9rem;
+  color: var(--slate);
+}
+
+.dl-inline {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  color: var(--card);
+  background: var(--ink);
+  padding: 0.5rem 0.9rem;
+  border-radius: 3px;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.dl-inline:hover {
+  background: var(--signal-deep);
+}
+
 .hero-meta {
   display: flex;
   flex-wrap: wrap;
@@ -831,6 +949,19 @@ button:focus-visible {
 
   .spec-grid {
     grid-template-columns: 1fr;
+  }
+
+  .download-row {
+    gap: 0.7rem;
+  }
+
+  .dl {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .dl-primary {
+    box-shadow: 6px 6px 0 -1px var(--bone-2);
   }
 
   .install-body {

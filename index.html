@@ -57,8 +57,8 @@
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "macOS, Linux, Windows",
         "url": "https://autose.dev/",
-        "downloadUrl": "https://autose.dev/",
-        "softwareVersion": "0.1",
+        "downloadUrl": "https://github.com/AutoSE-Labs/autose/releases/latest/download/AutoSE-Setup.exe",
+        "softwareVersion": "0.1.0",
         "description": "AutoSE is a sovereign, local-first SDLC runtime that turns plain-English requirements into reviewed, governed code. It runs the whole workflow — requirements, architecture, ADRs, code generation, and human sign-off — on infrastructure you own, with no cloud and no telemetry.",
         "offers": {
           "@type": "Offer",
@@ -120,7 +120,27 @@
         and your sign-off. No cloud. Nothing leaves your infrastructure.
       </p>
 
-      <!-- install command, the first thing you can act on -->
+      <!-- primary action: download the desktop app -->
+      <div class="download-row" aria-label="Download AutoSE">
+        <a class="dl dl-primary"
+          href="https://github.com/AutoSE-Labs/autose/releases/latest/download/AutoSE-Setup.exe">
+          <span class="dl-top">
+            <span class="dl-name">Download for Windows</span>
+          </span>
+          <span class="dl-meta">.exe installer</span>
+        </a>
+        <div class="dl dl-soon" role="note" aria-label="macOS coming soon">
+          <span class="dl-top"><span class="dl-name">macOS</span></span>
+          <span class="dl-meta">Coming soon</span>
+        </div>
+        <div class="dl dl-soon" role="note" aria-label="Linux coming soon">
+          <span class="dl-top"><span class="dl-name">Linux</span></span>
+          <span class="dl-meta">Coming soon</span>
+        </div>
+      </div>
+
+      <!-- or set up the terminal version -->
+      <p class="install-alt-label">Or run the terminal version</p>
       <div class="install-card" id="install-card">
         <div class="install-tabs" role="tablist" aria-label="Operating system">
           <button class="tab is-active" data-os="unix" role="tab" aria-selected="true">macOS / Linux</button>
@@ -135,8 +155,8 @@
             <span class="copy-label">Copy</span>
           </button>
         </div>
-        <p class="install-foot">Requires <strong>Node.js&nbsp;≥&nbsp;20</strong>, <strong>git</strong>, and <a
-            href="https://ollama.com">Ollama</a> for local inference.</p>
+        <p class="install-foot">Needs <strong>git</strong>; the installer sets up <strong>uv</strong> and Python for
+          you. Bring any OpenAI-compatible endpoint like <a href="https://ollama.com">Ollama</a>.</p>
       </div>
 
       <div class="hero-meta">
@@ -261,19 +281,28 @@
       <div class="install-detail-copy">
         <p class="section-label"><span class="tick"></span>GET STARTED</p>
         <h2 class="section-title">Three commands to your first workflow.</h2>
-        <p class="section-lede">The installer clones AutoSE, builds it, and links the <code>autose</code> launcher onto
-          your PATH.</p>
+        <p class="section-lede">Most people just want the app. Download the desktop installer and you are set;
+          the steps below are for the terminal version.</p>
+        <p class="desktop-callout">
+          <a class="dl-inline"
+            href="https://github.com/AutoSE-Labs/autose/releases/latest/download/AutoSE-Setup.exe">Download the Windows
+            app (.exe)</a>
+          <span>macOS and Linux coming soon.</span>
+        </p>
         <ol class="run-list">
           <li><span class="run-n">1</span>
-            <div><strong>Install AutoSE</strong><br />Run the install command shown above.</div>
+            <div><strong>Install the CLI</strong><br />Run the one-line command for your OS (in the panel). It clones
+              AutoSE, sets up its environment with <code>uv</code>, and adds the <code>autose</code> launcher to your
+              PATH.</div>
           </li>
           <li><span class="run-n">2</span>
-            <div><strong>Start Ollama &amp; pull a model</strong><br /><code>ollama pull qwen2.5-coder:14b</code></div>
+            <div><strong>Set up a local model</strong><br />AutoSE runs on inference you own. Install <a
+                href="https://ollama.com">Ollama</a> and pull a coder model: <code>ollama pull qwen2.5-coder:14b</code>
+            </div>
           </li>
           <li><span class="run-n">3</span>
-            <div><strong>Initialize &amp; chat</strong><br /><code>autose init --workspace .</code> then
-              <code>autose chat</code>
-            </div>
+            <div><strong>Run it in your project</strong><br />From any project folder, run <code>autose</code> for an
+              interactive session, or <code>autose "add tests for the parser"</code> to start from a prompt.</div>
           </li>
         </ol>
       </div>
