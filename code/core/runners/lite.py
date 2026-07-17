@@ -94,7 +94,7 @@ class LiteRunner:
             self.client.fail(f"Error: {exc}")
             self.client.add_assistant_message(f"Error: {exc}")
         else:
-            response = "".join(response_chunks)
+            response = "".join(response_chunks).strip()
             if response:
                 self.client.record_memory_exchange(prompt, response)
                 self.client.add_artifact(
@@ -103,5 +103,12 @@ class LiteRunner:
                     content=response,
                 )
                 self.client.complete(response)
+            else:
+                message = (
+                    "The model finished without producing an answer "
+                    "(likely tool calls only). Try again or switch models."
+                )
+                self.client.fail(message)
+                self.client.add_assistant_message(message)
         finally:
             self.client.reset_activity()

@@ -423,7 +423,9 @@ class BaseAgent:
                         continue
         except urllib.error.HTTPError:
             response = self._call_sync(messages)
-            yield response["choices"][0]["message"]["content"]
+            content = response["choices"][0]["message"].get("content") or ""
+            if content:
+                yield content
         except (urllib.error.URLError, TimeoutError) as exc:
             raise InferenceTimeoutError(
                 f"Could not reach the inference backend at {self._base_url}: {exc}"

@@ -62,8 +62,28 @@ class LiteAgent(BaseAgent):
                     message = {**message, "content": None, "tool_calls": tool_calls}
 
             if not tool_calls:
-                # Model is done with tools — stream the final answer
-                yield from self._call_stream(messages, tools=TOOLS_SCHEMA)
+                # Prefer the answer already returned on this turn. A second
+                # streaming call *with tools still enabled* often yields empty
+                # output on local/OpenAI-compatible models (e.g. Gemma).
+                content = str(message.get("content") or "").strip()
+                if content:
+                    yield content
+                    return
+
+                produced = False
+                for chunk in self._call_stream(messages, tools=None):
+                    if chunk:
+                        produced = True
+                        yield chunk
+                if produced:
+                    return
+                if last_content.strip():
+                    yield last_content
+                else:
+                    yield (
+                        "I looked through the project but could not draft an "
+                        "answer. Please try again."
+                    )
                 return
 
             # Append assistant turn and execute each tool call
@@ -80,4 +100,10 @@ class LiteAgent(BaseAgent):
 
         # Tool-call round budget exhausted — surface whatever the model has
         # already drafted rather than issuing another (possibly slow) call.
-        yield last_content
+        if last_content.strip():
+            yield last_content
+        else:
+            yield (
+                "I explored the project with tools but ran out of steps "
+                "before writing an answer. Please ask again, or narrow the question."
+            )

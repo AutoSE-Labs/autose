@@ -1213,7 +1213,11 @@ function finishWorkCard(payload: SessionPayload) {
   const result = payload.result;
   const completed = result.status === "completed";
   const elapsed = formatElapsed(Date.now() - run.startedAt);
-  const summary = result.summary?.trim() || (completed ? "Done. Nothing new to report." : "");
+  const summary =
+    result.summary?.trim() ||
+    (completed
+      ? "Done. Nothing new to report."
+      : "The run ended without a final answer. Try again or check the model endpoint.");
 
   // The final payload is the authoritative count; live events are a preview.
   if (payload.usage) {
