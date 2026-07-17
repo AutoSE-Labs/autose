@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AutoSE — Autonomous Software Engineering Under Your Control</title>
+  <title>AutoSE: Autonomous Software Engineering Under Your Control</title>
   <meta name="description"
     content="AutoSE turns plain-English requirements into reviewed, governed code that runs entirely on infrastructure you own. Local-first, org-aware, zero cloud." />
   <meta name="keywords"
@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
 
   <!-- Open Graph -->
-  <meta property="og:title" content="AutoSE — Autonomous Software Engineering Under Your Control" />
+  <meta property="og:title" content="AutoSE: Autonomous Software Engineering Under Your Control" />
   <meta property="og:description"
     content="A sovereign, local-first SDLC runtime. Plain-English intent to reviewed, governed code. No cloud. Nothing leaves your machine." />
   <meta property="og:type" content="website" />
@@ -30,11 +30,11 @@
   <meta property="og:image" content="https://autose.dev/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="AutoSE — autonomous software engineering, under your control." />
+  <meta property="og:image:alt" content="AutoSE: autonomous software engineering, under your control." />
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="AutoSE — Autonomous Software Engineering Under Your Control" />
+  <meta name="twitter:title" content="AutoSE: Autonomous Software Engineering Under Your Control" />
   <meta name="twitter:description"
     content="A sovereign, local-first SDLC runtime. Plain-English intent to reviewed, governed code. No cloud." />
   <meta name="twitter:image" content="https://autose.dev/og-image.png" />
@@ -45,6 +45,7 @@
     href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
     rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="demo.css" />
 
   <!-- Structured data -->
   <script type="application/ld+json">
@@ -59,7 +60,7 @@
         "url": "https://autose.dev/",
         "downloadUrl": "https://github.com/AutoSE-Labs/autose/releases/latest/download/AutoSE-Setup.exe",
         "softwareVersion": "0.1.0",
-        "description": "AutoSE is a sovereign, local-first SDLC runtime that turns plain-English requirements into reviewed, governed code. It runs the whole workflow — requirements, architecture, ADRs, code generation, and human sign-off — on infrastructure you own, with no cloud and no telemetry.",
+        "description": "AutoSE is a sovereign, local-first SDLC runtime that turns plain-English requirements into reviewed, governed code. It runs the whole workflow (requirements, architecture, ADRs, code generation, and human sign-off) on infrastructure you own, with no cloud and no telemetry.",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -98,7 +99,7 @@
         Auto<span class="brand-accent">SE</span>
       </a>
       <div class="nav-links">
-        <a href="#demo">Demo</a>
+        <a href="#try">Try it</a>
         <a href="#workflow">Workflow</a>
         <a href="#features">Capabilities</a>
         <a href="#install">Install</a>
@@ -127,20 +128,16 @@
           <span class="dl-top">
             <span class="dl-name">Download for Windows</span>
           </span>
-          <span class="dl-meta">.exe installer</span>
+          <span class="dl-meta">Desktop app · .exe installer</span>
         </a>
-        <div class="dl dl-soon" role="note" aria-label="macOS coming soon">
-          <span class="dl-top"><span class="dl-name">macOS</span></span>
-          <span class="dl-meta">Coming soon</span>
-        </div>
-        <div class="dl dl-soon" role="note" aria-label="Linux coming soon">
-          <span class="dl-top"><span class="dl-name">Linux</span></span>
-          <span class="dl-meta">Coming soon</span>
-        </div>
+        <a class="dl dl-cli" href="#install-card">
+          <span class="dl-top"><span class="dl-name">Get the CLI</span></span>
+          <span class="dl-meta">macOS · Linux · Windows</span>
+        </a>
       </div>
 
-      <!-- or set up the terminal version -->
-      <p class="install-alt-label">Or run the terminal version</p>
+      <!-- the CLI, for every OS -->
+      <p class="install-alt-label">The CLI: one line, any OS</p>
       <div class="install-card" id="install-card">
         <div class="install-tabs" role="tablist" aria-label="Operating system">
           <button class="tab is-active" data-os="unix" role="tab" aria-selected="true">macOS / Linux</button>
@@ -169,29 +166,147 @@
     </div>
   </header>
 
-  <!-- research credibility -->
-  <aside class="research-band">
-    <div class="wrap research-inner">
-      <p><span class="tick"></span><span>AutoSE is backed by <a href="research.html">peer-reviewed research</a> from
-          the <a href="https://sa4s-serc.github.io">SA4S research group</a>, and is supported by the
-          <a href="https://anrfonline.in/">Anusandhan National Research Foundation (ANRF)</a> under grant PMECRG:
-          SustAInd.</span></p>
+  <!-- provenance: drawn like the title block of an engineering sheet -->
+  <aside class="research-band" aria-label="Research provenance">
+    <div class="wrap prov-block">
+      <a class="prov-cell" href="research.html">
+        <span class="prov-label">Research</span>
+        <span class="prov-value">Peer-reviewed publications <span class="prov-arrow">→</span></span>
+      </a>
+      <a class="prov-cell" href="https://sa4s-serc.github.io">
+        <span class="prov-label">From the lab of</span>
+        <span class="prov-value">SA4S research group <span class="prov-arrow">↗</span></span>
+      </a>
+      <a class="prov-cell" href="https://anrfonline.in/">
+        <span class="prov-label">Supported by</span>
+        <span class="prov-value">ANRF · PMECRG: SustAInd <span class="prov-arrow">↗</span></span>
+      </a>
     </div>
   </aside>
 
-  <!-- VIDEO SHOWCASE -->
-  <section class="showcase-section" id="demo">
+  <!-- INTERACTIVE DEMO -->
+  <section class="try-section" id="try">
     <div class="wrap">
-      <p class="section-label"><span class="tick"></span>DEMO</p>
-      <h2 class="section-title">See AutoSE in action.</h2>
-      <p class="section-lede">Watch how AutoSE builds a website, illustrating its sovereign agentic pipeline from
-        plain-English intent to code.</p>
+      <p class="section-label"><span class="tick"></span>TRY IT</p>
+      <h2 class="section-title">Run a session, right here.</h2>
+      <p class="section-lede">Pick a requirement and watch AutoSE read the project, sketch a plan, do the
+        work, and file its report, the same worklog you'd see in the app. Stop it mid-run if you like.
+        The CLI gives you this exact runtime in any terminal, on any OS.</p>
 
-      <div class="video-container">
-        <video controls width="100%" height="auto" preload="metadata">
-          <source src="autose-website-creation.mp4" type="video/mp4">
-          Your browser does not support the video tag.
-        </video>
+      <div class="demo-frame">
+        <div class="demo-shell" id="demo-shell">
+          <div class="shell-titlebar">
+            <span class="shell-brand"><span class="brand-mark" aria-hidden="true"></span>AutoSE</span>
+            <span class="shell-caps">
+              <button class="d-cap" id="d-cap-min" type="button" aria-label="Minimize" title="Minimize">─</button>
+              <button class="d-cap" id="d-cap-max" type="button" aria-label="Maximize" title="Maximize">□</button>
+              <button class="d-cap" id="d-cap-close" type="button" aria-label="Close" title="Close">✕</button>
+            </span>
+          </div>
+
+          <div class="d-header">
+            <button class="d-iconbtn" id="d-railtoggle" type="button" aria-label="Show or hide the worklog"
+              title="Show or hide the worklog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none"
+                stroke="currentColor" stroke-width="1.5">
+                <path d="M2 4.5h12M2 8h12M2 11.5h7" />
+              </svg></button>
+            <span class="d-brand"><span class="brand-mark" aria-hidden="true"></span>Auto<span
+                class="d-brand-accent">SE</span></span>
+            <button class="d-iconbtn d-push-right" id="d-usagebtn" type="button" aria-label="Usage"
+              title="Usage"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"
+                stroke-width="1.5">
+                <path d="M2.75 13.25V8.5M8 13.25V2.75M13.25 13.25V6" />
+              </svg></button>
+            <button class="d-iconbtn" id="d-settingsbtn" type="button" aria-label="Settings"
+              title="Settings"><svg viewBox="0 0 16 16" width="16" height="16" fill="none"
+                stroke="currentColor" stroke-width="1.5">
+                <path d="M2 5h12M2 11h12M10.5 2.75v4.5M5.5 8.75v4.5" />
+              </svg></button>
+          </div>
+
+          <div class="d-body">
+            <aside class="d-rail" aria-label="Previous tasks">
+              <div class="d-rail-head"><span class="d-eyebrow"><span class="d-tick"></span>Worklog</span>
+              </div>
+              <button class="d-newtask" id="d-newtask" type="button">+ New requirement</button>
+              <div class="d-sessions" id="d-sessions"></div>
+            </aside>
+
+            <div class="d-main">
+              <div class="d-conversation" id="demo-stream" aria-live="polite"></div>
+
+              <div class="d-composer-area">
+                <div class="d-composer d-cropped">
+                  <div class="d-composer-label"><span class="d-eyebrow"><span class="d-tick"></span>New
+                      requirement</span></div>
+                  <div class="d-textarea" id="d-textarea"><span class="d-placeholder"
+                      id="d-placeholder">Describe a feature, a bug, or a question about your project. Plain
+                      English is perfect.</span><span class="d-typed" id="composer-text"></span><span
+                      class="d-caret" id="d-caret" hidden></span></div>
+                  <div class="d-composer-foot">
+                    <span class="d-hint" id="d-hint">ENTER ↵ STARTS · SHIFT+ENTER FOR A NEW LINE</span>
+                    <button class="d-send" id="d-send" type="button" disabled>Start work</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="d-statusbar">
+            <span class="d-cell d-presence" id="d-presence"><span class="d-presence-dot"></span><span
+                id="d-presence-text">Ready</span></span>
+            <span class="d-cell" title="The model AutoSE thinks with">MODEL <em
+                id="d-model">qwen3-coder:30b</em></span>
+            <button class="d-cell d-linkcell" id="d-dirbtn" type="button"
+              title="Change the project folder">DIR <em id="d-dir">…\projects\bookstore</em></button>
+            <button class="d-cell d-right d-linkcell" id="d-tokens-cell" type="button"
+              title="Tokens used this task. Click for the usage sheet." hidden>TOKENS <em
+                id="d-tokens">0</em><span class="d-ctx" aria-hidden="true"><span class="d-ctx-fill"
+                  id="d-ctx-fill"></span></span><em id="d-ctx-label">CTX 0%</em></button>
+            <span class="d-cell d-stamp">LOCAL / NO CLOUD</span>
+          </div>
+
+          <div class="d-overlay" id="d-settings" hidden>
+            <div class="d-panel d-cropped">
+              <span class="d-eyebrow"><span class="d-tick"></span>Configuration</span>
+              <h4>Settings</h4>
+              <label class="d-field"><span>Model server address<small>Where your AI model runs, e.g.
+                    http://localhost:11434/v1</small></span>
+                <input id="ds-baseurl" type="text" value="http://localhost:11434/v1" spellcheck="false" />
+              </label>
+              <label class="d-field"><span>Model name<small>e.g. qwen3-coder:30b</small></span>
+                <input id="ds-model" type="text" value="qwen3-coder:30b" spellcheck="false" />
+              </label>
+              <label class="d-field"><span>Project folder<small>The folder AutoSE works in</small></span>
+                <input id="ds-dir" type="text" value="C:\Users\you\projects\bookstore" spellcheck="false" />
+              </label>
+              <label class="d-togglefield">
+                <input id="ds-handsfree" type="checkbox" />
+                <span class="d-toggletext">Work hands-free<small>Let AutoSE run commands (tests, builds,
+                    installs) on its own. Turn this off and it will skip any command instead of running
+                    it.</small></span>
+              </label>
+              <div class="d-panel-actions">
+                <button class="d-ghost" id="ds-cancel" type="button">Cancel</button>
+                <button class="d-primary" id="ds-save" type="button">Save changes</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="d-overlay" id="d-usage" hidden>
+            <div class="d-panel d-cropped">
+              <span class="d-eyebrow"><span class="d-tick"></span>Instrumentation</span>
+              <h4>Usage</h4>
+              <div class="d-stats" id="d-usage-stats"></div>
+              <div class="d-panel-actions"><button class="d-ghost" id="du-close" type="button">Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-relaunch" id="d-relaunch" hidden>
+          <button class="d-primary" id="d-relaunch-btn" type="button">⟲ Relaunch AutoSE</button>
+        </div>
       </div>
     </div>
   </section>
@@ -272,8 +387,9 @@
         </article>
         <article class="spec">
           <span class="spec-tag">SURFACE</span>
-          <h3>CLI or VS Code</h3>
-          <p>Drive workflows from an interactive terminal session, or from a sidebar panel inside your editor.</p>
+          <h3>Desktop, terminal, or VS Code</h3>
+          <p>Drive workflows from the Windows desktop app, an interactive terminal session on any OS, or a sidebar
+            panel inside your editor.</p>
         </article>
         <article class="spec">
           <span class="spec-tag">SUSTAINABILITY</span>
@@ -303,13 +419,13 @@
       <div class="install-detail-copy">
         <p class="section-label"><span class="tick"></span>GET STARTED</p>
         <h2 class="section-title">Three commands to your first workflow.</h2>
-        <p class="section-lede">Most people just want the app. Download the desktop installer and you are set;
-          the steps below are for the terminal version.</p>
+        <p class="section-lede">On Windows, the desktop app is one download away. Everywhere (macOS, Linux,
+          Windows) the CLI below gets you the same runtime.</p>
         <p class="desktop-callout">
           <a class="dl-inline"
             href="https://github.com/AutoSE-Labs/autose/releases/latest/download/AutoSE-Setup.exe">Download the Windows
             app (.exe)</a>
-          <span>macOS and Linux coming soon.</span>
+          <span>Prefer the terminal? Follow the steps below.</span>
         </p>
         <ol class="run-list">
           <li><span class="run-n">1</span>
@@ -376,6 +492,7 @@
   </footer>
 
   <script src="main.js"></script>
+  <script src="demo.js"></script>
 </body>
 
 </html>

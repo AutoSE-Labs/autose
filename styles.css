@@ -356,11 +356,21 @@ code {
   box-shadow: 6px 6px 0 -1px var(--bone-2);
 }
 
-.dl-soon {
-  background: transparent;
-  border-style: dashed;
-  color: var(--slate);
-  cursor: default;
+.dl-cli {
+  color: var(--ink);
+  box-shadow: 8px 8px 0 -1px var(--bone-2);
+  transition: transform 0.12s, box-shadow 0.2s, border-color 0.2s;
+}
+
+.dl-cli:hover {
+  transform: translateY(-2px);
+  border-color: var(--ink);
+  box-shadow: 10px 10px 0 -1px var(--bone-2);
+}
+
+.dl-cli:active {
+  transform: translateY(0);
+  box-shadow: 6px 6px 0 -1px var(--bone-2);
 }
 
 .dl-top {
@@ -393,7 +403,7 @@ code {
   opacity: 0.85;
 }
 
-.dl-soon .dl-meta {
+.dl-cli .dl-meta {
   color: var(--slate);
   opacity: 1;
 }
@@ -454,36 +464,69 @@ code {
   transform: translateY(-1px);
 }
 
-/* --- research band ------------------------------------------ */
+/* --- provenance: an engineering sheet's title block ---------- */
 .research-band {
   background: var(--bone-2);
   border-top: 1px solid var(--line-soft);
   border-bottom: 1px solid var(--line-soft);
 }
 
-.research-inner {
-  padding: 0.95rem 0;
+.prov-block {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
 }
 
-.research-band p {
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  letter-spacing: 0.02em;
-  color: var(--ink-soft);
+.prov-cell {
   display: flex;
-  align-items: center;
-}
-
-.research-band a {
-  color: var(--signal-deep);
+  flex-direction: column;
+  gap: 0.28rem;
+  padding: 1rem 1.4rem 1.05rem;
+  border-left: 1px solid var(--line);
   text-decoration: none;
-  border-bottom: 1px solid var(--signal-deep);
-  padding-bottom: 1px;
+  transition: background 0.2s;
 }
 
-.research-band a:hover {
+.prov-cell:last-child {
+  border-right: 1px solid var(--line);
+}
+
+.prov-cell:hover {
+  background: var(--card);
+}
+
+.prov-label {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.prov-value {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
   color: var(--ink);
-  border-bottom-color: var(--ink);
+  transition: color 0.2s;
+}
+
+.prov-cell:hover .prov-value {
+  color: var(--signal-deep);
+}
+
+.prov-arrow {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 0.8em;
+  color: var(--signal-deep);
+  transition: transform 0.2s;
+}
+
+.prov-cell:hover .prov-arrow {
+  transform: translateX(3px);
 }
 
 /* --- pipeline (signature) ----------------------------------- */
@@ -642,52 +685,6 @@ code {
 .spec p {
   font-size: 0.94rem;
   color: var(--slate);
-}
-
-/* --- video showcase ----------------------------------------- */
-.showcase-section {
-  padding: 5rem 0;
-  border-top: 1px solid var(--line-soft);
-}
-
-.video-container {
-  position: relative;
-  margin-top: 3rem;
-  background: var(--card);
-  border: 1px solid var(--line);
-  padding: 0.5rem;
-  border-radius: 4px;
-  box-shadow: 0 1px 0 var(--line), 8px 8px 0 -1px var(--bone-2);
-}
-
-.video-container::before,
-.video-container::after {
-  content: "";
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  border-color: var(--signal);
-  border-style: solid;
-}
-
-.video-container::before {
-  top: -1px;
-  left: -1px;
-  border-width: 2px 0 0 2px;
-}
-
-.video-container::after {
-  bottom: -1px;
-  right: -1px;
-  border-width: 0 2px 2px 0;
-}
-
-.video-container video {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: 2px;
-  border: 1px solid var(--line-soft);
 }
 
 /* --- install detail ----------------------------------------- */

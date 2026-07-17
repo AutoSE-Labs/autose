@@ -1,0 +1,1333 @@
+/* ============================================================
+   Try it: interactive session demo
+   A faithful miniature of the AutoSE desktop app (desktop/src)
+   ============================================================ */
+.try-section {
+  padding: 5rem 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.try-section [hidden] {
+  display: none !important;
+}
+
+.demo-frame {
+  margin-top: 2.8rem;
+}
+
+/* --- the window --------------------------------------------- */
+.demo-shell {
+  --go: #3d7a5c;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bone);
+  box-shadow: 0 1px 0 var(--line), 10px 10px 0 -1px var(--bone-2);
+  overflow: hidden;
+}
+
+.demo-shell::before,
+.demo-shell::after {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: var(--signal);
+  border-style: solid;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.demo-shell::before {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+}
+
+.demo-shell::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+/* OS titlebar */
+.shell-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bone-2);
+}
+
+.shell-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.shell-caps {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.d-cap {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--slate);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.d-cap:hover {
+  background: var(--card);
+  color: var(--ink);
+}
+
+#d-cap-close:hover {
+  background: var(--signal-deep);
+  color: var(--card);
+}
+
+/* window states driven by the caption buttons */
+.demo-shell.is-min .d-header,
+.demo-shell.is-min .d-body,
+.demo-shell.is-min .d-statusbar {
+  display: none;
+}
+
+.demo-shell.is-max .d-conversation {
+  height: 560px;
+}
+
+.demo-shell.rail-closed .d-body {
+  grid-template-columns: 1fr;
+}
+
+.demo-shell.rail-closed .d-rail {
+  display: none;
+}
+
+.d-relaunch {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+}
+
+/* --- app header (compact toolbar) --------------------------- */
+.d-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(239, 235, 224, 0.85);
+}
+
+.d-push-right {
+  margin-left: auto;
+}
+
+.d-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.02em;
+}
+
+.d-brand .brand-mark {
+  width: 10px;
+  height: 10px;
+}
+
+.d-brand .brand-mark::after {
+  inset: 1.5px;
+}
+
+.d-brand-accent {
+  color: var(--signal);
+}
+
+.d-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--slate);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.d-iconbtn:hover {
+  border-color: var(--line);
+  background: var(--card);
+  color: var(--ink);
+}
+
+/* --- shared marks inside the app ---------------------------- */
+.d-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.d-tick {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 0.55em;
+  border-left: 2px solid var(--signal);
+  border-bottom: 2px solid var(--signal);
+  transform: translateY(-1px);
+}
+
+.d-cropped {
+  position: relative;
+}
+
+.d-cropped::before,
+.d-cropped::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-color: var(--signal);
+  border-style: solid;
+  pointer-events: none;
+}
+
+.d-cropped::before {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+}
+
+.d-cropped::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+/* --- body: rail + main -------------------------------------- */
+.d-body {
+  display: grid;
+  grid-template-columns: 208px 1fr;
+}
+
+.d-rail {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  background: var(--bone-2);
+}
+
+.d-rail-head {
+  padding: 14px 14px 6px;
+}
+
+.d-newtask {
+  margin: 5px 12px 12px;
+  padding: 8px 11px;
+  border: 1px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: left;
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+}
+
+.d-newtask:hover:not(:disabled) {
+  background: var(--ink);
+  color: var(--card);
+}
+
+.d-newtask:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.d-sessions {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  scrollbar-width: thin;
+}
+
+.d-empty {
+  margin: 2px 8px;
+  color: var(--slate);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.d-session {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid transparent;
+  animation: d-slidein 220ms ease both;
+}
+
+.d-session:hover,
+.d-session:focus-within {
+  border-color: var(--line);
+  background: var(--card);
+}
+
+.d-session.active {
+  border-color: var(--line);
+  background: var(--card);
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+.d-sessionbtn {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 1px;
+  align-items: baseline;
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.d-sessiondel {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  border: 0;
+  background: transparent;
+  color: var(--slate);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.d-session:hover .d-sessiondel,
+.d-session:focus-within .d-sessiondel {
+  opacity: 1;
+}
+
+.d-sessiondel:hover {
+  color: var(--signal-deep);
+}
+
+.d-sessiondel.armed {
+  opacity: 1;
+  color: var(--card);
+  background: var(--signal-deep);
+}
+
+/* while a task runs, the rail is read-only and says so at a glance */
+.demo-shell.is-running .d-session {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.d-session .d-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--go);
+}
+
+.d-session .d-dot[data-status="stopped"] {
+  background: var(--slate);
+}
+
+.d-session span.d-task {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.d-session small {
+  grid-column: 2;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  color: var(--slate);
+}
+
+/* --- conversation ------------------------------------------- */
+.d-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.d-conversation {
+  height: 400px;
+  overflow-y: auto;
+  padding: 18px 22px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.d-entry {
+  animation: d-slidein 260ms ease both;
+}
+
+@keyframes d-slidein {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* greeting (empty state) */
+.d-greeting {
+  margin-top: 10px;
+  border: 1px dashed var(--line);
+  background: rgba(251, 249, 243, 0.6);
+  padding: 18px 20px 20px;
+}
+
+.d-greeting .d-eyebrow {
+  margin-bottom: 11px;
+}
+
+.d-greeting h3 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 20px;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+
+.d-greeting .d-underline {
+  position: relative;
+  white-space: nowrap;
+}
+
+.d-greeting .d-underline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.06em;
+  height: 0.16em;
+  background: var(--signal);
+  opacity: 0.85;
+  z-index: -1;
+}
+
+.d-greeting p {
+  margin: 0 0 15px;
+  color: var(--slate);
+  font-size: 12.5px;
+  line-height: 1.6;
+  max-width: 62ch;
+}
+
+.d-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.d-chip {
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s;
+}
+
+.d-chip:hover:not(:disabled) {
+  border-color: var(--ink);
+  transform: translateY(-2px);
+  box-shadow: 4px 4px 0 -1px var(--bone-2);
+}
+
+.d-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* requirement slip (user message) */
+.d-slip {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--signal);
+  background: var(--card);
+  padding: 9px 13px 10px;
+}
+
+.d-slip .d-eyebrow {
+  margin-bottom: 4px;
+}
+
+.d-slip-text {
+  line-height: 1.55;
+  font-size: 12.5px;
+  overflow-wrap: break-word;
+}
+
+/* --- the work card (worklog sheet) -------------------------- */
+.d-work {
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 0 var(--line), 8px 8px 0 -1px var(--bone-2);
+}
+
+.d-workhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.d-workhead .d-eyebrow {
+  color: var(--ink-soft);
+  flex: none;
+}
+
+.d-worktitle {
+  font-size: 12.5px;
+  color: var(--slate);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.d-elapsed {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--slate);
+  font-variant-numeric: tabular-nums;
+}
+
+.d-presence-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--go);
+}
+
+.d-workhead .d-presence-dot,
+.d-presence.working .d-presence-dot {
+  background: var(--signal);
+  animation: d-breathe 2.2s ease-in-out infinite;
+}
+
+@keyframes d-breathe {
+
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(0.5);
+    opacity: 0.5;
+  }
+}
+
+/* stages strip, the site's pipeline device in miniature */
+.d-stages {
+  display: flex;
+  padding: 13px 13px 2px;
+}
+
+.d-stages[hidden] {
+  display: none;
+}
+
+.d-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border-top: 2px solid var(--ink);
+  padding: 8px 10px 6px 0;
+  margin-right: 18px;
+}
+
+.d-stage:last-child {
+  margin-right: 0;
+}
+
+.d-stage::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  background: var(--bone);
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+}
+
+.d-stage .d-stage-id {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--slate);
+}
+
+.d-stage .d-stage-name {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.d-stage.done::before {
+  background: var(--ink);
+}
+
+.d-stage.active {
+  border-top-color: var(--signal);
+}
+
+.d-stage.active::before {
+  border-color: var(--signal);
+  background: var(--signal);
+}
+
+.d-stage.active .d-stage-id {
+  color: var(--signal-deep);
+}
+
+/* activity feed */
+.d-activity {
+  padding: 8px 13px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.d-activity:empty {
+  display: none;
+}
+
+.d-actline {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate);
+}
+
+.d-actline:last-child {
+  animation: d-slidein 220ms ease both;
+  color: var(--ink);
+}
+
+.d-actline .d-acticon {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--signal);
+}
+
+.d-actline.kind-test-pass .d-acticon {
+  color: var(--go);
+}
+
+.d-actline.kind-test-fail .d-acticon,
+.d-actline.kind-denied .d-acticon {
+  color: var(--signal-deep);
+}
+
+.d-actline code {
+  font-family: inherit;
+  color: var(--ink-soft);
+}
+
+.d-actline em {
+  font-style: normal;
+  color: var(--ink-soft);
+}
+
+/* streamed narration */
+.d-narration {
+  margin: 2px 13px 13px;
+  padding: 9px 13px;
+  border-left: 2px solid var(--line);
+  background: var(--bone);
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 120px;
+  overflow-y: auto;
+  overflow-wrap: break-word;
+  scrollbar-width: thin;
+}
+
+.d-narration[hidden] {
+  display: none;
+}
+
+/* --- the receipt (finished sheet) --------------------------- */
+.d-receipt {
+  padding: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.d-headline {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15.5px;
+  letter-spacing: -0.015em;
+  margin-top: -5px;
+}
+
+.d-work.stopped .d-headline {
+  color: var(--slate);
+}
+
+.d-summary {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.d-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 18px;
+  padding: 8px 11px;
+  border: 1px solid var(--line-soft);
+  background: var(--bone);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.d-fact .d-fdot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: var(--signal);
+  border-radius: 50%;
+  margin-right: 6px;
+  transform: translateY(-1px);
+}
+
+.d-fact.good .d-fdot {
+  background: var(--go);
+}
+
+.d-fact.warn .d-fdot {
+  background: var(--signal-deep);
+}
+
+.d-rsection {
+  border-top: 1px dashed var(--line);
+  padding-top: 11px;
+}
+
+.d-rsection .d-eyebrow {
+  margin-bottom: 7px;
+}
+
+.d-rsection ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.d-rsection li {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+}
+
+.d-limark {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--signal);
+}
+
+.d-limark.pass {
+  color: var(--go);
+}
+
+.d-limark.fail {
+  color: var(--signal-deep);
+}
+
+.d-rsection .d-file {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.d-worknotes {
+  border-top: 1px dashed var(--line);
+  padding-top: 9px;
+}
+
+.d-worknotes summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.d-worknotes summary:hover {
+  color: var(--signal-deep);
+}
+
+.d-worknotes-body {
+  margin-top: 9px;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* the "try another" nudge after a run */
+.d-again {
+  border: 1px dashed var(--line);
+  padding: 12px 14px 14px;
+}
+
+.d-again .d-eyebrow {
+  margin-bottom: 9px;
+}
+
+/* --- composer (the requirement pad) ------------------------- */
+.d-composer-area {
+  padding: 4px 18px 14px;
+}
+
+.d-composer {
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 0 var(--line), 6px 6px 0 -1px var(--bone-2);
+}
+
+.d-composer-label {
+  display: flex;
+  align-items: center;
+  padding: 8px 13px 0;
+}
+
+.d-textarea {
+  min-height: 40px;
+  padding: 6px 13px 4px;
+  line-height: 1.55;
+  font-size: 13px;
+}
+
+.d-placeholder {
+  color: var(--slate);
+  opacity: 0.75;
+}
+
+.d-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  vertical-align: text-bottom;
+  background: var(--signal);
+  opacity: 0.85;
+  animation: d-blink 1.05s steps(1) infinite;
+}
+
+.d-caret[hidden] {
+  display: none;
+}
+
+@keyframes d-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.d-composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 8px 8px 13px;
+  border-top: 1px dashed var(--line-soft);
+  margin-top: 4px;
+}
+
+.d-hint {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--slate);
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.d-send {
+  flex: none;
+  height: 29px;
+  min-width: 100px;
+  padding: 0 15px;
+  border: 0;
+  background: var(--ink);
+  color: var(--card);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: background 0.15s, transform 0.1s, opacity 0.15s;
+}
+
+.d-send:hover:not(:disabled) {
+  background: var(--signal-deep);
+}
+
+.d-send:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.d-send:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.d-send.stop {
+  background: var(--signal-deep);
+}
+
+.d-send.stop:hover:not(:disabled) {
+  background: var(--ink);
+}
+
+/* --- status bar --------------------------------------------- */
+.d-statusbar {
+  display: flex;
+  align-items: stretch;
+  height: 28px;
+  border-top: 1px solid var(--line);
+  background: var(--bone-2);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--slate);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.d-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 0;
+  border-right: 1px solid var(--line-soft);
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.d-cell em {
+  font-style: normal;
+  color: var(--ink-soft);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.d-right {
+  margin-left: auto;
+  border-right: 0;
+  border-left: 1px solid var(--line-soft);
+}
+
+.d-right[hidden]~.d-stamp,
+.d-stamp {
+  flex-shrink: 0;
+}
+
+.d-right[hidden]+.d-stamp {
+  margin-left: auto;
+}
+
+.d-stamp {
+  border-right: 0;
+  border-left: 1px solid var(--line-soft);
+  color: var(--signal-deep);
+}
+
+.d-ctx {
+  display: inline-block;
+  width: 56px;
+  height: 5px;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+
+.d-ctx-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: var(--go);
+  transition: width 300ms ease;
+}
+
+/* clickable status cells (DIR, TOKENS) */
+.d-linkcell {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  background: none;
+  cursor: pointer;
+}
+
+.d-linkcell:hover {
+  background: var(--card);
+}
+
+.d-linkcell:hover em {
+  color: var(--signal-deep);
+}
+
+/* a wordless "this needs text first" nudge, from the real composer */
+@keyframes d-nudge {
+
+  0%,
+  100% {
+    transform: none;
+  }
+
+  25% {
+    transform: translateX(-4px);
+  }
+
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+.d-composer.nudge {
+  animation: d-nudge 180ms ease;
+}
+
+/* --- overlays (settings, usage) ----------------------------- */
+.d-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(22, 35, 61, 0.32);
+  backdrop-filter: blur(3px);
+}
+
+.d-overlay[hidden] {
+  display: none;
+}
+
+.d-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(440px, 100%);
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 0 var(--line), 10px 10px 0 -1px rgba(22, 35, 61, 0.18);
+  padding: 20px 22px;
+}
+
+.d-panel h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.d-field {
+  display: grid;
+  gap: 5px;
+}
+
+.d-field>span {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.d-field small {
+  display: block;
+  font-weight: 400;
+  color: var(--slate);
+  font-size: 11px;
+  margin-top: 1px;
+}
+
+.d-field input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  background: var(--bone);
+  padding: 8px 10px;
+  outline: none;
+}
+
+.d-field input:focus {
+  border-color: var(--signal);
+}
+
+.d-togglefield {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--bone);
+  cursor: pointer;
+}
+
+.d-togglefield input {
+  margin-top: 3px;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--signal);
+  cursor: pointer;
+}
+
+.d-toggletext {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.d-toggletext small {
+  display: block;
+  font-weight: 400;
+  color: var(--slate);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.d-panel-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
+.d-primary {
+  height: 32px;
+  min-width: 96px;
+  padding: 0 15px;
+  border: 0;
+  background: var(--ink);
+  color: var(--card);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.d-primary:hover {
+  background: var(--signal-deep);
+}
+
+.d-primary:active {
+  transform: translateY(1px);
+}
+
+.d-ghost {
+  height: 32px;
+  min-width: 80px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.d-ghost:hover {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--card);
+}
+
+/* usage stat tiles */
+.d-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 7px;
+}
+
+.d-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 11px 10px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: 3px 3px 0 -1px var(--bone-2);
+}
+
+.d-stat-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.d-stat-value {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.d-stat-sub {
+  font-size: 10.5px;
+  color: var(--slate);
+}
+
+.d-usage-empty {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--line);
+  background: var(--bone);
+  color: var(--slate);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* --- responsive --------------------------------------------- */
+@media (max-width: 820px) {
+  .d-body {
+    grid-template-columns: 1fr;
+  }
+
+  .d-rail {
+    display: none;
+  }
+
+  .d-conversation {
+    height: 380px;
+    padding: 14px 14px 10px;
+  }
+
+  .d-composer-area {
+    padding: 4px 12px 12px;
+  }
+
+  .d-statusbar .d-cell:nth-child(2),
+  .d-statusbar .d-cell:nth-child(3) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .d-entry,
+  .d-actline:last-child,
+  .d-session {
+    animation: none;
+  }
+
+  .d-caret {
+    animation: none;
+  }
+
+  .d-presence-dot,
+  .d-workhead .d-presence-dot {
+    animation: none !important;
+  }
+}
