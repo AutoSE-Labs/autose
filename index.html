@@ -125,15 +125,15 @@
         Autonomous software<br />engineering, <span class="ink-underline">under your&nbsp;control.</span>
       </h1>
       <p class="hero-sub">
-        AutoSE turns a plain-English requirement into reviewed, governed code. It runs the whole
-        workflow on your machine, from requirements analysis to architecture, ADRs, code generation,
-        and your sign-off. No cloud. Nothing leaves your infrastructure.
+        AutoSE turns a plain-English requirement into reviewed, governed code. A complexity
+        classifier routes each request to the right-sized pipeline — from a quick single-agent
+        fix to a full design → plan → execute → validate loop with ADRs — all on your machine.
+        No cloud. Nothing leaves your infrastructure.
       </p>
 
       <!-- primary action: download the desktop app -->
       <div class="download-row" aria-label="Download AutoSE">
-        <a class="dl dl-primary"
-          href="https://github.com/AutoSE-Labs/autose/releases/latest/download/AutoSE-Setup.exe">
+        <a class="dl dl-primary" href="https://github.com/AutoSE-Labs/autose/releases/latest/download/AutoSE-Setup.exe">
           <span class="dl-top">
             <span class="dl-name">Download for Windows</span>
           </span>
@@ -324,30 +324,36 @@
   <section class="pipeline-section" id="workflow">
     <div class="wrap">
       <p class="section-label"><span class="tick"></span>THE WORKFLOW</p>
-      <h2 class="section-title">One request flows through the whole lifecycle.</h2>
-      <p class="section-lede">Typed artifacts pass between phases. Quality gates guard the transitions. You approve
-        before anything is written.</p>
+      <h2 class="section-title">One request flows through the right-sized pipeline.</h2>
+      <p class="section-lede">A classifier reads your prompt and automatically scales the pipeline to match —
+        simple asks stay fast and light, complex ones get deeper design and validation, including a loop
+        that sends work back for another pass before it ever reaches you.</p>
 
       <ol class="pipeline" aria-label="AutoSE SDLC pipeline">
         <li class="stage">
+          <span class="stage-id">PH-00</span>
+          <h3>Classify</h3>
+          <p>A single call sizes up the request and allocates just enough pipeline for it.</p>
+        </li>
+        <li class="stage">
           <span class="stage-id">PH-01</span>
-          <h3>Requirements</h3>
-          <p>Plain-English intent is parsed into a structured requirement.</p>
+          <h3>Design</h3>
+          <p>Architecture is analysed against your ADRs and governance rules.</p>
         </li>
         <li class="stage">
           <span class="stage-id">PH-02</span>
-          <h3>Architecture</h3>
-          <p>AutoSE plans structure and reasons about trade-offs and constraints.</p>
+          <h3>Plan</h3>
+          <p>A detailed, ordered implementation plan is produced from the design.</p>
         </li>
         <li class="stage">
           <span class="stage-id">PH-03</span>
-          <h3>ADRs</h3>
-          <p>Decisions are recorded, linked, and proposed for review.</p>
+          <h3>Execute</h3>
+          <p>Every step of the plan is implemented against your codebase.</p>
         </li>
         <li class="stage">
           <span class="stage-id">PH-04</span>
-          <h3>Generation</h3>
-          <p>Complete code files are produced against your standards.</p>
+          <h3>Validate</h3>
+          <p>Tests and lint run automatically; failures loop back for another pass.</p>
         </li>
         <li class="stage is-gate">
           <span class="stage-id">GATE</span>
@@ -357,6 +363,40 @@
       </ol>
     </div>
   </section>
+
+  <!-- SMART ROUTING: automatic effort scaling, no user-facing modes -->
+  <section class="features" id="tiers">
+    <div class="wrap">
+      <p class="section-label"><span class="tick"></span>SMART ROUTING</p>
+      <h2 class="section-title">Right-sized effort for every request.</h2>
+      <p class="section-lede">Not every change needs an architecture review. AutoSE classifies
+        each prompt behind the scenes and only spends as much reasoning — and as much compute — as
+        the task actually needs. You never pick a mode; it just fits the work.</p>
+
+      <div class="spec-grid">
+        <article class="spec">
+          <span class="spec-tag">SMALL ASKS</span>
+          <h3>Quick, focused fixes</h3>
+          <p>Small edits, typos, and one-off tweaks are handled directly — no plan, no ceremony,
+            just the change.</p>
+        </article>
+        <article class="spec">
+          <span class="spec-tag">EVERYDAY WORK</span>
+          <h3>Planned, tested changes</h3>
+          <p>Typical features get a drafted plan, the code written against it, and tests added and
+            run before you see the result.</p>
+        </article>
+        <article class="spec">
+          <span class="spec-tag">BIGGER CHANGES</span>
+          <h3>Designed, validated, looped*</h3>
+          <p>Larger or riskier work gets architectural analysis, ADR generation, and a time-boxed
+            validation loop that retries failed steps before handing off to you.</p>
+        </article>
+      </div>
+      <p class="tier-footnote">* In active development and rolling out as a premium tier.</p>
+    </div>
+  </section>
+
 
   <!-- CAPABILITIES: spec cards with crop marks -->
   <section class="features" id="features">
@@ -396,9 +436,9 @@
         </article>
         <article class="spec">
           <span class="spec-tag">SURFACE</span>
-          <h3>Desktop, terminal, or VS Code</h3>
-          <p>Drive workflows from the Windows desktop app, an interactive terminal session on any OS, or a sidebar
-            panel inside your editor.</p>
+          <h3>Interactive TUI or desktop app</h3>
+          <p>Drive workflows from an interactive terminal session, or from the AutoSE desktop app —
+            same local-first core underneath either surface.</p>
         </article>
         <article class="spec">
           <span class="spec-tag">SUSTAINABILITY</span>
@@ -416,7 +456,8 @@
           <span class="spec-tag">ORIGIN</span>
           <h3>Built from India</h3>
           <p>Designed and engineered in India by the SA4S research group, with support from India's
-            <a href="https://anrfonline.in/">Anusandhan National Research Foundation (ANRF)</a>.</p>
+            <a href="https://anrfonline.in/">Anusandhan National Research Foundation (ANRF)</a>.
+          </p>
         </article>
       </div>
     </div>

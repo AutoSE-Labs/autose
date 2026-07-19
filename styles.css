@@ -316,6 +316,12 @@ code {
   color: var(--signal-deep);
 }
 
+.tier-footnote {
+  margin-top: 1.3rem;
+  font-size: 0.82rem;
+  color: var(--slate);
+}
+
 /* download row (desktop app) */
 .download-row {
   display: flex;
@@ -539,7 +545,7 @@ code {
   list-style: none;
   margin-top: 3rem;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 0;
 }
 
