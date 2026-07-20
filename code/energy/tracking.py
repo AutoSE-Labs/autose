@@ -23,30 +23,33 @@ def install_energy_tracking(
     def tracked(messages, tools=None):
         span_id = energy.begin(model=model_name, operation="chat")
         started = time.monotonic()
-        response = None
         try:
             response = original(messages, tools=tools)
-            return response
-        finally:
-            elapsed_ns = max(0, int((time.monotonic() - started) * 1_000_000_000))
-            usage = (response or {}).get("usage") if isinstance(response, dict) else None
-            prompt_tokens = None
-            completion_tokens = None
-            if isinstance(usage, dict):
-                prompt_tokens = usage.get("prompt_tokens")
-                completion_tokens = usage.get("completion_tokens")
-            # OpenAI-compat rarely includes phase timings; use wall clock as total.
-            result = energy.end(
-                span_id,
-                prompt_tokens=prompt_tokens if isinstance(prompt_tokens, int) else None,
-                completion_tokens=(
-                    completion_tokens if isinstance(completion_tokens, int) else None
-                ),
-                total_duration_ns=elapsed_ns,
-                model_meta={"parameter_size": None, "quantization_level": None, "family": None},
-            )
-            if result is not None and on_result is not None:
-                on_result(result)
+        except Exception:
+            # Failed calls should not contribute ~0 J noise to the session total.
+            energy.tracker.discard(span_id)
+            raise
+
+        elapsed_ns = max(0, int((time.monotonic() - started) * 1_000_000_000))
+        usage = response.get("usage") if isinstance(response, dict) else None
+        prompt_tokens = None
+        completion_tokens = None
+        if isinstance(usage, dict):
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+        # OpenAI-compat rarely includes phase timings; use wall clock as total.
+        result = energy.end(
+            span_id,
+            prompt_tokens=prompt_tokens if isinstance(prompt_tokens, int) else None,
+            completion_tokens=(
+                completion_tokens if isinstance(completion_tokens, int) else None
+            ),
+            total_duration_ns=elapsed_ns,
+            model_meta={"parameter_size": None, "quantization_level": None, "family": None},
+        )
+        if result is not None and on_result is not None:
+            on_result(result)
+        return response
 
     agent._call_sync = tracked  # type: ignore[method-assign]
     return energy

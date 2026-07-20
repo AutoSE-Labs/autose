@@ -26,10 +26,12 @@ class TaskClassifier:
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
+        from common.agent import _normalize_base_url
+
         inference = config.get("inference", {})
-        self._base_url: str = inference.get(
-            "base_url", "http://127.0.0.1:11434/v1"
-        ).rstrip("/")
+        self._base_url: str = _normalize_base_url(
+            inference.get("base_url", "http://127.0.0.1:11434/v1")
+        )
         self._api_key: str = inference.get("api_key", "") or ""
         self._model: str = inference.get("model", "")
 

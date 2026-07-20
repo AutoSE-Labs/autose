@@ -764,8 +764,22 @@ function closeSettings() {
   settingsOpener = null;
 }
 
+function normalizeBaseUrl(raw: string): string {
+  let value = raw.trim().replace(/\/+$/, "");
+  if (!value) {
+    return value;
+  }
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(value)) {
+    value = `http://${value}`;
+  }
+  if (/:11434$/i.test(value)) {
+    value = `${value}/v1`;
+  }
+  return value.replace(/\/+$/, "");
+}
+
 async function saveSettings() {
-  const baseUrl = settingBaseUrl.value.trim();
+  const baseUrl = normalizeBaseUrl(settingBaseUrl.value);
   if (!baseUrl) {
     settingsError.textContent = "The model server address is required. AutoSE has nowhere to think without it.";
     settingsError.hidden = false;

@@ -15,6 +15,19 @@ class InferenceTimeoutError(Exception):
     """Raised when a request to the inference backend does not respond in time."""
 
 
+def _normalize_base_url(base_url: str) -> str:
+    """Ensure OpenAI-compatible base URLs have a scheme (and /v1 for bare Ollama hosts)."""
+    value = (base_url or "").strip().rstrip("/")
+    if not value:
+        return value
+    if "://" not in value:
+        value = f"http://{value}"
+    # Bare Ollama host/port without the OpenAI-compat prefix.
+    if value.rstrip("/").endswith(":11434"):
+        value = f"{value}/v1"
+    return value.rstrip("/")
+
+
 class BaseAgent:
     """Shared HTTP communication and tool-execution logic for all AutoSE agents."""
 
@@ -45,7 +58,7 @@ class BaseAgent:
         context_limit: int | None = None,
         reserved_output_tokens: int = 8192,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
+        self._base_url = _normalize_base_url(base_url)
         self._api_key = api_key
         self._model = model
         self._workspace = Path(workspace_root).resolve()

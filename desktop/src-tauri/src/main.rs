@@ -605,8 +605,23 @@ fn get_settings() -> Result<InferenceSettings, String> {
     Ok(read_config_document()?.inference)
 }
 
+fn normalize_base_url(raw: &str) -> String {
+    let mut value = raw.trim().trim_end_matches('/').to_string();
+    if value.is_empty() {
+        return value;
+    }
+    if !value.contains("://") {
+        value = format!("http://{value}");
+    }
+    if value.ends_with(":11434") {
+        value = format!("{value}/v1");
+    }
+    value.trim_end_matches('/').to_string()
+}
+
 #[tauri::command]
-fn save_settings(settings: InferenceSettings) -> Result<(), String> {
+fn save_settings(mut settings: InferenceSettings) -> Result<(), String> {
+    settings.base_url = normalize_base_url(&settings.base_url);
     let mut document = read_config_document()?;
     document.inference = settings;
 
