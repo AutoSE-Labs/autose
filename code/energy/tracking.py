@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from .format import format_energy_result
 from .monitor import EnergyMonitor, get_default_monitor
-from .ollama_meta import fetch_model_meta
+from .ollama_meta import extract_native_timings, fetch_model_meta
 
 
 def install_energy_tracking(
@@ -40,6 +40,10 @@ def install_energy_tracking(
             prompt_tokens = usage.get("prompt_tokens")
             completion_tokens = usage.get("completion_tokens")
 
+        native = extract_native_timings(response if isinstance(response, dict) else None)
+        # Prefer wall-clock for OpenAI-compat: native total_duration can include load.
+        total_duration_ns = elapsed_ns
+
         meta = energy.get_model_meta(model_name)
         if meta is None:
             meta = fetch_model_meta(base_url, model_name)
@@ -51,7 +55,10 @@ def install_energy_tracking(
             completion_tokens=(
                 completion_tokens if isinstance(completion_tokens, int) else None
             ),
-            total_duration_ns=elapsed_ns,
+            load_duration_ns=None,
+            prompt_eval_duration_ns=native["prompt_eval_duration_ns"],
+            eval_duration_ns=native["eval_duration_ns"],
+            total_duration_ns=total_duration_ns,
             model_meta=meta,
         )
         if result is not None and on_result is not None:

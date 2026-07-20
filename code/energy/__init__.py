@@ -1,6 +1,6 @@
 """Optional energy measurement and approximation for local model inference."""
 
-from .approximation import approximate_energy, model_load_scale, parse_model_signals
+from .approximation import approximate_energy, model_bytes_gib, parse_model_signals
 from .collectors import detect_collector
 from .format import format_energy_result, format_energy_status, format_joules
 from .models import EnergyCapability, EnergyResult
@@ -21,6 +21,6 @@ __all__ = [
     "format_energy_status",
     "format_joules",
     "get_default_monitor",
-    "model_load_scale",
+    "model_bytes_gib",
     "parse_model_signals",
 ]

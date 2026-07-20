@@ -72,6 +72,7 @@ class EnergyMonitor:
         *,
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
+        load_duration_ns: int | None = None,
         prompt_eval_duration_ns: int | None = None,
         eval_duration_ns: int | None = None,
         total_duration_ns: int | None = None,
@@ -112,6 +113,7 @@ class EnergyMonitor:
 
         meta = model_meta or {}
         parameter_count = meta.get("parameter_count")
+        size_bytes = meta.get("size_bytes")
         signals = parse_model_signals(
             model,
             parameter_size=meta.get("parameter_size") if isinstance(meta.get("parameter_size"), str) else None,
@@ -122,6 +124,7 @@ class EnergyMonitor:
             ),
             family=meta.get("family") if isinstance(meta.get("family"), str) else None,
             parameter_count=parameter_count if isinstance(parameter_count, int) else None,
+            size_bytes=size_bytes if isinstance(size_bytes, int) else None,
         )
         approx = approximate_energy(
             span_id=span_id,
@@ -132,6 +135,7 @@ class EnergyMonitor:
             timings=TimingSignals(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                load_duration_ns=load_duration_ns,
                 prompt_eval_duration_ns=prompt_eval_duration_ns,
                 eval_duration_ns=eval_duration_ns,
                 total_duration_ns=total_duration_ns,

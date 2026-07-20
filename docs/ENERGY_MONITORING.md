@@ -13,17 +13,18 @@ How AutoSE reports energy for **local Ollama** inference in the CLI and Tauri ap
 
 On every successful local chat/completion call (`tracking.py` wraps the agent `_call_sync`):
 
-1. Open a short energy span around the HTTP call
-2. Prefer a **user-level hardware sensor** if one works
-3. Else **approximate** from timings + device profile + Ollama model metadata
-4. Emit `energy_updated` (headless/desktop) and accumulate session totals for the CLI status bar / Tauri footer
+1. Cache Ollama `/api/show` + `/api/tags` model meta (size / params / quant)
+2. Open a short energy span around the HTTP call
+3. Prefer a **user-level hardware sensor** if one works
+4. Else **approximate warm inference** from timings + device-family profile + model size
+5. Emit `energy_updated` (headless/desktop) and accumulate session totals for the CLI status bar / Tauri footer
 
-Failed calls do not add energy.
+Failed calls do not add energy. Approximation targets the **already-loaded** case (model resident in memory). First-load / cold-start cost is out of scope.
 
 ## How it chooses a path
 
 1. **Measure** if a normal-user sensor works
-2. Else **approximate** from Ollama timings + device profile + model meta
+2. Else **approximate** from timings + device-family profile + model meta
 3. Else **unavailable**
 
 ## Devices
@@ -42,29 +43,23 @@ Concurrent measured calls that share one sensor interval split energy and are la
 
 ## Approximation (macOS and other fallbacks)
 
-Calibration **v3** hybrid estimate:
+Calibration **v4** (warm inference only):
 
 \[
-E \approx (W_{\mathrm{prefill}} \cdot s)\, t_{\mathrm{prefill}} + (W_{\mathrm{decode}} \cdot s)\, t_{\mathrm{decode}} + c_{\mathrm{mem}} \cdot \mathrm{GiB} \cdot T
+E \approx P_{\mathrm{phase}}\, t_{\mathrm{phase}} + c_{\mathrm{mem}} \cdot \mathrm{GiB} \cdot T
 \]
 
-| Symbol | Meaning |
+| Term | Meaning |
 | --- | --- |
-| \(t\) | Ollama `prompt_eval_duration` / `eval_duration` when available; else wall-clock (OpenAI-compat `/v1`) |
-| \(W\) | Bundled device profile watts (Apple M-series / NVIDIA class / generic) |
-| \(s\) | **Model load scale** from Ollama `/api/show` (params, quant bits, MoE active vs total). Soft power-law vs a ~7B Q4 reference so same latency ≠ same energy for 5B vs 70B |
-| \(\mathrm{GiB}\) | Approx active weight footprint from params × bits |
+| \(P\,t\) | Device-family watts × time. Prefer native Ollama `prompt_eval_duration` / `eval_duration` when present; else wall-clock. **Watts are not scaled by model size** — heavier models already take longer |
+| \(\mathrm{GiB}\) | Prefer Ollama `/api/tags` blob `size`; else params × quant bits |
 | \(T\) | Token-weighted traffic (decode-heavy; prefill discounted) |
 
-Device identity (unprivileged): NVIDIA GPU name, or Apple `hw.model` / chip string (e.g. `Mac16,12`, `Apple M4`).
+No cold-load term: we report steady use after the model is already loaded.
 
-Missing metadata → lower confidence + wider bounds. Each approximated result includes `confidence`, `calibration_id`, and lower/upper bounds.
+Device identity (unprivileged): NVIDIA GPU name, or Apple `hw.model` / chip string → broad family bucket (Apple M-series / NVIDIA class / generic).
 
-Apple M4 profile watts were seeded from a local `powermetrics` spot-check (MacBook Air M4 / `Mac16,12`). That tool is **validation-only** — not shipped in AutoSE.
-
-### Why not watts × time alone?
-
-Latency already reflects some load, but two models can finish in similar time with very different SoC draw and memory traffic. Scaling \(W\) by model intensity and adding a memory×tokens term keeps larger / higher-precision models above smaller ones when wall time is comparable.
+Bounds widen when size is unknown, phase timings are missing, or the call is short. Each result includes `confidence`, `calibration_id`, and lower/upper bounds.
 
 ## Display
 
@@ -72,7 +67,7 @@ Always show provenance, e.g.:
 
 - `12.4 J · measured · GPU (nvidia-smi)`
 - `3.1 J · measured · CPU package (RAPL)`
-- `~41 J (25–58) · approximated · Apple M4 · medium`
+- `~90 J (45–140) · approximated · Apple M4 · low`
 
 ## Where it lives
 
@@ -80,9 +75,9 @@ Always show provenance, e.g.:
 | --- | --- |
 | `code/energy/monitor.py` | In-process orchestration |
 | `code/energy/collectors.py` | NVIDIA / RAPL sensors |
-| `code/energy/approximation.py` | Timing + model-intensity estimate |
-| `code/energy/calibration.py` | Device watt / memory profiles (v3) |
-| `code/energy/ollama_meta.py` | Ollama `/api/show` metadata |
+| `code/energy/approximation.py` | Timing + size-based estimate |
+| `code/energy/calibration.py` | Device-family watt / load / memory profiles (v4) |
+| `code/energy/ollama_meta.py` | `/api/show`, `/api/tags` |
 | `code/energy/platform_probe.py` | Unprivileged device identity |
 | `code/energy/tracking.py` | Wraps CLI/desktop agent `_call_sync` |
 | CLI TUI status bar | Session energy (`code/tui/display.py`) |
