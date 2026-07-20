@@ -6,12 +6,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import re
 
-from .calibration import CALIBRATION_VERSION, resolve_hardware_bucket
+from .calibration import CALIBRATION_VERSION, HardwareProfile, resolve_hardware_bucket
 from .models import Confidence, EnergyResult
 from .platform_probe import DeviceIdentity, detect_device_identity
 
 _PARAM_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*([bBmM])")
 _MOE_RE = re.compile(r"(\d+)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*[bB]")
+
+# Reference dense Q4 ~7B local model used to normalize load intensity.
+_REF_ACTIVE_B = 7.0
+_REF_QUANT_BITS = 4.0
 
 
 @dataclass(frozen=True)
@@ -41,10 +45,13 @@ def parse_model_signals(
     parameter_size: str | None = None,
     quantization_level: str | None = None,
     family: str | None = None,
+    parameter_count: int | None = None,
 ) -> ModelSignals:
     text = " ".join(part for part in (model, parameter_size, family) if part)
     is_moe = bool(_MOE_RE.search(text) or (family and "moe" in family.lower()))
     parameter_billions = _parse_billions(parameter_size) or _parse_billions(model)
+    if parameter_billions is None and isinstance(parameter_count, int) and parameter_count > 0:
+        parameter_billions = parameter_count / 1_000_000_000
     active = parameter_billions
     moe_match = _MOE_RE.search(text)
     if moe_match:
@@ -97,6 +104,33 @@ def _parse_quant_bits(value: str | None) -> float | None:
     return None
 
 
+def model_load_scale(signals: ModelSignals) -> float:
+    """
+    Relative memory/compute load vs a 7B Q4 dense reference.
+
+    Decode on Apple Silicon / local GPUs is largely memory-bandwidth bound, so
+    larger / higher-precision models draw more power even at similar latency.
+    Soft exponent avoids naive linear 70B = 10×7B blow-ups.
+    """
+    active = signals.active_parameter_billions or signals.parameter_billions or _REF_ACTIVE_B
+    total = signals.parameter_billions or active
+    quant = signals.quant_bits or _REF_QUANT_BITS
+    active_intensity = max(0.15, (active / _REF_ACTIVE_B) * (quant / _REF_QUANT_BITS))
+    scale = active_intensity**0.6
+    if signals.is_moe and total > active:
+        # Resident footprint still costs bandwidth even when few experts fire.
+        total_intensity = max(0.15, (total / _REF_ACTIVE_B) * (quant / _REF_QUANT_BITS))
+        scale = 0.75 * scale + 0.25 * (total_intensity**0.6)
+        scale *= 1.10  # expert routing / sparse dispatch overhead
+    return max(0.35, min(5.0, scale))
+
+
+def model_bytes_gib(signals: ModelSignals) -> float:
+    active = signals.active_parameter_billions or signals.parameter_billions or _REF_ACTIVE_B
+    quant = signals.quant_bits or _REF_QUANT_BITS
+    return max(0.05, active * (quant / 8.0))
+
+
 def approximate_energy(
     *,
     span_id: str,
@@ -119,27 +153,39 @@ def approximate_energy(
             gpu_name=gpu_name,
         )
     profile = resolve_hardware_bucket(device=identity, gpu_name=gpu_name)
+    load = model_load_scale(model_signals)
+    gib = model_bytes_gib(model_signals)
 
     prompt_s = _ns_to_seconds(timings.prompt_eval_duration_ns)
     decode_s = _ns_to_seconds(timings.eval_duration_ns)
     method = "model_tokens"
     confidence: Confidence = "low"
+    known_model = model_signals.parameter_billions is not None
 
     if prompt_s is not None or decode_s is not None:
-        # Duration already reflects model size/quant/MoE. Do not scale watts by params.
-        energy = (
-            profile.prefill_watts * (prompt_s or 0.0)
-            + profile.decode_watts * (decode_s or 0.0)
+        energy = _timed_energy(
+            profile,
+            load,
+            gib,
+            prompt_s or 0.0,
+            decode_s or 0.0,
+            timings.prompt_tokens or 0,
+            timings.completion_tokens or 0,
         )
         if energy <= 0 and timings.total_duration_ns:
             total_s = _ns_to_seconds(timings.total_duration_ns) or 0.0
-            energy = profile.active_watts * total_s
+            energy = profile.active_watts * load * total_s
+            energy += _memory_token_energy(
+                profile, gib, timings.prompt_tokens or 0, timings.completion_tokens or 0
+            )
         method = "model_timing"
-        confidence = "medium" if (prompt_s is not None and decode_s is not None) else "low"
+        confidence = "medium" if (prompt_s is not None and decode_s is not None and known_model) else "low"
     elif timings.total_duration_ns:
-        # OpenAI-compatible APIs often omit phase timings; use wall/total duration.
         total_s = _ns_to_seconds(timings.total_duration_ns) or 0.0
-        energy = profile.active_watts * max(0.0, total_s)
+        energy = profile.active_watts * load * max(0.0, total_s)
+        energy += _memory_token_energy(
+            profile, gib, timings.prompt_tokens or 0, timings.completion_tokens or 0
+        )
         method = "model_timing"
         confidence = "low"
     else:
@@ -148,19 +194,23 @@ def approximate_energy(
         energy = (
             profile.joules_per_prompt_token * prompt_tokens
             + profile.joules_per_completion_token * completion_tokens
-        )
+        ) * load
         if prompt_tokens + completion_tokens == 0:
-            energy = profile.active_watts * (duration_ms / 1000.0)
+            energy = profile.active_watts * load * (duration_ms / 1000.0)
         confidence = "low"
 
-    if profile.id in {"generic_cpu", "apple_silicon"}:
+    if profile.id in {"generic_cpu", "apple_silicon"} or not known_model:
         confidence = "low"
-    elif method == "model_timing" and profile.id.startswith("apple_m"):
+    elif method == "model_timing" and known_model and (
+        profile.id.startswith("apple_m") or profile.id.startswith("nvidia_")
+    ):
         confidence = "medium"
 
     uncertainty = profile.relative_uncertainty
     if confidence == "low":
         uncertainty = min(0.85, uncertainty + 0.15)
+    if not known_model:
+        uncertainty = min(0.85, uncertainty + 0.10)
     lower = max(0.0, energy * (1.0 - uncertainty))
     upper = energy * (1.0 + uncertainty)
     token_count = (timings.prompt_tokens or 0) + (timings.completion_tokens or 0)
@@ -187,6 +237,35 @@ def approximate_energy(
         calibration_id=f"{CALIBRATION_VERSION}:{profile.id}",
         hardware_bucket=profile.id,
     )
+
+
+def _timed_energy(
+    profile: HardwareProfile,
+    load: float,
+    gib: float,
+    prompt_s: float,
+    decode_s: float,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> float:
+    # Device watts scaled by model intensity + explicit memory-traffic term.
+    energy = (
+        profile.prefill_watts * load * max(0.0, prompt_s)
+        + profile.decode_watts * load * max(0.0, decode_s)
+    )
+    energy += _memory_token_energy(profile, gib, prompt_tokens, completion_tokens)
+    return energy
+
+
+def _memory_token_energy(
+    profile: HardwareProfile,
+    gib: float,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> float:
+    # Prefill reuses weights across tokens more than decode; weight decode lower.
+    weighted_tokens = 0.25 * max(0, prompt_tokens) + max(0, completion_tokens)
+    return profile.memory_joules_per_gib_token * gib * weighted_tokens
 
 
 def _ns_to_seconds(value: int | None) -> float | None:

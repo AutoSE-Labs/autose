@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from .platform_probe import DeviceIdentity
 
-CALIBRATION_VERSION = "2"
+CALIBRATION_VERSION = "3"
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,8 @@ class HardwareProfile:
     decode_watts: float
     joules_per_prompt_token: float
     joules_per_completion_token: float
+    # Extra cost for moving ~1 GiB of weights once per generated token (decode-heavy).
+    memory_joules_per_gib_token: float
     relative_uncertainty: float
     notes: str
 
@@ -28,7 +30,7 @@ class HardwareProfile:
 
 # Conservative defaults: directional estimates, not meter-grade.
 # Apple M4 Air values seeded from local powermetrics compare on Mac16,12
-# (gemma4:e2b long decode ~3 W SoC average; peaks ~7 W).
+# (gemma4:e2b / ~5B Q4 long decode ~3 W SoC average).
 HARDWARE_PROFILES: dict[str, HardwareProfile] = {
     "nvidia_consumer_high": HardwareProfile(
         id="nvidia_consumer_high",
@@ -36,6 +38,7 @@ HARDWARE_PROFILES: dict[str, HardwareProfile] = {
         decode_watts=220.0,
         joules_per_prompt_token=0.020,
         joules_per_completion_token=0.045,
+        memory_joules_per_gib_token=0.0040,
         relative_uncertainty=0.45,
         notes="High-end discrete NVIDIA under local inference load.",
     ),
@@ -45,6 +48,7 @@ HARDWARE_PROFILES: dict[str, HardwareProfile] = {
         decode_watts=140.0,
         joules_per_prompt_token=0.015,
         joules_per_completion_token=0.035,
+        memory_joules_per_gib_token=0.0035,
         relative_uncertainty=0.50,
         notes="Mid-range discrete NVIDIA under local inference load.",
     ),
@@ -54,6 +58,7 @@ HARDWARE_PROFILES: dict[str, HardwareProfile] = {
         decode_watts=70.0,
         joules_per_prompt_token=0.012,
         joules_per_completion_token=0.028,
+        memory_joules_per_gib_token=0.0030,
         relative_uncertainty=0.55,
         notes="Laptop NVIDIA GPU under local inference load.",
     ),
@@ -63,8 +68,9 @@ HARDWARE_PROFILES: dict[str, HardwareProfile] = {
         decode_watts=3.0,
         joules_per_prompt_token=0.0015,
         joules_per_completion_token=0.0030,
-        relative_uncertainty=0.35,
-        notes="Apple M4 SoC (MacBook Air class), seeded from powermetrics.",
+        memory_joules_per_gib_token=0.0012,
+        relative_uncertainty=0.40,
+        notes="Apple M4 SoC; watts×load_scale + memory×GiB×tokens.",
     ),
     "apple_m3": HardwareProfile(
         id="apple_m3",
@@ -72,6 +78,7 @@ HARDWARE_PROFILES: dict[str, HardwareProfile] = {
         decode_watts=3.5,
         joules_per_prompt_token=0.0018,
         joules_per_completion_token=0.0035,
+        memory_joules_per_gib_token=0.0013,
         relative_uncertainty=0.45,
         notes="Apple M3 SoC approximate profile.",
     ),
@@ -81,6 +88,7 @@ HARDWARE_PROFILES: dict[str, HardwareProfile] = {
         decode_watts=4.0,
         joules_per_prompt_token=0.0020,
         joules_per_completion_token=0.0040,
+        memory_joules_per_gib_token=0.0014,
         relative_uncertainty=0.50,
         notes="Apple M2 SoC approximate profile.",
     ),
@@ -90,6 +98,7 @@ HARDWARE_PROFILES: dict[str, HardwareProfile] = {
         decode_watts=4.5,
         joules_per_prompt_token=0.0022,
         joules_per_completion_token=0.0045,
+        memory_joules_per_gib_token=0.0015,
         relative_uncertainty=0.55,
         notes="Apple M1 SoC approximate profile.",
     ),
@@ -99,6 +108,7 @@ HARDWARE_PROFILES: dict[str, HardwareProfile] = {
         decode_watts=4.0,
         joules_per_prompt_token=0.0020,
         joules_per_completion_token=0.0040,
+        memory_joules_per_gib_token=0.0014,
         relative_uncertainty=0.65,
         notes="Generic Apple Silicon fallback when chip string is unknown.",
     ),
@@ -108,6 +118,7 @@ HARDWARE_PROFILES: dict[str, HardwareProfile] = {
         decode_watts=40.0,
         joules_per_prompt_token=0.010,
         joules_per_completion_token=0.025,
+        memory_joules_per_gib_token=0.0025,
         relative_uncertainty=0.70,
         notes="Uncalibrated CPU-only / unknown device fallback.",
     ),
@@ -147,12 +158,10 @@ def _apple_profile(identity: DeviceIdentity) -> HardwareProfile:
     text = " ".join(
         part for part in (identity.chip_name, identity.hw_model) if part
     ).lower()
-    # Prefer explicit M-series brand string (e.g. "Apple M4").
     match = re.search(r"\bm([1-4])(?:\s*(pro|max|ultra))?\b", text)
     if match:
         generation = match.group(1)
         return HARDWARE_PROFILES.get(f"apple_m{generation}", HARDWARE_PROFILES["apple_silicon"])
-    # Mac model identifiers: Mac16,x are M4-era consumer machines.
     if identity.hw_model:
         model_match = re.match(r"Mac(\d+),", identity.hw_model)
         if model_match:

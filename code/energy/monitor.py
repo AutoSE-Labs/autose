@@ -28,7 +28,7 @@ class EnergyMonitor:
         self._stop = threading.Event()
         self._sampler_thread: threading.Thread | None = None
         self._gpu_name: str | None = None
-        self._model_cache: dict[str, dict[str, str | None]] = {}
+        self._model_cache: dict[str, dict[str, Any]] = {}
         if isinstance(self.collector, NvidiaSmiCollector):
             self._gpu_name = self.collector.gpu_name()
         if self.collector.capability.status == "available":
@@ -75,7 +75,7 @@ class EnergyMonitor:
         prompt_eval_duration_ns: int | None = None,
         eval_duration_ns: int | None = None,
         total_duration_ns: int | None = None,
-        model_meta: dict[str, str | None] | None = None,
+        model_meta: dict[str, Any] | None = None,
     ) -> EnergyResult | None:
         sensor_ok = self.collector.capability.status == "available"
         if sensor_ok:
@@ -111,11 +111,17 @@ class EnergyMonitor:
             operation = span.operation
 
         meta = model_meta or {}
+        parameter_count = meta.get("parameter_count")
         signals = parse_model_signals(
             model,
-            parameter_size=meta.get("parameter_size"),
-            quantization_level=meta.get("quantization_level"),
-            family=meta.get("family"),
+            parameter_size=meta.get("parameter_size") if isinstance(meta.get("parameter_size"), str) else None,
+            quantization_level=(
+                meta.get("quantization_level")
+                if isinstance(meta.get("quantization_level"), str)
+                else None
+            ),
+            family=meta.get("family") if isinstance(meta.get("family"), str) else None,
+            parameter_count=parameter_count if isinstance(parameter_count, int) else None,
         )
         approx = approximate_energy(
             span_id=span_id,
@@ -136,11 +142,11 @@ class EnergyMonitor:
         self.tracker.record_external(approx)
         return approx
 
-    def cache_model_meta(self, model: str, meta: dict[str, str | None]) -> None:
+    def cache_model_meta(self, model: str, meta: dict[str, Any]) -> None:
         with self._lock:
             self._model_cache[model] = meta
 
-    def get_model_meta(self, model: str) -> dict[str, str | None] | None:
+    def get_model_meta(self, model: str) -> dict[str, Any] | None:
         with self._lock:
             return self._model_cache.get(model)
 

@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from .format import format_energy_result
 from .monitor import EnergyMonitor, get_default_monitor
+from .ollama_meta import fetch_model_meta
 
 
 def install_energy_tracking(
@@ -19,6 +20,7 @@ def install_energy_tracking(
     energy = monitor or get_default_monitor()
     original = agent._call_sync
     model_name = str(getattr(agent, "_model", "unknown") or "unknown")
+    base_url = str(getattr(agent, "_base_url", "") or "")
 
     def tracked(messages, tools=None):
         span_id = energy.begin(model=model_name, operation="chat")
@@ -37,7 +39,12 @@ def install_energy_tracking(
         if isinstance(usage, dict):
             prompt_tokens = usage.get("prompt_tokens")
             completion_tokens = usage.get("completion_tokens")
-        # OpenAI-compat rarely includes phase timings; use wall clock as total.
+
+        meta = energy.get_model_meta(model_name)
+        if meta is None:
+            meta = fetch_model_meta(base_url, model_name)
+            energy.cache_model_meta(model_name, meta)
+
         result = energy.end(
             span_id,
             prompt_tokens=prompt_tokens if isinstance(prompt_tokens, int) else None,
@@ -45,7 +52,7 @@ def install_energy_tracking(
                 completion_tokens if isinstance(completion_tokens, int) else None
             ),
             total_duration_ns=elapsed_ns,
-            model_meta={"parameter_size": None, "quantization_level": None, "family": None},
+            model_meta=meta,
         )
         if result is not None and on_result is not None:
             on_result(result)
