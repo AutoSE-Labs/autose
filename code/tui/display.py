@@ -85,6 +85,38 @@ class TokenTracker:
         self.completion_tokens += usage.get("completion_tokens", 0)
 
 
+class EnergyTracker:
+    """Accumulates energy totals for the TUI status bar."""
+
+    def __init__(self) -> None:
+        self.total_joules: float = 0.0
+        self.last_display: str = ""
+        self.quality: str = "unavailable"
+        self.scope: str = "none"
+        self.call_count: int = 0
+
+    def update(self, result: object) -> None:
+        joules = getattr(result, "energy_joules", None)
+        if isinstance(joules, (int, float)):
+            self.total_joules += float(joules)
+        self.quality = str(getattr(result, "quality", self.quality))
+        self.scope = str(getattr(result, "scope", self.scope))
+        self.call_count += 1
+        try:
+            from energy.format import format_joules, format_energy_result
+
+            if self.quality == "approximated":
+                self.last_display = f"~{format_joules(self.total_joules)} · approx"
+            elif self.scope == "gpu":
+                self.last_display = f"{format_joules(self.total_joules)} · GPU"
+            elif self.scope == "cpu_package":
+                self.last_display = f"{format_joules(self.total_joules)} · CPU"
+            else:
+                self.last_display = format_energy_result(result)
+        except Exception:
+            self.last_display = f"{self.total_joules:.1f} J"
+
+
 # ---------------------------------------------------------------------------
 # State object shared between TUI render loop and agent/input threads
 # ---------------------------------------------------------------------------
@@ -98,6 +130,7 @@ class TUIState:
     thinking_label: str = "Thinking"
     awaiting_input: bool = False  # True when ready for next prompt
     tokens: TokenTracker = field(default_factory=TokenTracker)
+    energy: EnergyTracker = field(default_factory=EnergyTracker)
     start_time: float = field(default_factory=time.monotonic)
     quit: bool = False  # set True to exit the main loop
     chat_title: str = "AutoSE"
@@ -496,6 +529,8 @@ def _build_status_bar(state: TUIState) -> Panel:
     token_text = Text(f"Tokens: {tokens.total:,}", style="white")
     bar_text = Text(f"[{bar_chars}]", style=bar_style)
     pct_text = Text(f"{pct:.1f}% context", style=pct_style)
+    energy_label = state.energy.last_display or "Energy: —"
+    energy_text = Text(energy_label if energy_label.startswith("Energy") else f"Energy: {energy_label}", style="bright_magenta")
     elapsed_text = Text(f"Elapsed: {state.elapsed_str()}", style="bright_blue")
 
     frame = _SPINNER_FRAMES[int(time.monotonic() * 10) % len(_SPINNER_FRAMES)]
@@ -523,6 +558,8 @@ def _build_status_bar(state: TUIState) -> Panel:
         bar_text,
         Text("  "),
         pct_text,
+        Text("   "),
+        energy_text,
         Text("   "),
         elapsed_text,
         Text("   "),

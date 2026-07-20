@@ -32,6 +32,17 @@ class StandardTUIClient:
         self.state = state
 
     def prepare_agent(self, agent: object) -> None:
+        from energy.format import format_energy_result
+        from energy.tracking import install_energy_tracking
+
+        def on_energy(result) -> None:
+            self.state.energy.update(result)
+            self.state.add_message(
+                Role.TOOL,
+                f"Energy {format_energy_result(result)}",
+            )
+
+        install_energy_tracking(agent, on_result=on_energy)
         original = agent._call_sync
 
         def tracked(messages, tools=None):

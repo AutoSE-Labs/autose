@@ -77,9 +77,12 @@ class HeadlessClientTests(unittest.TestCase):
 
         event_types = [event.type for event in recorder.events]
         self.assertIn("tokens_updated", event_types)
+        self.assertIn("energy_updated", event_types)
         self.assertIn("approval_requested", event_types)
         self.assertIn("approval_resolved", event_types)
         self.assertNotIn(("tool",), {(kind,) for kind, _ in agent.calls})
+        self.assertGreater(client.energy_joules, 0)
+        self.assertIn("energy_joules", client.to_dict()["usage"])
 
     def test_prepare_agent_allows_commands_when_yes_policy_enabled(self) -> None:
         recorder = TaskSessionRecorder("task", "/workspace", "lite")

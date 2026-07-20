@@ -49,6 +49,11 @@ type SessionPayload = {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    energy_joules?: number;
+    energy_quality?: string;
+    energy_scope?: string;
+    energy_display?: string;
+    energy_calls?: number;
   };
   messages: Array<Record<string, unknown>>;
 };
@@ -136,6 +141,8 @@ type RunState = {
   totalTokens: number;
   promptTokens: number;
   completionTokens: number;
+  energyJoules: number;
+  energyDisplay: string;
   thinkingLabel: string;
   commandsDenied: boolean;
   timerId: number | undefined;
@@ -238,6 +245,9 @@ app.innerHTML = `
         <span class="ctx-meter" id="ctx-meter" aria-hidden="true"><span class="ctx-fill" id="ctx-fill"></span></span>
         <em id="ctx-label">CTX 0%</em>
       </button>
+      <span class="status-cell status-right" id="status-energy" title="Estimated or measured inference energy for this task" hidden>
+        ENERGY <em id="energy-label">—</em>
+      </span>
       <span class="status-cell status-stamp">LOCAL / NO CLOUD</span>
     </footer>
 
@@ -366,6 +376,8 @@ const statusTokens = $<HTMLElement>("#status-tokens");
 const tokensLabel = $<HTMLElement>("#tokens-label");
 const ctxFill = $<HTMLElement>("#ctx-fill");
 const ctxLabel = $<HTMLElement>("#ctx-label");
+const statusEnergy = $<HTMLElement>("#status-energy");
+const energyLabel = $<HTMLElement>("#energy-label");
 const sessionList = $<HTMLDivElement>("#session-list");
 const newTaskButton = $<HTMLButtonElement>("#new-task");
 const openSettingsButton = $<HTMLButtonElement>("#open-settings");
@@ -982,6 +994,8 @@ function startWorkCard(reqNumber: number) {
     totalTokens: 0,
     promptTokens: 0,
     completionTokens: 0,
+    energyJoules: 0,
+    energyDisplay: "",
     thinkingLabel: "Reading your request",
     commandsDenied: false,
     timerId: undefined,
@@ -1094,6 +1108,18 @@ function handleLiveEvent(event: SessionEvent) {
       run.promptTokens = Number(data.prompt_tokens ?? run.promptTokens);
       run.completionTokens = Number(data.completion_tokens ?? run.completionTokens);
       updateContextMeter(run.totalTokens);
+      break;
+    case "energy_updated":
+      run.energyJoules = Number(data.total_energy_joules ?? run.energyJoules);
+      run.energyDisplay = String(data.total_display ?? data.display ?? run.energyDisplay);
+      updateEnergyMeter(run.energyDisplay, run.energyJoules, String(data.display ?? ""));
+      if (data.display) {
+        pushActivity({
+          kind: "note",
+          icon: "◉",
+          html: escapeHtml(`Energy ${String(data.display)}`),
+        });
+      }
       break;
     case "assistant_chunk":
       appendNarration(String(data.content ?? ""));
@@ -1224,6 +1250,11 @@ function finishWorkCard(payload: SessionPayload) {
     run.promptTokens = Number(payload.usage.prompt_tokens ?? run.promptTokens);
     run.completionTokens = Number(payload.usage.completion_tokens ?? run.completionTokens);
     run.totalTokens = Number(payload.usage.total_tokens ?? run.promptTokens + run.completionTokens);
+    run.energyJoules = Number(payload.usage.energy_joules ?? run.energyJoules);
+    run.energyDisplay = String(payload.usage.energy_display ?? run.energyDisplay);
+    if (run.energyDisplay || run.energyJoules > 0) {
+      updateEnergyMeter(run.energyDisplay, run.energyJoules);
+    }
   }
   recordUsage(run.promptTokens, run.completionTokens);
 
@@ -1263,6 +1294,9 @@ function finishWorkCard(payload: SessionPayload) {
   facts.push(fact(`TIME ${elapsed}`, "good"));
   if (run.totalTokens > 0) {
     facts.push(fact(`TOKENS ${run.totalTokens.toLocaleString()}`));
+  }
+  if (run.energyDisplay || run.energyJoules > 0) {
+    facts.push(fact(`ENERGY ${run.energyDisplay || `${run.energyJoules.toFixed(1)} J`}`));
   }
   if (result.warnings.length) {
     facts.push(fact(`NOTES ${result.warnings.length}`, "warn"));
@@ -1546,6 +1580,14 @@ function updateContextMeter(totalTokens: number) {
   statusTokens.title = limit > 0
     ? `${totalTokens.toLocaleString()} of ${limit.toLocaleString()} context tokens used this task`
     : `${totalTokens.toLocaleString()} tokens used this task`;
+}
+
+function updateEnergyMeter(display: string, totalJoules: number, lastCall = "") {
+  statusEnergy.hidden = false;
+  energyLabel.textContent = display || `${totalJoules.toFixed(1)} J`;
+  statusEnergy.title = lastCall
+    ? `Session energy: ${display || `${totalJoules.toFixed(1)} J`}. Last call: ${lastCall}`
+    : `Session inference energy: ${display || `${totalJoules.toFixed(1)} J`}`;
 }
 
 /* ---------- presence ---------- */

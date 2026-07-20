@@ -35,6 +35,11 @@ class HeadlessClient:
         self._emitted_event_count = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
+        self.energy_joules = 0.0
+        self.energy_quality = "unavailable"
+        self.energy_scope = "none"
+        self.energy_display = ""
+        self.energy_calls = 0
         self.messages: list[dict] = []
         self._flush_events()
 
@@ -51,6 +56,34 @@ class HeadlessClient:
         self._flush_events()
 
     def prepare_agent(self, agent: object) -> None:
+        from energy.format import format_joules
+        from energy.tracking import install_energy_tracking, result_to_event_data
+
+        def on_energy(result) -> None:
+            if isinstance(result.energy_joules, (int, float)):
+                self.energy_joules += float(result.energy_joules)
+            self.energy_quality = result.quality
+            self.energy_scope = result.scope
+            self.energy_calls += 1
+            if self.energy_quality == "approximated":
+                self.energy_display = f"~{format_joules(self.energy_joules)} · approx"
+            elif self.energy_scope == "gpu":
+                self.energy_display = f"{format_joules(self.energy_joules)} · GPU"
+            elif self.energy_scope == "cpu_package":
+                self.energy_display = f"{format_joules(self.energy_joules)} · CPU"
+            else:
+                self.energy_display = format_joules(self.energy_joules)
+            payload = result_to_event_data(result)
+            self._emit(
+                "energy_updated",
+                message=payload["display"],
+                total_energy_joules=self.energy_joules,
+                total_display=self.energy_display,
+                call_count=self.energy_calls,
+                **payload,
+            )
+
+        install_energy_tracking(agent, on_result=on_energy)
         original_call = agent._call_sync
 
         def tracked_call(messages, tools=None):
@@ -214,6 +247,11 @@ class HeadlessClient:
                 "prompt_tokens": self.prompt_tokens,
                 "completion_tokens": self.completion_tokens,
                 "total_tokens": self.prompt_tokens + self.completion_tokens,
+                "energy_joules": self.energy_joules,
+                "energy_quality": self.energy_quality,
+                "energy_scope": self.energy_scope,
+                "energy_display": self.energy_display,
+                "energy_calls": self.energy_calls,
             },
             "messages": self.messages,
         }
