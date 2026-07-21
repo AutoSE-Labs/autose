@@ -10,6 +10,7 @@ from typing import Any
 from .approximation import TimingSignals, approximate_energy, parse_model_signals
 from .collectors import EnergyCollector, NvidiaSmiCollector, detect_collector
 from .models import EnergyCapability, EnergyResult
+from .platform_probe import detect_device_identity, probe_discrete_gpu
 from .tracker import SpanTracker
 
 
@@ -27,10 +28,16 @@ class EnergyMonitor:
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._sampler_thread: threading.Thread | None = None
-        self._gpu_name: str | None = None
         self._model_cache: dict[str, dict[str, Any]] = {}
+        gpu_name: str | None = None
         if isinstance(self.collector, NvidiaSmiCollector):
-            self._gpu_name = self.collector.gpu_name()
+            gpu_name = self.collector.gpu_name()
+        probed_name, probed_limit = probe_discrete_gpu()
+        self._device = detect_device_identity(
+            gpu_name=gpu_name or probed_name,
+            gpu_power_limit_w=probed_limit,
+        )
+        self._gpu_name = self._device.gpu_name
         if self.collector.capability.status == "available":
             self._start_sampler()
 
@@ -142,6 +149,7 @@ class EnergyMonitor:
             ),
             model_signals=signals,
             gpu_name=self._gpu_name,
+            device=self._device,
         )
         self.tracker.record_external(approx)
         return approx

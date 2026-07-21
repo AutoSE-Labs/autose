@@ -139,7 +139,7 @@ def approximate_energy(
     pull into memory is out of scope. Device watts are not scaled by model size —
     wall/phase time already reflects heavier models; size enters via memory traffic.
     """
-    identity = device or detect_device_identity(gpu_name)
+    identity = device or detect_device_identity(gpu_name=gpu_name)
     if gpu_name and identity.gpu_name != gpu_name:
         identity = DeviceIdentity(
             platform_name=identity.platform_name,
@@ -147,6 +147,7 @@ def approximate_energy(
             hw_model=identity.hw_model,
             chip_name=identity.chip_name,
             gpu_name=gpu_name,
+            gpu_power_limit_w=identity.gpu_power_limit_w,
         )
     profile = resolve_hardware_bucket(device=identity, gpu_name=gpu_name)
     gib = model_bytes_gib(model_signals)
@@ -201,7 +202,7 @@ def approximate_energy(
     if profile.id in {"generic_cpu", "apple_silicon"} or not known_model:
         confidence = "low"
     elif method == "model_timing" and known_model and has_phase and (
-        profile.id.startswith("apple_m") or profile.id.startswith("nvidia_")
+        profile.id.startswith("apple_") or profile.id.startswith("nvidia_")
     ):
         confidence = "medium"
 

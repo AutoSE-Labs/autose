@@ -105,7 +105,7 @@ class ModelBytesTests(unittest.TestCase):
         wall_span = (wall_only.energy_joules_upper or 0) - (wall_only.energy_joules_lower or 0)
         self.assertGreater(wall_span, phase_span)
 
-    def test_calibration_v4(self) -> None:
+    def test_calibration_v5(self) -> None:
         result = approximate_energy(
             span_id="v",
             model="m",
@@ -116,7 +116,8 @@ class ModelBytesTests(unittest.TestCase):
             model_signals=parse_model_signals("m", size_bytes=1024**3),
             device=_m4(),
         )
-        self.assertTrue((result.calibration_id or "").startswith("4:"))
+        self.assertTrue((result.calibration_id or "").startswith("5:"))
+        self.assertEqual(result.hardware_bucket, "apple_base")
 
 
 class OllamaMetaTests(unittest.TestCase):
