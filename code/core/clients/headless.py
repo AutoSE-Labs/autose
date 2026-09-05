@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -15,6 +16,17 @@ if str(_LOGIC_DIR) not in sys.path:
     sys.path.insert(0, str(_LOGIC_DIR))
 
 Mode = Literal["lite", "standard"]
+
+
+def _cached_tokens(usage: dict) -> int:
+    """Return cached prompt tokens from OpenAI-compat usage, else 0."""
+    details = usage.get("prompt_tokens_details")
+    if isinstance(details, dict) and details.get("cached_tokens") is not None:
+        return int(details.get("cached_tokens") or 0)
+    for key in ("cached_tokens", "cache_tokens"):
+        if usage.get(key) is not None:
+            return int(usage.get(key) or 0)
+    return 0
 
 
 class HeadlessClient:
@@ -35,6 +47,7 @@ class HeadlessClient:
         self._emitted_event_count = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
+        self.cached_tokens = 0
         self.energy_joules = 0.0
         self.energy_quality = "unavailable"
         self.energy_scope = "none"
@@ -90,17 +103,41 @@ class HeadlessClient:
             result = original_call(messages, tools=tools)
             usage = result.get("usage")
             if usage:
-                self.prompt_tokens += usage.get("prompt_tokens", 0)
-                self.completion_tokens += usage.get("completion_tokens", 0)
-                self._emit(
-                    "tokens_updated",
-                    prompt_tokens=self.prompt_tokens,
-                    completion_tokens=self.completion_tokens,
-                    total_tokens=self.prompt_tokens + self.completion_tokens,
-                )
+                self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
+                self.completion_tokens += int(usage.get("completion_tokens") or 0)
+                self.cached_tokens += _cached_tokens(usage)
+                payload = {
+                    "prompt_tokens": self.prompt_tokens,
+                    "completion_tokens": self.completion_tokens,
+                    "cached_tokens": self.cached_tokens,
+                    "total_tokens": self.prompt_tokens + self.completion_tokens,
+                }
+                self._emit("tokens_updated", **payload)
+                usage_path = os.environ.get("AUTOSE_USAGE_PATH")
+                if usage_path:
+                    Path(usage_path).write_text(
+                        json.dumps(payload) + "\n",
+                        encoding="utf-8",
+                    )
             return result
 
         agent._call_sync = tracked_call  # type: ignore[method-assign]
+
+        original_stream = getattr(agent, "_call_stream", None)
+        if original_stream is not None:
+            def tracked_stream(messages, tools=None):
+                # Route the final answer through tracked _call_sync so usage is counted.
+                response = tracked_call(messages, tools=tools)
+                content = (
+                    ((response.get("choices") or [{}])[0].get("message") or {}).get("content")
+                    or ""
+                )
+                if content:
+                    yield content
+                else:
+                    yield from original_stream(messages, tools=tools)
+
+            agent._call_stream = tracked_stream  # type: ignore[method-assign]
 
         original_execute = agent._execute_tool
 
@@ -246,6 +283,7 @@ class HeadlessClient:
             "usage": {
                 "prompt_tokens": self.prompt_tokens,
                 "completion_tokens": self.completion_tokens,
+                "cached_tokens": self.cached_tokens,
                 "total_tokens": self.prompt_tokens + self.completion_tokens,
                 "energy_joules": self.energy_joules,
                 "energy_quality": self.energy_quality,

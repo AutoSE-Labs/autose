@@ -24,8 +24,17 @@ class PlanAgent(BaseAgent):
         api_key: str,
         model: str,
         workspace_root: str = ".",
+        context_limit: int | None = None,
+        reserved_output_tokens: int = 8192,
     ) -> None:
-        super().__init__(base_url, api_key, model, workspace_root)
+        super().__init__(
+            base_url,
+            api_key,
+            model,
+            workspace_root,
+            context_limit=context_limit,
+            reserved_output_tokens=reserved_output_tokens,
+        )
         self._tools = TOOLS
 
     def run(
@@ -73,11 +82,9 @@ class PlanAgent(BaseAgent):
             message = choice["message"]
             if message.get("content"):
                 last_content = message["content"]
-            tool_calls = message.get("tool_calls")
-            if not tool_calls:
-                tool_calls = self._parse_text_tool_calls(message.get("content", ""))
-                if tool_calls:
-                    message = {**message, "content": None, "tool_calls": tool_calls}
+            tool_calls = self._assistant_tool_calls(message)
+            if tool_calls and not message.get("tool_calls"):
+                message = {**message, "content": None, "tool_calls": tool_calls}
 
             if not tool_calls:
                 yield from self._call_stream(messages, tools=TOOLS_SCHEMA)

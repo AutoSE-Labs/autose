@@ -25,7 +25,13 @@ class _FakeAgent:
 
     def _call_sync(self, messages, tools=None):
         self.calls.append(("sync", {"messages": messages, "tools": tools}))
-        return {"usage": {"prompt_tokens": 3, "completion_tokens": 5}}
+        return {
+            "usage": {
+                "prompt_tokens": 3,
+                "completion_tokens": 5,
+                "prompt_tokens_details": {"cached_tokens": 2},
+            }
+        }
 
     def _execute_tool(self, tool_call: dict) -> str:
         self.calls.append(("tool", tool_call))
@@ -73,6 +79,8 @@ class HeadlessClientTests(unittest.TestCase):
         self.assertEqual(result["usage"]["prompt_tokens"], 3)
         self.assertEqual(client.prompt_tokens, 3)
         self.assertEqual(client.completion_tokens, 5)
+        self.assertEqual(client.cached_tokens, 2)
+        self.assertEqual(client.to_dict()["usage"]["cached_tokens"], 2)
         self.assertIn("denied", denied.lower())
 
         event_types = [event.type for event in recorder.events]
@@ -81,7 +89,9 @@ class HeadlessClientTests(unittest.TestCase):
         self.assertIn("approval_requested", event_types)
         self.assertIn("approval_resolved", event_types)
         self.assertNotIn(("tool",), {(kind,) for kind, _ in agent.calls})
-        self.assertGreater(client.energy_joules, 0)
+        # Very short mocked calls can legitimately round measured energy to zero.
+        self.assertGreaterEqual(client.energy_joules, 0)
+        self.assertEqual(client.energy_calls, 1)
         self.assertIn("energy_joules", client.to_dict()["usage"])
 
     def test_prepare_agent_allows_commands_when_yes_policy_enabled(self) -> None:

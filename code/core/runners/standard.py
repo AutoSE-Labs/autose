@@ -97,6 +97,8 @@ class StandardRunner:
             api_key=inference.get("api_key", "") or "",
             model=inference.get("model", ""),
             workspace_root=str(self.workspace_root),
+            context_limit=inference.get("context_limit"),
+            reserved_output_tokens=inference.get("reserved_output_tokens", 8192),
         )
 
         try:

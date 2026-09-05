@@ -55,11 +55,9 @@ class LiteAgent(BaseAgent):
             message = choice["message"]
             if message.get("content"):
                 last_content = message["content"]
-            tool_calls = message.get("tool_calls")
-            if not tool_calls:
-                tool_calls = self._parse_text_tool_calls(message.get("content", ""))
-                if tool_calls:
-                    message = {**message, "content": None, "tool_calls": tool_calls}
+            tool_calls = self._assistant_tool_calls(message)
+            if tool_calls and not message.get("tool_calls"):
+                message = {**message, "content": None, "tool_calls": tool_calls}
 
             if not tool_calls:
                 # Prefer the answer already returned on this turn. A second

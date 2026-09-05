@@ -1,6 +1,8 @@
+import http.client
 import json
 import math
 import re
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -13,6 +15,36 @@ class ContextLengthError(Exception):
 
 class InferenceTimeoutError(Exception):
     """Raised when a request to the inference backend does not respond in time."""
+
+
+_RETRYABLE_DISCONNECT = (
+    BrokenPipeError,
+    ConnectionAbortedError,
+    ConnectionResetError,
+    TimeoutError,
+    http.client.IncompleteRead,
+    http.client.RemoteDisconnected,
+)
+
+
+def _is_retryable_disconnect(exc: BaseException) -> bool:
+    if isinstance(exc, _RETRYABLE_DISCONNECT):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        reason = exc.reason
+        if isinstance(reason, _RETRYABLE_DISCONNECT):
+            return True
+        text = str(reason or exc).lower()
+        return any(
+            needle in text
+            for needle in (
+                "remote end closed",
+                "connection reset",
+                "broken pipe",
+                "connection refused",
+            )
+        )
+    return False
 
 
 def _normalize_base_url(base_url: str) -> str:
@@ -248,14 +280,14 @@ class BaseAgent:
         lines: list[str] = []
         for group in reversed(groups):
             results = {
-                message.get("tool_call_id"): str(message.get("content", ""))
+                message.get("tool_call_id"): str(message.get("content") or "")
                 for message in group
                 if message.get("role") == "tool"
             }
             for message in reversed(group):
                 if message.get("role") != "assistant":
                     continue
-                for call in reversed(message.get("tool_calls", [])):
+                for call in reversed(message.get("tool_calls") or []):
                     function = call.get("function", {})
                     name = str(function.get("name", "tool"))
                     raw_arguments = function.get("arguments", "")
@@ -371,31 +403,41 @@ class BaseAgent:
             body["tools"] = tools
         self._apply_output_limit(body)
         payload = json.dumps(body).encode("utf-8")
-        req = urllib.request.Request(
-            f"{self._base_url}/chat/completions",
-            data=payload,
-            headers=self._headers(),
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=self._REQUEST_TIMEOUT) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            body_text = ""
+        last_exc: BaseException | None = None
+        for attempt in range(4):
+            req = urllib.request.Request(
+                f"{self._base_url}/chat/completions",
+                data=payload,
+                headers=self._headers(),
+                method="POST",
+            )
             try:
-                body_text = exc.read().decode("utf-8")
-            except Exception:
-                pass
-            lower = body_text.lower()
-            if any(
-                k in lower for k in ("context", "token", "length", "exceed", "maximum")
-            ):
-                raise ContextLengthError(body_text) from exc
-            raise
-        except (urllib.error.URLError, TimeoutError) as exc:
-            raise InferenceTimeoutError(
-                f"Could not reach the inference backend at {self._base_url}: {exc}"
-            ) from exc
+                with urllib.request.urlopen(req, timeout=self._REQUEST_TIMEOUT) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                body_text = ""
+                try:
+                    body_text = exc.read().decode("utf-8")
+                except Exception:
+                    pass
+                lower = body_text.lower()
+                if any(
+                    k in lower
+                    for k in ("context", "token", "length", "exceed", "maximum")
+                ):
+                    raise ContextLengthError(body_text) from exc
+                raise
+            except (urllib.error.URLError, TimeoutError, *_RETRYABLE_DISCONNECT) as exc:
+                last_exc = exc
+                if attempt < 3 and _is_retryable_disconnect(exc):
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                raise InferenceTimeoutError(
+                    f"Could not reach the inference backend at {self._base_url}: {exc}"
+                ) from exc
+        raise InferenceTimeoutError(
+            f"Could not reach the inference backend at {self._base_url}: {last_exc}"
+        ) from last_exc
 
     def _call_stream(
         self, messages: list[dict], tools: list | None = None
@@ -434,17 +476,20 @@ class BaseAgent:
                             yield delta
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
-        except urllib.error.HTTPError:
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, *_RETRYABLE_DISCONNECT):
             response = self._call_sync(messages)
             content = response["choices"][0]["message"].get("content") or ""
             if content:
                 yield content
-        except (urllib.error.URLError, TimeoutError) as exc:
-            raise InferenceTimeoutError(
-                f"Could not reach the inference backend at {self._base_url}: {exc}"
-            ) from exc
 
-    def _parse_text_tool_calls(self, content: str) -> list[dict] | None:
+    def _assistant_tool_calls(self, message: dict) -> list | None:
+        """Native tool_calls, else text fallback. Null content from vLLM is empty."""
+        tool_calls = message.get("tool_calls") or None
+        if tool_calls:
+            return tool_calls
+        return self._parse_text_tool_calls(message.get("content"))
+
+    def _parse_text_tool_calls(self, content: str | None) -> list[dict] | None:
         """Fallback parser for models that emit tool calls as text instead of the
         tool_calls API field.  Handles the format::
 
@@ -453,7 +498,7 @@ class BaseAgent:
         Returns a list compatible with the ``tool_calls`` API shape, or None if
         no recognised pattern is found.
         """
-        match = re.search(r"call:(\w+)\{([^}]*)\}", content)
+        match = re.search(r"call:(\w+)\{([^}]*)\}", content or "")
         if not match:
             return None
         tool_name = match.group(1)
