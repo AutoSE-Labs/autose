@@ -46,6 +46,10 @@ class LiteAgent(BaseAgent):
 
         last_content = ""
         for _round in range(self._MAX_TOOL_ROUNDS):
+            if self._deadline_reached():
+                if last_content.strip():
+                    yield last_content
+                return
             try:
                 response = self._call_sync(messages, tools=TOOLS_SCHEMA)
             except ContextLengthError:

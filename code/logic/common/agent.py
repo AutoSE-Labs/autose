@@ -1,10 +1,12 @@
 import http.client
 import json
 import math
+import os
 import re
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -66,10 +68,9 @@ class BaseAgent:
     _MAX_TOOL_OUTPUT: int = 4000
     # Number of tool-call rounds to retain in history (system is always kept).
     _MAX_HISTORY_ROUNDS: int = 20
-    # Hard ceiling on tool-calling rounds within a single agent.run() call.
-    # Prevents a model stuck in a read/search loop from hanging a stage
-    # indefinitely — after this many rounds the agent forces a final answer.
-    _MAX_TOOL_ROUNDS: int = 30
+    # Safety-only round ceiling. The real stop for eval is AUTOSE_DEADLINE_UNIX
+    # (DeepSWE 90-minute agent wall). Do not use this as a small per-stage budget.
+    _MAX_TOOL_ROUNDS: int = 100_000
     _ENABLE_EVIDENCE_COMPACTION: bool = False
     _MAX_EVIDENCE_NOTES: int = 6
     _MAX_EVIDENCE_DETAIL_CHARS: int = 180
@@ -89,6 +90,7 @@ class BaseAgent:
         temperature: float = 0.2,
         context_limit: int | None = None,
         reserved_output_tokens: int = 8192,
+        request_extras: dict | None = None,
     ) -> None:
         self._base_url = _normalize_base_url(base_url)
         self._api_key = api_key
@@ -97,9 +99,22 @@ class BaseAgent:
         self._temperature = temperature
         self._context_limit = context_limit if context_limit and context_limit > 0 else None
         self._reserved_output_tokens = max(0, reserved_output_tokens)
+        self._request_extras = dict(request_extras or {})
+        self._session_id = os.environ.get("AUTOSE_SESSION_ID") or str(uuid.uuid4())
         self.context_metrics: list[dict] = []
+        self._recent_tool_sigs: list[str] = []
         # Subclasses must set self._tools to their TOOLS dict.
         self._tools: dict = {}
+
+    @staticmethod
+    def _deadline_reached() -> bool:
+        raw = os.environ.get("AUTOSE_DEADLINE_UNIX")
+        if not raw:
+            return False
+        try:
+            return time.time() >= float(raw)
+        except ValueError:
+            return False
 
     # ------------------------------------------------------------------
 
@@ -145,6 +160,41 @@ class BaseAgent:
             }
         ]
         return head + notice + [msg for r in kept for msg in r]
+
+    @staticmethod
+    def _is_context_http_error(code: int, body_text: str, reason: str = "") -> bool:
+        if code not in (400, 413):
+            return False
+        blob = f"{body_text} {reason}".lower()
+        if any(
+            needle in blob
+            for needle in (
+                "context",
+                "token",
+                "length",
+                "exceed",
+                "maximum",
+                "too long",
+            )
+        ):
+            return True
+        return code == 400 and not (body_text or "").strip()
+
+    @staticmethod
+    def _drop_oldest_tool_group(messages: list[dict]) -> list[dict]:
+        """Drop the oldest assistant+tool group so a 400 can be retried smaller."""
+        start = next(
+            (i for i, message in enumerate(messages) if message.get("role") == "assistant"),
+            None,
+        )
+        if start is None:
+            return messages
+        end = start + 1
+        while end < len(messages) and messages[end].get("role") == "tool":
+            end += 1
+        if end >= len(messages):
+            return messages
+        return messages[:start] + messages[end:]
 
     @staticmethod
     def _estimate_tokens(value: object) -> int:
@@ -381,63 +431,103 @@ class BaseAgent:
         )
 
     def _headers(self) -> dict:
-        h = {"Content-Type": "application/json"}
+        h = {
+            "Content-Type": "application/json",
+            # Cloudflare 1010s the default Python-urllib User-Agent.
+            "User-Agent": "autose/1.0",
+            # OpenCode Go routes on a stable per-conversation session id.
+            "x-opencode-session": self._session_id,
+        }
         if self._api_key:
             h["Authorization"] = f"Bearer {self._api_key}"
         return h
 
     def _apply_output_limit(self, body: dict) -> None:
-        """Cap generation when a configured context budget reserves output space."""
-        if self._context_limit is not None and self._reserved_output_tokens > 0:
-            body["max_tokens"] = self._reserved_output_tokens
+        """Always send max_tokens that still fits in the context window.
 
-    def _call_sync(self, messages: list[dict], tools: list | None = None) -> dict:
+        reserved_output_tokens=0 used to skip this field. vLLM then assumed a
+        large default completion budget, so prompt + default overflowed 262k
+        and returned HTTP 400.
+        """
+        prompt_est = self._estimate_tokens(body.get("messages"))
+        if body.get("tools"):
+            prompt_est += self._estimate_tokens(body.get("tools"))
+        if self._context_limit is None:
+            if self._reserved_output_tokens > 0:
+                body["max_tokens"] = self._reserved_output_tokens
+            return
+        remaining = self._context_limit - prompt_est - 64
+        cap = self._reserved_output_tokens if self._reserved_output_tokens > 0 else 16384
+        body["max_tokens"] = max(256, min(cap, remaining))
+
+    def _merge_request_extras(self, body: dict) -> None:
+        extras = dict(self._request_extras)
+        for key in ("messages", "model", "tools", "stream"):
+            extras.pop(key, None)
+        body.update(extras)
+
+    def _call_sync(
+        self,
+        messages: list[dict],
+        tools: list | None = None,
+        tool_choice: str | None = None,
+    ) -> dict:
         """Non-streaming call, used for tool-calling rounds."""
-        messages = self._prepare_messages(messages, tools)
-        body: dict = {
-            "model": self._model,
-            "messages": messages,
-            "temperature": self._temperature,
-        }
-        if tools:
-            body["tools"] = tools
-        self._apply_output_limit(body)
-        payload = json.dumps(body).encode("utf-8")
-        last_exc: BaseException | None = None
-        for attempt in range(4):
-            req = urllib.request.Request(
-                f"{self._base_url}/chat/completions",
-                data=payload,
-                headers=self._headers(),
-                method="POST",
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=self._REQUEST_TIMEOUT) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
-            except urllib.error.HTTPError as exc:
-                body_text = ""
+        work = list(messages)
+        last_context: str = ""
+        for _shrink in range(8):
+            prepared = self._prepare_messages(work, tools)
+            body: dict = {
+                "model": self._model,
+                "messages": prepared,
+                "temperature": self._temperature,
+            }
+            if tools:
+                body["tools"] = tools
+                body["tool_choice"] = tool_choice or "auto"
+            self._merge_request_extras(body)
+            self._apply_output_limit(body)
+            payload = json.dumps(body).encode("utf-8")
+            last_exc: BaseException | None = None
+            for attempt in range(4):
+                req = urllib.request.Request(
+                    f"{self._base_url}/chat/completions",
+                    data=payload,
+                    headers=self._headers(),
+                    method="POST",
+                )
                 try:
-                    body_text = exc.read().decode("utf-8")
-                except Exception:
-                    pass
-                lower = body_text.lower()
-                if any(
-                    k in lower
-                    for k in ("context", "token", "length", "exceed", "maximum")
-                ):
-                    raise ContextLengthError(body_text) from exc
-                raise
-            except (urllib.error.URLError, TimeoutError, *_RETRYABLE_DISCONNECT) as exc:
-                last_exc = exc
-                if attempt < 3 and _is_retryable_disconnect(exc):
-                    time.sleep(1.5 * (attempt + 1))
-                    continue
+                    with urllib.request.urlopen(req, timeout=self._REQUEST_TIMEOUT) as resp:
+                        return json.loads(resp.read().decode("utf-8"))
+                except urllib.error.HTTPError as exc:
+                    body_text = ""
+                    try:
+                        body_text = exc.read().decode("utf-8")
+                    except Exception:
+                        pass
+                    if self._is_context_http_error(exc.code, body_text, str(exc.reason or "")):
+                        last_context = body_text.strip() or str(exc.reason or "HTTP 400")
+                        break
+                    raise RuntimeError(
+                        f"HTTP {exc.code}: {body_text.strip() or exc.reason}"
+                    ) from exc
+                except (urllib.error.URLError, TimeoutError, *_RETRYABLE_DISCONNECT) as exc:
+                    last_exc = exc
+                    if attempt < 3 and _is_retryable_disconnect(exc):
+                        time.sleep(1.5 * (attempt + 1))
+                        continue
+                    raise InferenceTimeoutError(
+                        f"Could not reach the inference backend at {self._base_url}: {exc}"
+                    ) from exc
+            else:
                 raise InferenceTimeoutError(
-                    f"Could not reach the inference backend at {self._base_url}: {exc}"
-                ) from exc
-        raise InferenceTimeoutError(
-            f"Could not reach the inference backend at {self._base_url}: {last_exc}"
-        ) from last_exc
+                    f"Could not reach the inference backend at {self._base_url}: {last_exc}"
+                ) from last_exc
+            shrunk = self._drop_oldest_tool_group(work)
+            if shrunk == work:
+                raise ContextLengthError(last_context or "context window exceeded")
+            work = shrunk
+        raise ContextLengthError(last_context or "context window exceeded")
 
     def _call_stream(
         self, messages: list[dict], tools: list | None = None
@@ -452,6 +542,8 @@ class BaseAgent:
         }
         if tools:
             body["tools"] = tools
+            body["tool_choice"] = "auto"
+        self._merge_request_extras(body)
         self._apply_output_limit(body)
         payload = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(
@@ -482,23 +574,33 @@ class BaseAgent:
             if content:
                 yield content
 
+    def _assistant_text(self, message: dict) -> str:
+        parts = [
+            message.get("content") or "",
+            message.get("reasoning_content") or "",
+            message.get("reasoning") or "",
+        ]
+        return "\n".join(part for part in parts if part)
+
     def _assistant_tool_calls(self, message: dict) -> list | None:
-        """Native tool_calls, else text fallback. Null content from vLLM is empty."""
+        """Native tool_calls, else text fallback from content or reasoning."""
         tool_calls = message.get("tool_calls") or None
         if tool_calls:
             return tool_calls
-        return self._parse_text_tool_calls(message.get("content"))
+        return self._parse_text_tool_calls(self._assistant_text(message))
 
     def _parse_text_tool_calls(self, content: str | None) -> list[dict] | None:
         """Fallback parser for models that emit tool calls as text instead of the
-        tool_calls API field.  Handles the format::
+        tool_calls API field.
 
-            call:tool_name{key:value, key:value, ...}
-
-        Returns a list compatible with the ``tool_calls`` API shape, or None if
-        no recognised pattern is found.
+        Handles ``call:tool_name{key:value}``, ``<tool_call>{...}</tool_call>``,
+        and ``<function=name><parameter=key>value</parameter></function>``.
         """
-        match = re.search(r"call:(\w+)\{([^}]*)\}", content or "")
+        blob = content or ""
+        parsed = self._parse_xml_tool_calls(blob)
+        if parsed:
+            return parsed
+        match = re.search(r"call:(\w+)\{([^}]*)\}", blob)
         if not match:
             return None
         tool_name = match.group(1)
@@ -519,22 +621,114 @@ class BaseAgent:
                 args[key] = value
         if not args:
             return None
-        return [
-            {
-                "id": "text_fallback_0",
-                "type": "function",
-                "function": {"name": tool_name, "arguments": json.dumps(args)},
-            }
-        ]
+        return [self._text_tool_call(tool_name, args, 0)]
+
+    def _parse_xml_tool_calls(self, blob: str) -> list[dict] | None:
+        calls: list[dict] = []
+        for match in re.finditer(r"<tool_call>\s*(.*?)\s*</tool_call>", blob, re.DOTALL):
+            inner = match.group(1).strip()
+            if inner.startswith("{"):
+                try:
+                    payload = json.loads(inner)
+                except json.JSONDecodeError:
+                    continue
+                name = payload.get("name") or payload.get("function")
+                args = payload.get("arguments") or payload.get("parameters") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except json.JSONDecodeError:
+                        args = {"_raw": args}
+                if name in self._tools and isinstance(args, dict):
+                    calls.append(self._text_tool_call(name, args, len(calls)))
+                continue
+            fn_match = re.search(r"<function=(\w+)>(.*)</function>", inner, re.DOTALL)
+            if fn_match and fn_match.group(1) in self._tools:
+                calls.append(
+                    self._text_tool_call(
+                        fn_match.group(1),
+                        self._xml_parameters(fn_match.group(2)),
+                        len(calls),
+                    )
+                )
+        for match in re.finditer(r"<function=(\w+)>(.*?)</function>", blob, re.DOTALL):
+            name = match.group(1)
+            if name not in self._tools:
+                continue
+            if any(
+                call["function"]["name"] == name
+                and call["function"]["arguments"]
+                == json.dumps(self._xml_parameters(match.group(2)))
+                for call in calls
+            ):
+                continue
+            calls.append(
+                self._text_tool_call(name, self._xml_parameters(match.group(2)), len(calls))
+            )
+        return calls or None
+
+    @staticmethod
+    def _xml_parameters(inner: str) -> dict:
+        args: dict = {}
+        for match in re.finditer(
+            r"<parameter=([^>]+)>(.*?)</parameter>", inner, re.DOTALL
+        ):
+            args[match.group(1).strip()] = match.group(2)
+        return args
+
+    def _text_tool_call(self, name: str, args: dict, index: int) -> dict:
+        return {
+            "id": f"text_fallback_{index}",
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args)},
+        }
+
+    def _yield_final_text(
+        self, messages: list[dict], message: dict, last_content: str
+    ) -> Iterator[str]:
+        """Prefer the current turn's text. Do not restream with tools enabled."""
+        content = str(message.get("content") or "").strip()
+        if content:
+            yield content
+            return
+        produced = False
+        for chunk in self._call_stream(messages, tools=None):
+            if chunk:
+                produced = True
+                yield chunk
+        if produced:
+            return
+        if str(last_content or "").strip():
+            yield last_content
 
     def _execute_tool(self, tool_call: dict) -> str:
-        name = tool_call["function"]["name"]
+        function = tool_call.get("function") or {}
+        name = function.get("name") or ""
+        raw_args = function.get("arguments", "{}")
         try:
-            args = json.loads(tool_call["function"]["arguments"])
+            if isinstance(raw_args, dict):
+                args = raw_args
+            else:
+                args = json.loads(raw_args or "{}")
         except json.JSONDecodeError as exc:
             return f"Error: could not parse tool arguments: {exc}"
+        if not isinstance(args, dict):
+            return f"Error: tool arguments must be an object, got {type(args).__name__}"
         if name not in self._tools:
             return f"Error: unknown tool '{name}'"
+        sig = f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
+        if (
+            len(self._recent_tool_sigs) >= 2
+            and self._recent_tool_sigs[-1] == sig
+            and self._recent_tool_sigs[-2] == sig
+        ):
+            return (
+                "Error: identical tool call repeated three times. Stop rereading "
+                "the same slice; try a different path, query, or write the change."
+            )
+        self._recent_tool_sigs.append(sig)
+        if len(self._recent_tool_sigs) > 24:
+            self._recent_tool_sigs = self._recent_tool_sigs[-24:]
         try:
             result = self._tools[name](workspace_root=str(self._workspace), **args)
         except TypeError as exc:

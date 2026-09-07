@@ -45,8 +45,8 @@ class StandardTUIClient:
         install_energy_tracking(agent, on_result=on_energy)
         original = agent._call_sync
 
-        def tracked(messages, tools=None):
-            result = original(messages, tools=tools)
+        def tracked(messages, tools=None, **kwargs):
+            result = original(messages, tools=tools, **kwargs)
             usage = result.get("usage")
             if usage:
                 self.state.tokens.update(usage)

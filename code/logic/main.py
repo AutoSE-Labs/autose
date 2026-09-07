@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -162,6 +163,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main() -> None:
+    if not os.environ.get("AUTOSE_DEADLINE_UNIX"):
+        raw = os.environ.get("AUTOSE_WALL_TIMEOUT_SEC")
+        if raw:
+            os.environ["AUTOSE_DEADLINE_UNIX"] = str(time.time() + float(raw))
     config_path = _find_config()
     headless_flags = (
         "--headless",

@@ -99,6 +99,7 @@ class StandardRunner:
             workspace_root=str(self.workspace_root),
             context_limit=inference.get("context_limit"),
             reserved_output_tokens=inference.get("reserved_output_tokens", 8192),
+            request_extras=inference.get("request_extras") or {},
         )
 
         try:

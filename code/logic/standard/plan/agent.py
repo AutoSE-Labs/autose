@@ -26,6 +26,7 @@ class PlanAgent(BaseAgent):
         workspace_root: str = ".",
         context_limit: int | None = None,
         reserved_output_tokens: int = 8192,
+        request_extras: dict | None = None,
     ) -> None:
         super().__init__(
             base_url,
@@ -34,6 +35,7 @@ class PlanAgent(BaseAgent):
             workspace_root,
             context_limit=context_limit,
             reserved_output_tokens=reserved_output_tokens,
+            request_extras=request_extras,
         )
         self._tools = TOOLS
 
@@ -72,11 +74,18 @@ class PlanAgent(BaseAgent):
 
         last_content = ""
         for _round in range(self._MAX_TOOL_ROUNDS):
+            if self._deadline_reached():
+                yield last_content
+                return
             try:
                 response = self._call_sync(messages, tools=TOOLS_SCHEMA)
             except ContextLengthError:
-                yield "Error: context window exceeded while planning. Try a more specific task."
-                return
+                shrunk = self._drop_oldest_tool_group(messages)
+                if shrunk == messages:
+                    yield "Error: context window exceeded while planning. Try a more specific task."
+                    return
+                messages = shrunk
+                continue
 
             choice = response["choices"][0]
             message = choice["message"]
@@ -87,7 +96,7 @@ class PlanAgent(BaseAgent):
                 message = {**message, "content": None, "tool_calls": tool_calls}
 
             if not tool_calls:
-                yield from self._call_stream(messages, tools=TOOLS_SCHEMA)
+                yield from self._yield_final_text(messages, message, last_content)
                 return
 
             messages.append(message)

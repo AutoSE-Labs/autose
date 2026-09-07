@@ -31,6 +31,7 @@ class StandardContextConfigTests(unittest.TestCase):
                 )
                 self.assertEqual(agent._context_limit, 65536)
                 self.assertEqual(agent._reserved_output_tokens, 4096)
+                self.assertEqual(agent._request_extras, {})
 
 
 if __name__ == "__main__":

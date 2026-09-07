@@ -25,6 +25,7 @@ class CodeAgent(BaseAgent):
         workspace_root: str = ".",
         context_limit: int | None = None,
         reserved_output_tokens: int = 8192,
+        request_extras: dict | None = None,
     ) -> None:
         super().__init__(
             base_url,
@@ -33,6 +34,7 @@ class CodeAgent(BaseAgent):
             workspace_root,
             context_limit=context_limit,
             reserved_output_tokens=reserved_output_tokens,
+            request_extras=request_extras,
         )
         self._tools = TOOLS
 
@@ -51,10 +53,18 @@ class CodeAgent(BaseAgent):
 
         last_content = ""
         for _round in range(self._MAX_TOOL_ROUNDS):
+            if self._deadline_reached():
+                return last_content
             try:
                 response = self._call_sync(messages, tools=TOOLS_SCHEMA)
             except ContextLengthError:
-                return "Error: context window exceeded while coding. The plan may be too large."
+                shrunk = self._drop_oldest_tool_group(messages)
+                if shrunk == messages:
+                    return last_content or (
+                        "Error: context window exceeded while coding. The plan may be too large."
+                    )
+                messages = shrunk
+                continue
 
             choice = response["choices"][0]
             message = choice["message"]
@@ -65,6 +75,15 @@ class CodeAgent(BaseAgent):
                 message = {**message, "content": None, "tool_calls": tool_calls}
 
             if not tool_calls:
+                if choice.get("finish_reason") == "length":
+                    messages.append({"role": "assistant", "content": last_content or ""})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "Your last reply was cut off. Continue.",
+                        }
+                    )
+                    continue
                 return message.get("content") or last_content or ""
 
             messages.append(message)
@@ -73,11 +92,9 @@ class CodeAgent(BaseAgent):
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tc["id"],
+                        "tool_call_id": tc.get("id") or "tool_call",
                         "content": result,
                     }
                 )
 
-        # Tool-call round budget exhausted — surface whatever the model has
-        # already drafted rather than issuing another (possibly slow) call.
         return last_content

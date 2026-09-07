@@ -22,11 +22,11 @@ def install_energy_tracking(
     model_name = str(getattr(agent, "_model", "unknown") or "unknown")
     base_url = str(getattr(agent, "_base_url", "") or "")
 
-    def tracked(messages, tools=None):
+    def tracked(messages, tools=None, **kwargs):
         span_id = energy.begin(model=model_name, operation="chat")
         started = time.monotonic()
         try:
-            response = original(messages, tools=tools)
+            response = original(messages, tools=tools, **kwargs)
         except Exception:
             # Failed calls should not contribute ~0 J noise to the session total.
             energy.tracker.discard(span_id)
