@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Literal, Union
@@ -23,10 +25,44 @@ def _cached_tokens(usage: dict) -> int:
     details = usage.get("prompt_tokens_details")
     if isinstance(details, dict) and details.get("cached_tokens") is not None:
         return int(details.get("cached_tokens") or 0)
-    for key in ("cached_tokens", "cache_tokens"):
+    for key in ("cached_tokens", "cache_tokens", "num_cached_tokens"):
         if usage.get(key) is not None:
             return int(usage.get(key) or 0)
     return 0
+
+
+def _metrics_url(base_url: str) -> str:
+    value = (base_url or "").rstrip("/")
+    if value.endswith("/v1"):
+        value = value[:-3]
+    return f"{value.rstrip('/')}/metrics"
+
+
+def _prefix_cache_from_metrics(text: str) -> dict[str, float]:
+    hits = None
+    queries = None
+    for line in text.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        name = line.split("{", 1)[0].split()[0]
+        if name == "vllm:prefix_cache_hits_total":
+            hits = float(line.rsplit(None, 1)[-1])
+        elif name == "vllm:prefix_cache_queries_total":
+            queries = float(line.rsplit(None, 1)[-1])
+    out: dict[str, float] = {}
+    if hits is not None:
+        out["vllm_prefix_cache_hits_total"] = hits
+    if queries is not None:
+        out["vllm_prefix_cache_queries_total"] = queries
+    return out
+
+
+def _fetch_prefix_cache(base_url: str) -> dict[str, float]:
+    try:
+        with urllib.request.urlopen(_metrics_url(base_url), timeout=2) as resp:
+            return _prefix_cache_from_metrics(resp.read().decode("utf-8", errors="replace"))
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return {}
 
 
 class HeadlessClient:
@@ -54,6 +90,8 @@ class HeadlessClient:
         self.energy_display = ""
         self.energy_calls = 0
         self.messages: list[dict] = []
+        self.vllm_prefix_cache_hits_total = 0.0
+        self.vllm_prefix_cache_queries_total = 0.0
         self._flush_events()
 
     def _flush_events(self) -> None:
@@ -99,18 +137,29 @@ class HeadlessClient:
         install_energy_tracking(agent, on_result=on_energy)
         original_call = agent._call_sync
 
-        def tracked_call(messages, tools=None):
-            result = original_call(messages, tools=tools)
+        def tracked_call(messages, tools=None, **kwargs):
+            result = original_call(messages, tools=tools, **kwargs)
             usage = result.get("usage")
             if usage:
                 self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
                 self.completion_tokens += int(usage.get("completion_tokens") or 0)
                 self.cached_tokens += _cached_tokens(usage)
+                cache_metrics = _fetch_prefix_cache(getattr(agent, "_base_url", "") or "")
+                if cache_metrics:
+                    self.vllm_prefix_cache_hits_total = cache_metrics.get(
+                        "vllm_prefix_cache_hits_total", self.vllm_prefix_cache_hits_total
+                    )
+                    self.vllm_prefix_cache_queries_total = cache_metrics.get(
+                        "vllm_prefix_cache_queries_total",
+                        self.vllm_prefix_cache_queries_total,
+                    )
                 payload = {
                     "prompt_tokens": self.prompt_tokens,
                     "completion_tokens": self.completion_tokens,
                     "cached_tokens": self.cached_tokens,
                     "total_tokens": self.prompt_tokens + self.completion_tokens,
+                    "vllm_prefix_cache_hits_total": self.vllm_prefix_cache_hits_total,
+                    "vllm_prefix_cache_queries_total": self.vllm_prefix_cache_queries_total,
                 }
                 self._emit("tokens_updated", **payload)
                 usage_path = os.environ.get("AUTOSE_USAGE_PATH")
@@ -125,9 +174,9 @@ class HeadlessClient:
 
         original_stream = getattr(agent, "_call_stream", None)
         if original_stream is not None:
-            def tracked_stream(messages, tools=None):
+            def tracked_stream(messages, tools=None, **kwargs):
                 # Route the final answer through tracked _call_sync so usage is counted.
-                response = tracked_call(messages, tools=tools)
+                response = tracked_call(messages, tools=tools, **kwargs)
                 content = (
                     ((response.get("choices") or [{}])[0].get("message") or {}).get("content")
                     or ""
@@ -285,6 +334,8 @@ class HeadlessClient:
                 "completion_tokens": self.completion_tokens,
                 "cached_tokens": self.cached_tokens,
                 "total_tokens": self.prompt_tokens + self.completion_tokens,
+                "vllm_prefix_cache_hits_total": self.vllm_prefix_cache_hits_total,
+                "vllm_prefix_cache_queries_total": self.vllm_prefix_cache_queries_total,
                 "energy_joules": self.energy_joules,
                 "energy_quality": self.energy_quality,
                 "energy_scope": self.energy_scope,

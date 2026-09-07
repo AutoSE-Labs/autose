@@ -14,12 +14,17 @@ for path in (str(CODE_DIR), str(LOGIC_DIR)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from core.clients.headless import HeadlessClient, run_headless  # noqa: E402
+from core.clients.headless import (  # noqa: E402
+    HeadlessClient,
+    _prefix_cache_from_metrics,
+    run_headless,
+)
 from core.session import TaskSessionRecorder  # noqa: E402
 
 
 class _FakeAgent:
     def __init__(self) -> None:
+        self._base_url = "http://127.0.0.1:9/v1"
         self._tools = {"run_command": object()}
         self.calls: list[tuple[str, dict | None]] = []
 
@@ -148,6 +153,18 @@ class HeadlessClientTests(unittest.TestCase):
         self.assertIn("artifact_created", event_types)
         self.assertIn("session_completed", event_types)
         self.assertEqual(result["result"]["summary"], "hello")
+
+
+class PrefixCacheMetricsTests(unittest.TestCase):
+    def test_parses_prometheus_totals(self) -> None:
+        text = (
+            "# HELP vllm:prefix_cache_hits_total Prefix cache hits\n"
+            "vllm:prefix_cache_hits_total{engine=\"0\"} 12\n"
+            "vllm:prefix_cache_queries_total 40\n"
+        )
+        got = _prefix_cache_from_metrics(text)
+        self.assertEqual(got["vllm_prefix_cache_hits_total"], 12.0)
+        self.assertEqual(got["vllm_prefix_cache_queries_total"], 40.0)
 
 
 if __name__ == "__main__":
