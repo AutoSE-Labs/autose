@@ -1,5 +1,6 @@
 from common.tool import Tool
 from common.tools import (
+    _edit_file,
     _find_files,
     _list_files,
     _read_file,
@@ -107,6 +108,26 @@ TOOLS: dict[str, Tool] = {
             },
             required=["path", "content"],
             fn=_write_file,
+        ),
+        Tool(
+            name="edit_file",
+            description=(
+                "Make a targeted edit to an existing file by replacing an exact string. "
+                "old_str must appear exactly once in the file."
+            ),
+            parameters={
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file to edit.",
+                },
+                "old_str": {
+                    "type": "string",
+                    "description": "Exact string to replace (must appear exactly once).",
+                },
+                "new_str": {"type": "string", "description": "Replacement string."},
+            },
+            required=["path", "old_str", "new_str"],
+            fn=_edit_file,
         ),
         Tool(
             name="run_command",

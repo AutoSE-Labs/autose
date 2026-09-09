@@ -230,6 +230,64 @@ class ParseTextToolCallsTests(unittest.TestCase):
         skipped = agent._execute_tool(call)
         self.assertTrue(skipped.startswith("Error: identical tool call"))
 
+    def test_compaction_merges_notice_into_leading_system(self) -> None:
+        agent = BaseAgent(
+            base_url="http://127.0.0.1:9/v1",
+            api_key="",
+            model="m",
+            context_limit=400,
+            reserved_output_tokens=0,
+        )
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "task"},
+        ]
+        for index in range(12):
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{"id": str(index)}],
+                }
+            )
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": str(index),
+                    "content": "x" * 400,
+                }
+            )
+        prepared = agent._prepare_messages(messages)
+        system_roles = [msg.get("role") for msg in prepared]
+        self.assertEqual(system_roles[0], "system")
+        self.assertNotIn("system", system_roles[1:])
+        self.assertIn("omitted to fit", prepared[0]["content"])
+
+    def test_prune_merges_notice_into_leading_system(self) -> None:
+        agent = BaseAgent(base_url="http://127.0.0.1:9/v1", api_key="", model="m")
+        agent._MAX_HISTORY_ROUNDS = 2
+        messages = [{"role": "system", "content": "sys"}]
+        for index in range(5):
+            messages.append({"role": "user", "content": f"u{index}"})
+            messages.append({"role": "assistant", "content": f"a{index}"})
+        pruned = agent._prune_messages(messages)
+        roles = [msg["role"] for msg in pruned]
+        self.assertEqual(roles[0], "system")
+        self.assertNotIn("system", roles[1:])
+        self.assertIn("dropped", pruned[0]["content"])
+        self.assertEqual(messages[0]["content"], "sys")
+
+    def test_coerce_folds_second_system_into_first(self) -> None:
+        folded = BaseAgent._coerce_single_leading_system(
+            [
+                {"role": "system", "content": "sys"},
+                {"role": "system", "content": "notice"},
+                {"role": "user", "content": "task"},
+            ]
+        )
+        self.assertEqual([msg["role"] for msg in folded], ["system", "user"])
+        self.assertIn("notice", folded[0]["content"])
+
     def test_session_id_from_env(self) -> None:
         with patch.dict("os.environ", {"AUTOSE_SESSION_ID": "sess-from-env"}):
             agent = BaseAgent(base_url="http://127.0.0.1:9/v1", api_key="", model="m")

@@ -5,6 +5,18 @@ from common.agent import BaseAgent, ContextLengthError
 
 from .tools import TOOLS, TOOLS_SCHEMA
 
+_EDIT_TOOLS = frozenset({"write_file", "edit_file"})
+_NO_WRITE_NUDGES = 8
+_POST_WRITE_NUDGES = 3
+_NO_WRITE_NUDGE = (
+    "A text-only summary with no write_file or edit_file leaves the repository "
+    "unchanged and is a failed turn. Call write_file or edit_file now."
+)
+_KEEP_CODING_NUDGE = (
+    "Do not stop yet. If anything is still unfinished, keep using tools. "
+    "A text-only reply ends coding and you cannot come back after the test stage."
+)
+
 _PROMPTS_FILE = Path(__file__).parent.parent.parent / "prompts.json"
 
 with open(_PROMPTS_FILE, "r", encoding="utf-8") as _f:
@@ -52,6 +64,8 @@ class CodeAgent(BaseAgent):
         ]
 
         last_content = ""
+        file_edits = 0
+        text_nudges = 0
         for _round in range(self._MAX_TOOL_ROUNDS):
             if self._deadline_reached():
                 return last_content
@@ -84,8 +98,28 @@ class CodeAgent(BaseAgent):
                         }
                     )
                     continue
+                if file_edits == 0 and text_nudges < _NO_WRITE_NUDGES:
+                    text_nudges += 1
+                    self._push_text_and_nudge(
+                        messages, message, last_content, _NO_WRITE_NUDGE
+                    )
+                    continue
+                if (
+                    file_edits > 0
+                    and self._eval_deadline_active()
+                    and text_nudges < _POST_WRITE_NUDGES
+                ):
+                    text_nudges += 1
+                    self._push_text_and_nudge(
+                        messages, message, last_content, _KEEP_CODING_NUDGE
+                    )
+                    continue
                 return message.get("content") or last_content or ""
 
+            names = self._tool_call_names(tool_calls)
+            if names & _EDIT_TOOLS:
+                file_edits += 1
+                text_nudges = 0
             messages.append(message)
             for tc in tool_calls:
                 result = self._execute_tool(tc)

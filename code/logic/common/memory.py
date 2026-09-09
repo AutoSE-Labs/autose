@@ -91,15 +91,15 @@ class MemoryManager:
             messages = [system_msg] + memory.build_context_messages() + [user_msg]
 
         Structure:
-          - An optional system-role summary message (when a compressed
-            summary exists).
+          - An optional user-role summary message (when a compressed
+            summary exists). Qwen/vLLM only allow system at messages[0].
           - Alternating user/assistant messages for recent raw exchanges.
         """
         messages: list[dict] = []
         if self._summary:
             messages.append(
                 {
-                    "role": "system",
+                    "role": "user",
                     "content": (
                         "Context from earlier in this session:\n" + self._summary
                     ),

@@ -6,6 +6,12 @@ from common.agent import BaseAgent, ContextLengthError
 
 from .tools import TOOLS, TOOLS_SCHEMA
 
+_KEEP_TESTING_NUDGE = (
+    "Do not stop. Wall-clock remains. Do not treat tests you wrote as the "
+    "evaluator. Run the project's existing test suite and keep fixing "
+    "production code with tools."
+)
+
 _PROMPTS_FILE = Path(__file__).parent.parent.parent / "prompts.json"
 
 with open(_PROMPTS_FILE, "r", encoding="utf-8") as _f:
@@ -46,7 +52,7 @@ class TestAgent(BaseAgent):
             f"## Original task\n{prompt}\n\n"
             f"## Implementation plan\n{plan}\n\n"
             f"## Changes made\n{code_summary}\n\n"
-            "Write appropriate tests for the changes above, run them, and report the results."
+            "Run the project's existing tests for the changes above and keep fixing until they pass."
         )
         messages: list[dict] = [
             {"role": "system", "content": system},
@@ -77,6 +83,14 @@ class TestAgent(BaseAgent):
                 message = {**message, "content": None, "tool_calls": tool_calls}
 
             if not tool_calls:
+                if (
+                    self._eval_deadline_active()
+                    and not self._deadline_reached()
+                ):
+                    self._push_text_and_nudge(
+                        messages, message, last_content, _KEEP_TESTING_NUDGE
+                    )
+                    continue
                 yield from self._yield_final_text(messages, message, last_content)
                 return
 

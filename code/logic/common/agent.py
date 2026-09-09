@@ -116,6 +116,29 @@ class BaseAgent:
         except ValueError:
             return False
 
+    @staticmethod
+    def _eval_deadline_active() -> bool:
+        return bool(os.environ.get("AUTOSE_DEADLINE_UNIX"))
+
+    @staticmethod
+    def _tool_call_names(tool_calls: list | None) -> set[str]:
+        names: set[str] = set()
+        for call in tool_calls or []:
+            function = call.get("function") if isinstance(call.get("function"), dict) else {}
+            names.add(str(function.get("name") or call.get("name") or ""))
+        return names
+
+    def _push_text_and_nudge(
+        self,
+        messages: list[dict],
+        message: dict,
+        last_content: str,
+        nudge: str,
+    ) -> None:
+        text = str(message.get("content") or last_content or "")
+        messages.append({"role": "assistant", "content": text})
+        messages.append({"role": "user", "content": nudge})
+
     # ------------------------------------------------------------------
 
     def _prune_messages(self, messages: list[dict]) -> list[dict]:
@@ -149,17 +172,14 @@ class BaseAgent:
 
         dropped = len(rounds) - self._MAX_HISTORY_ROUNDS
         kept = rounds[-self._MAX_HISTORY_ROUNDS :]
-        notice: list[dict] = [
-            {
-                "role": "system",
-                "content": (
-                    f"[{dropped} earlier conversation round(s) were dropped to stay "
-                    "within the context window. Rely on information gathered in the "
-                    "remaining rounds.]"
-                ),
-            }
+        notice = (
+            f"[{dropped} earlier conversation round(s) were dropped to stay "
+            "within the context window. Rely on information gathered in the "
+            "remaining rounds.]"
+        )
+        return self._merge_system_notice(head, notice) + [
+            msg for r in kept for msg in r
         ]
-        return head + notice + [msg for r in kept for msg in r]
 
     @staticmethod
     def _is_context_http_error(code: int, body_text: str, reason: str = "") -> bool:
@@ -179,6 +199,55 @@ class BaseAgent:
         ):
             return True
         return code == 400 and not (body_text or "").strip()
+
+    @staticmethod
+    def _merge_system_notice(system: list[dict], notice_content: str) -> list[dict]:
+        """Fold a compaction note into the leading system turn.
+
+        Qwen/vLLM reject any ``role=system`` after messages[0] with
+        ``System message must be at the beginning``.
+        """
+        if not system:
+            return [{"role": "user", "content": notice_content}]
+        first = dict(system[0])
+        existing = str(first.get("content") or "")
+        first["role"] = "system"
+        first["content"] = (
+            f"{existing}\n\n{notice_content}" if existing else notice_content
+        )
+        return [first]
+
+    @staticmethod
+    def _coerce_single_leading_system(messages: list[dict]) -> list[dict]:
+        """Keep at most one system message, and only as messages[0]."""
+        if not messages:
+            return messages
+        leading: list[str] = []
+        rest_start = 0
+        for index, message in enumerate(messages):
+            if message.get("role") == "system":
+                leading.append(str(message.get("content") or ""))
+                rest_start = index + 1
+                continue
+            break
+        rest: list[dict] = []
+        for message in messages[rest_start:]:
+            if message.get("role") == "system":
+                rest.append(
+                    {
+                        **message,
+                        "role": "user",
+                        "content": str(message.get("content") or ""),
+                    }
+                )
+            else:
+                rest.append(message)
+        if not leading:
+            return rest
+        first = dict(messages[0])
+        first["role"] = "system"
+        first["content"] = "\n\n".join(part for part in leading if part)
+        return [first] + rest
 
     @staticmethod
     def _drop_oldest_tool_group(messages: list[dict]) -> list[dict]:
@@ -212,7 +281,9 @@ class BaseAgent:
         original_count = len(messages)
         tool_tokens = self._estimate_tokens(tools) if tools else 0
         if self._context_limit is None:
-            prepared = self._prune_messages(messages)
+            prepared = self._coerce_single_leading_system(
+                self._prune_messages(messages)
+            )
             self._record_context_metrics(
                 prepared, original_count, tool_tokens, context_limit=None
             )
@@ -233,10 +304,11 @@ class BaseAgent:
                 "configured context window."
             )
         if self._estimate_tokens(messages) <= message_budget:
+            prepared = self._coerce_single_leading_system(messages)
             self._record_context_metrics(
-                messages, original_count, tool_tokens, context_limit=self._context_limit
+                prepared, original_count, tool_tokens, context_limit=self._context_limit
             )
-            return messages
+            return prepared
 
         system = messages[:1] if messages[0].get("role") == "system" else []
         latest_user_index = next(
@@ -306,15 +378,12 @@ class BaseAgent:
         notice_content = notice_prefix
         if evidence_note:
             notice_content += "\n\nEarlier tool evidence (derived, bounded):\n" + evidence_note
-        notice = {
-            "role": "system",
-            "content": notice_content,
-        }
-        result = system + [notice, current_user] + [
-            message for group in kept for message in group
-        ]
+        result = self._merge_system_notice(system, notice_content) + [
+            current_user
+        ] + [message for group in kept for message in group]
         if self._estimate_tokens(result) > message_budget:
             result = mandatory + [message for group in kept for message in group]
+        result = self._coerce_single_leading_system(result)
         self._record_context_metrics(
             result,
             original_count,
@@ -380,17 +449,12 @@ class BaseAgent:
         recent = [message for group in kept for message in group]
         for line in lines:
             candidate_lines = selected + [line]
-            candidate = system + [
-                {
-                    "role": "system",
-                    "content": (
-                        notice_prefix
-                        + "\n\nEarlier tool evidence (derived, bounded):\n"
-                        + "\n".join(candidate_lines)
-                    ),
-                },
-                current_user,
-            ] + recent
+            candidate = self._merge_system_notice(
+                system,
+                notice_prefix
+                + "\n\nEarlier tool evidence (derived, bounded):\n"
+                + "\n".join(candidate_lines),
+            ) + [current_user] + recent
             if self._estimate_tokens(candidate) > message_budget:
                 break
             selected = candidate_lines
