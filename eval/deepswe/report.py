@@ -29,6 +29,8 @@ def _row(result: dict) -> dict:
         "task": result.get("task_name", ""),
         "solved": bool(reward) and float(reward) >= 1.0,
         "reward": reward,
+        "f2p": f"{rewards.get('f2p_passed', '-')}/{rewards.get('f2p_total', '-')}",
+        "p2p": f"{rewards.get('p2p_passed', '-')}/{rewards.get('p2p_total', '-')}",
         "agent_min": round((_seconds(result.get("agent_execution")) or 0) / 60, 1),
         "total_min": round((_seconds(result) or 0) / 60, 1),
         "input_tokens": agent.get("n_input_tokens"),
