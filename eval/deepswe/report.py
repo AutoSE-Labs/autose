@@ -32,7 +32,6 @@ def _row(result: dict) -> dict:
         "agent_min": round((_seconds(result.get("agent_execution")) or 0) / 60, 1),
         "total_min": round((_seconds(result) or 0) / 60, 1),
         "input_tokens": agent.get("n_input_tokens"),
-        "cached_tokens": agent.get("n_cache_tokens"),
         "output_tokens": agent.get("n_output_tokens"),
         "tool_calls": agent.get("n_agent_steps"),
         "error": exception.get("exception_type", ""),

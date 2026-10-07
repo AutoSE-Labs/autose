@@ -169,11 +169,12 @@ class AutoSEAgent(BaseInstalledAgent):
             if self._commit_fallback:
                 # Grading diffs base_commit..HEAD, so uncommitted edits would be
                 # silently dropped. The task prompt asks the agent to commit;
-                # this only catches work it left in the tree.
+                # this only catches work it left in the tree. AutoSE's own
+                # .autose/ scratch (plans, artifacts) is not part of the answer.
                 await environment.exec(
                     command=(
                         f"cd {_WORKSPACE} && git config --global --add safe.directory {_WORKSPACE}; "
-                        "git add -A && git -c user.name=autose -c user.email=autose@localhost "
+                        "git add -A -- . ':(exclude).autose' && git -c user.name=autose -c user.email=autose@localhost "
                         "commit -q -m 'AutoSE: commit remaining changes' || true"
                     )
                 )

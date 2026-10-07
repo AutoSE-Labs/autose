@@ -40,7 +40,8 @@ exec vllm serve "$MODEL" \
     --tensor-parallel-size "$TP" \
     --max-model-len "$MAX_LEN" \
     --kv-cache-dtype fp8 \
-    --gpu-memory-utilization 0.92 \
+    --gpu-memory-utilization 0.95 \
+    --max-num-seqs 16 \
     --enable-prefix-caching \
     --language-model-only \
     --reasoning-parser qwen3 \
