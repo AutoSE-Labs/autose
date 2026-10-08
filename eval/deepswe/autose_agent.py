@@ -21,10 +21,29 @@ import yaml
 
 from pier.agents.installed.base import BaseInstalledAgent, with_prompt_template
 from pier.agents.network import allowlist_from_urls
+from pier.environments import agent_setup
 from pier.environments.base import BaseEnvironment
 from pier.models.agent.context import AgentContext
 from pier.models.agent.install import AgentInstallSpec, InstallStep
 from pier.models.agent.network import NetworkAllowlist
+
+# Pier's egress proxy is squid with its default 15-minute read_timeout. AutoSE
+# makes non-streaming calls, and a long thinking response from a self-hosted
+# model shared by several trials can take longer than that, which surfaces as
+# HTTP 504 and ends the run. Raise it well above any single model call.
+_SQUID_READ_TIMEOUT = "read_timeout 60 minutes\nrequest_timeout 60 minutes\n"
+_original_squid_bootstrap = agent_setup.squid_bootstrap_command
+
+
+def _squid_bootstrap_with_timeouts() -> str:
+    script = _original_squid_bootstrap()
+    anchor = "cache deny all\n"
+    if anchor not in script:
+        raise RuntimeError("Pier's squid config changed; update the timeout patch.")
+    return script.replace(anchor, anchor + _SQUID_READ_TIMEOUT, 1)
+
+
+agent_setup.squid_bootstrap_command = _squid_bootstrap_with_timeouts
 
 _HOME = "/opt/autose"
 _EVENTS_FILE = "autose.jsonl"
