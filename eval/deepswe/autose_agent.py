@@ -239,3 +239,178 @@ class AutoSEAgent(BaseInstalledAgent):
             context.n_cache_tokens = int(usage.get("cached_tokens") or 0)
             context.cost_usd = 0.0
         context.n_agent_steps = self._count_tool_calls()
+
+
+# Logs every model completion of the Pro edition, which reports usage only in
+# its final result line and so records nothing when a run is stopped early.
+_PRO_SITECUSTOMIZE = '''
+import json, os, time
+_path = os.environ.get("AUTOSE_TRACE_PATH")
+if _path:
+    try:
+        from logic.inference import openai_compatible as _oc
+        _orig = _oc.OpenAICompatibleChatModel.complete
+        def _complete(self, *args, **kwargs):
+            started = time.time()
+            result = _orig(self, *args, **kwargs)
+            try:
+                reasoning = result.reasoning or ""
+                with open(_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "t_start": started, "t_end": time.time(),
+                        "prompt_tokens": result.usage.prompt_tokens,
+                        "completion_tokens": result.usage.completion_tokens,
+                        "finish_reason": result.finish_reason,
+                        "tool_calls": [c.name for c in result.tool_calls],
+                        "content_chars": len(result.content or ""),
+                        "reasoning_chars": len(reasoning),
+                        "reasoning_tail": reasoning[-600:],
+                        "max_output_tokens": kwargs.get("max_output_tokens"),
+                    }) + "\\n")
+            except Exception:
+                pass
+            return result
+        _oc.OpenAICompatibleChatModel.complete = _complete
+    except Exception:
+        pass
+'''
+
+
+class AutoSEProAgent(AutoSEAgent):
+    """Runs the Pro edition (``autose --json --yes --tier``) from a source tarball.
+
+    The Pro repository is private, so the task image cannot clone it. Instead
+    ``source_url`` points at a tarball served to the Docker build network.
+    Pro checks its own time budget only between stages, so the wall clock is
+    enforced from outside with SIGINT, which Pro treats as "stop and keep the
+    work done so far".
+    """
+
+    _TRACE_FILE = "trace.jsonl"
+    _OUTPUT_FILE = "autose-pro.jsonl"
+
+    def __init__(self, *args, source_url: str = "", tier: str = "craft", **kwargs):
+        super().__init__(*args, **kwargs)
+        if not source_url:
+            raise ValueError("AutoSEProAgent needs source_url (a .tar.gz of the repo).")
+        self._source_url = source_url
+        self._tier = tier
+
+    @staticmethod
+    def name() -> str:
+        return "autose-pro"
+
+    def get_version_command(self) -> str | None:
+        return f"cat {_HOME}/pro/VERSION"
+
+    def install_spec(self) -> AgentInstallSpec:
+        return AgentInstallSpec(
+            agent_name=self.name(),
+            version=self._ref,
+            steps=[
+                InstallStep(
+                    user="root",
+                    env={"DEBIAN_FRONTEND": "noninteractive"},
+                    run=(
+                        "command -v curl >/dev/null || "
+                        "(apt-get update && apt-get install -y --no-install-recommends curl ca-certificates)"
+                    ),
+                ),
+                InstallStep(
+                    user="root",
+                    env={"UV_INSTALL_DIR": f"{_HOME}/bin", "UV_PYTHON_INSTALL_DIR": f"{_HOME}/python"},
+                    run=(
+                        "set -euo pipefail; "
+                        f"mkdir -p {_HOME}/pro/src && "
+                        "curl -LsSf https://astral.sh/uv/install.sh | sh && "
+                        f"curl -fsSL {shlex.quote(self._source_url)} | tar -xz -C {_HOME}/pro/src && "
+                        f"echo {shlex.quote(self._ref)} > {_HOME}/pro/VERSION && "
+                        f"{_HOME}/bin/uv venv -q --python 3.13 {_HOME}/pro/venv && "
+                        f"VIRTUAL_ENV={_HOME}/pro/venv {_HOME}/bin/uv pip install -q {_HOME}/pro/src && "
+                        f"printf '%s' {shlex.quote(_PRO_SITECUSTOMIZE)} > "
+                        f"$({_HOME}/pro/venv/bin/python -c 'import sysconfig; print(sysconfig.get_paths()[\"purelib\"])')/sitecustomize.py && "
+                        f"chmod -R a+rX {_HOME}"
+                    ),
+                ),
+            ],
+            verification_command=f"test -x {_HOME}/pro/venv/bin/autose",
+        )
+
+    def _config_yaml(self) -> str:
+        temperature = self._request_extras.get("temperature", 1.0)
+        return yaml.safe_dump(
+            {
+                "inference": {
+                    "provider": "openai-compatible",
+                    "base_url": self._base_url,
+                    "api_key": self._api_key,
+                    "model": self._served_model(),
+                    "context_limit": self._context_limit,
+                    "temperature": temperature,
+                    # Default is 900 s, which cuts off long responses on a shared GPU.
+                    "timeout": 3600,
+                },
+            },
+            sort_keys=False,
+        )
+
+    @with_prompt_template
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        if not self._base_url:
+            raise ValueError("AutoSE needs base_url (agent kwarg or OPENAI_BASE_URL).")
+
+        config_path = "/tmp/autose-pro.yaml"
+        await self.exec_as_agent(
+            environment,
+            command=f"printf '%s' {shlex.quote(self._config_yaml())} > {config_path}",
+        )
+        env = self.build_process_env(
+            {
+                "AUTOSE_TRACE_PATH": f"/logs/agent/{self._TRACE_FILE}",
+                "PYTHONUNBUFFERED": "1",
+            }
+        )
+        command = (
+            f"cd {_WORKSPACE} && timeout -s INT -k 120 {self._wall_timeout_sec} "
+            f"{_HOME}/pro/venv/bin/autose --json --yes --tier {shlex.quote(self._tier)} "
+            f"--config {config_path} --workspace {_WORKSPACE} "
+            f"-- {shlex.quote(instruction)} "
+            f"2>/logs/agent/{_STDERR_FILE} </dev/null | tee /logs/agent/{self._OUTPUT_FILE}; "
+            # Exit 1 is Pro's "did not complete", and 124 is the wall clock;
+            # both still leave work to grade.
+            "rc=${PIPESTATUS[0]}; [ $rc -le 1 ] || [ $rc -eq 124 ] || exit $rc"
+        )
+        try:
+            await self.exec_as_agent(environment, command=f"bash -c {shlex.quote(command)}", env=env)
+        finally:
+            if self._commit_fallback:
+                await environment.exec(
+                    command=(
+                        f"cd {_WORKSPACE} && git config --global --add safe.directory {_WORKSPACE}; "
+                        "git add -A -- . ':(exclude).autose' && git -c user.name=autose -c user.email=autose@localhost "
+                        "commit -q -m 'AutoSE: commit remaining changes' || true"
+                    )
+                )
+
+    def populate_context_post_run(self, context: AgentContext) -> None:
+        path = Path(self.logs_dir) / self._TRACE_FILE
+        if not path.exists():
+            return
+        prompt = completion = tools = 0
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            prompt += int(record.get("prompt_tokens") or 0)
+            completion += int(record.get("completion_tokens") or 0)
+            tools += len(record.get("tool_calls") or [])
+        context.n_input_tokens = prompt
+        context.n_output_tokens = completion
+        context.cost_usd = 0.0
+        context.n_agent_steps = tools
