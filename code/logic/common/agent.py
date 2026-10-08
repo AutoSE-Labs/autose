@@ -524,6 +524,53 @@ class BaseAgent:
         cap = self._reserved_output_tokens if self._reserved_output_tokens > 0 else 16384
         body["max_tokens"] = max(256, min(cap, remaining))
 
+    def _trace(
+        self, body: dict, prepared: list[dict], data: dict, original_count: int, started: float
+    ) -> None:
+        """DEBUG: append one request/response record to $AUTOSE_TRACE_PATH."""
+        path = os.environ.get("AUTOSE_TRACE_PATH")
+        if not path:
+            return
+        try:
+            choice = (data.get("choices") or [{}])[0]
+            message = choice.get("message") or {}
+            native = message.get("tool_calls") or []
+            parsed = self._assistant_tool_calls(message) or []
+            record = {
+                "agent": type(self).__name__,
+                "t_start": started,
+                "t_end": time.time(),
+                "original_messages": original_count,
+                "sent_messages": len(prepared),
+                "sent_roles": [m.get("role") for m in prepared],
+                "dropped_notice": any(
+                    "omitted to fit" in str(m.get("content") or "")
+                    or "were dropped" in str(m.get("content") or "")
+                    for m in prepared[:1]
+                ),
+                "est_prompt_tokens": self._estimate_tokens(prepared),
+                "max_tokens": body.get("max_tokens"),
+                "finish_reason": choice.get("finish_reason"),
+                "usage": data.get("usage"),
+                "content": message.get("content"),
+                "reasoning": message.get("reasoning_content") or message.get("reasoning"),
+                "native_tool_calls": [
+                    (c.get("function") or {}).get("name") for c in native
+                ],
+                "parsed_tool_calls": [
+                    {
+                        "name": (c.get("function") or {}).get("name"),
+                        "args": str((c.get("function") or {}).get("arguments"))[:300],
+                        "fallback": not native,
+                    }
+                    for c in parsed
+                ],
+            }
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+        except Exception:
+            pass
+
     def _merge_request_extras(self, body: dict) -> None:
         extras = dict(self._request_extras)
         for key in ("messages", "model", "tools", "stream"):
@@ -560,9 +607,12 @@ class BaseAgent:
                     headers=self._headers(),
                     method="POST",
                 )
+                started = time.time()
                 try:
                     with urllib.request.urlopen(req, timeout=self._REQUEST_TIMEOUT) as resp:
-                        return json.loads(resp.read().decode("utf-8"))
+                        data = json.loads(resp.read().decode("utf-8"))
+                        self._trace(body, prepared, data, len(messages), started)
+                        return data
                 except urllib.error.HTTPError as exc:
                     body_text = ""
                     try:
