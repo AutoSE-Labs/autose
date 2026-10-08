@@ -65,7 +65,7 @@ def _normalize_base_url(base_url: str) -> str:
 class BaseAgent:
     """Shared HTTP communication and tool-execution logic for all AutoSE agents."""
 
-    _MAX_TOOL_OUTPUT: int = 4000
+    _MAX_TOOL_OUTPUT: int = int(os.environ.get("AUTOSE_MAX_TOOL_OUTPUT") or 4000)
     # Number of tool-call rounds to retain in history (system is always kept).
     _MAX_HISTORY_ROUNDS: int = 20
     # Safety-only round ceiling. The real stop for eval is AUTOSE_DEADLINE_UNIX
