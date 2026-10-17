@@ -191,6 +191,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "/api/interrupt": self._interrupt,
             "/api/approval": self._approval,
             "/api/model": self._model,
+            "/api/context": self._context,
             "/api/tier": self._tier,
             "/api/undo": self._undo,
             "/api/clear": self._clear,
@@ -233,6 +234,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not name:
             raise BridgeError("which model? a name is required")
         return self._bridge.select_model(name, session_id=_session_of(body))
+
+    def _context(self, body: dict[str, Any]) -> dict[str, Any]:
+        try:
+            tokens = int(body.get("tokens") or 0)
+        except (TypeError, ValueError):
+            raise BridgeError("tokens must be a whole number") from None
+        if tokens <= 0:
+            raise BridgeError("how large a window? tokens is required")
+        return self._bridge.set_context_window(tokens, session_id=_session_of(body))
 
     def _tier(self, body: dict[str, Any]) -> dict[str, Any]:
         return self._bridge.request_tier(

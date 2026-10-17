@@ -193,19 +193,26 @@ ollama pull qwen3:8b</code></pre>
   </div>
 
   <div class="overlay" id="context-overlay" hidden>
-    <div class="overlay-panel cropped">
+    <div class="overlay-panel cropped wide-panel context-panel">
       <span class="eyebrow"><span class="tick"></span>Context window</span>
       <h2 id="context-title">What the model can see</h2>
       <p class="overlay-lede" id="context-summary"></p>
       <p id="context-detail"></p>
       <div class="context-figures" id="context-figures"></div>
+      <div class="context-choices" id="context-choices" hidden>
+        <span class="context-remedy-label">Choose the window AutoSE asks the model server for</span>
+        <div class="choice-list" id="context-choice-list" role="radiogroup"
+          aria-label="Context window size"></div>
+        <p class="context-hint" id="context-choice-hint"></p>
+      </div>
       <div class="context-remedy" id="context-remedy" hidden>
         <span class="context-remedy-label" id="context-remedy-label">To change it</span>
         <pre class="approval-args"><code id="context-remedy-code"></code></pre>
       </div>
       <div class="overlay-actions">
         <button class="ghost-button" id="context-close" type="button">Close</button>
-        <button class="primary-button" id="context-copy" type="button" hidden>Copy command</button>
+        <button class="ghost-button" id="context-copy" type="button" hidden>Copy</button>
+        <button class="primary-button" id="context-apply" type="button" hidden>Use this window</button>
       </div>
     </div>
   </div>
