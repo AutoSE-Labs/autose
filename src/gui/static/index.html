@@ -43,7 +43,15 @@
         <select id="model-select"></select>
       </label>
 
-      <button id="open-diff" class="icon-button push-right" type="button" aria-label="Review file changes"
+      <button id="toggle-inspector" class="icon-button push-right" type="button"
+        aria-label="Show or hide the inspector" title="Show or hide the inspector (every step, in full)">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
+          stroke-width="1.4">
+          <rect x="1.5" y="2.5" width="13" height="11" />
+          <path d="M10 2.5v11" />
+        </svg>
+      </button>
+      <button id="open-diff" class="icon-button" type="button" aria-label="Review file changes"
         title="Review what it changed">
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
           stroke-width="1.5">
@@ -89,6 +97,12 @@
         </div>
       </section>
     </div>
+
+    <!-- DR-037: the run in full, beside the conversation. -->
+    <aside class="inspector" id="inspector" aria-label="Inspector">
+      <div class="inspector-tabs" id="inspector-tabs" role="tablist"></div>
+      <div class="inspector-body" id="inspector-body"></div>
+    </aside>
 
     <footer class="status-bar">
       <div class="presence status-cell" id="presence" aria-live="polite">
@@ -230,6 +244,7 @@ ollama pull qwen3:8b</code></pre>
 
   <div class="toast-stack" id="toasts" aria-live="polite"></div>
 
+  <script src="/inspector.js"></script>
   <script src="/app.js"></script>
 </body>
 

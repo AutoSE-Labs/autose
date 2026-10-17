@@ -147,22 +147,31 @@ select {
 
 /* ---------- shell ---------- */
 
+/* Three columns (DR-037): the worklog rail, the conversation, the inspector.
+ * Each side column is a width that its toggle sets, so the two open and close
+ * independently. */
 .app-shell {
+  --rail-width: 0px;
+  --inspector-width: 0px;
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 0 1fr;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--inspector-width);
   grid-template-rows: auto 1fr auto;
   grid-template-areas:
-    "rail header"
-    "rail main"
-    "status status";
+    "rail header header"
+    "rail main inspector"
+    "status status status";
   height: 100vh;
   transition: grid-template-columns 200ms ease;
 }
 
 .app-shell.rail-open {
-  grid-template-columns: 258px 1fr;
+  --rail-width: 258px;
+}
+
+.app-shell.inspector-open {
+  --inspector-width: 400px;
 }
 
 /* ---------- header ---------- */
@@ -603,6 +612,228 @@ select {
 .context-remedy-label {
   font-size: 12px;
   color: var(--slate);
+}
+
+/* ---------- inspector (DR-037) ---------- */
+
+.inspector {
+  grid-area: inspector;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--line);
+  background: var(--bone-2);
+}
+
+.app-shell:not(.inspector-open) .inspector {
+  visibility: hidden;
+}
+
+.inspector-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 10px 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.inspector-tab {
+  padding: 7px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--slate);
+  background: none;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  cursor: pointer;
+}
+
+.inspector-tab.active {
+  color: var(--ink);
+  background: var(--card);
+  border-color: var(--line);
+  margin-bottom: -1px;
+}
+
+.inspector-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 12px 24px;
+}
+
+.inspector-empty {
+  padding: 18px 6px;
+  color: var(--slate);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.inspector-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 2px 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--slate);
+}
+
+.inspector-summary strong {
+  color: var(--ink);
+}
+
+.inspector-summary .bad strong {
+  color: var(--signal-deep);
+}
+
+.inspector-state {
+  margin-left: auto;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.step-group {
+  margin: 12px 4px 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.steps .step-group:first-child {
+  margin-top: 0;
+}
+
+.step {
+  margin-bottom: 4px;
+  background: var(--card);
+  border: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+
+.step.note {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  border-style: dashed;
+  color: var(--ink-soft);
+}
+
+.step-head {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  text-align: left;
+  color: var(--ink-soft);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.step-head:hover {
+  background: var(--bone);
+}
+
+.step-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate);
+  white-space: nowrap;
+}
+
+.step.status-running .step-meta {
+  color: var(--signal);
+}
+
+.step.status-failed {
+  border-color: var(--signal);
+}
+
+.step.status-failed .step-meta {
+  color: var(--signal-deep);
+}
+
+.step-body {
+  padding: 0 10px 10px 36px;
+}
+
+.step-args {
+  margin-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+
+.arg-key {
+  color: var(--slate);
+}
+
+.step-output {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bone);
+  border: 1px solid var(--line-soft);
+}
+
+.step-note,
+.step-pending {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--slate);
+}
+
+/* ---------- compact work card (DR-037) ---------- */
+
+.work-card.compact .thinking {
+  display: none;
+}
+
+.work-card.compact .narration {
+  max-height: 9.5em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+.card-details {
+  margin-left: 6px;
+  padding: 3px 9px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--slate);
+  background: none;
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.card-details:hover {
+  color: var(--ink);
+  border-color: var(--ink);
 }
 
 /* ---------- rail ---------- */
@@ -2118,9 +2349,26 @@ select {
   }
 }
 
+/* Below this the conversation needs the room: the inspector becomes a drawer
+ * over it instead of a column beside it. */
+@media (max-width: 1240px) {
+  .app-shell.inspector-open {
+    --inspector-width: 0px;
+  }
+
+  .app-shell.inspector-open .inspector {
+    position: fixed;
+    inset: 48px 0 30px auto;
+    z-index: 30;
+    width: min(420px, 92vw);
+    visibility: visible;
+    box-shadow: -8px 0 24px -12px rgba(22, 35, 61, 0.35);
+  }
+}
+
 @media (max-width: 980px) {
   .app-shell.rail-open {
-    grid-template-columns: 0 1fr;
+    --rail-width: 0px;
   }
 
   .app-shell.rail-open .rail {

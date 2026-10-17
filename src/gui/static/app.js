@@ -431,6 +431,7 @@ function handleEvent(id, frame) {
         }
       });
       run.narration = "";
+      run.currentStage = String(data.stage || "");
       setThinking(run, data.title || humanize(String(data.stage || "")));
       if (data.iteration > 1) {
         pushActivity(run, { icon: "↺", html: `${escapeHtml(data.title || humanize(String(data.stage)))} again, pass ${data.iteration}` });
@@ -465,23 +466,56 @@ function handleEvent(id, frame) {
       pushActivity(run, { icon: "↺", html: `Back to ${escapeHtml(humanize(String(data.target || "")))} (${data.iteration}/${data.cap})` });
       break;
     case "tool_called":
-      pushActivity(run, describeTool(String(data.tool || ""), data.arguments || {}));
+      pushActivity(run, { ...describeTool(String(data.tool || ""), data.arguments || {}), stepless: true });
+      run.steps.push({
+        type: "tool",
+        id: String(data.call_id || `step-${run.steps.length}`),
+        tool: String(data.tool || ""),
+        args: data.arguments || {},
+        stage: run.currentStage,
+        status: "running",
+      });
+      scheduleRun(run);
       break;
-    case "tool_completed":
+    case "tool_completed": {
+      // Matched by call id; an older server without ids pairs the newest
+      // still-running call of the same tool.
+      const step = [...run.steps]
+        .reverse()
+        .find(
+          (item) =>
+            item.type === "tool" &&
+            item.status === "running" &&
+            (data.call_id ? item.id === String(data.call_id) : item.tool === data.tool)
+        );
+      if (step) {
+        step.status = data.failed ? "failed" : "done";
+        step.preview = typeof data.preview === "string" ? data.preview : undefined;
+        step.elapsedMs = typeof data.elapsed_ms === "number" ? data.elapsed_ms : undefined;
+        step.truncated = Boolean(data.truncated);
+        step.artifact = data.artifact || "";
+        scheduleRun(run);
+      }
       if (data.truncated) {
         pushActivity(run, { icon: "▭", html: `${escapeHtml(humanize(String(data.tool || "tool")))} returned more than fits; kept the head and the tail` });
       }
       break;
+    }
     case "approval_requested":
       setThinking(run, "Waiting for you");
       break;
-    case "approval_resolved":
+    case "approval_resolved": {
+      // Back to the stage it was in: "Waiting for you" is only true until the
+      // answer arrives, and with auto-approve it never was.
+      const active = (run.stages || []).find((stage) => stage.name === run.currentStage);
+      setThinking(run, active ? active.title : run.currentStage ? humanize(run.currentStage) : "Thinking");
       pushActivity(run, {
         kind: data.approved ? "pass" : "denied",
         icon: data.approved ? "✓" : "⊘",
         html: `${data.approved ? "Approved" : "Refused"} ${escapeHtml(String(data.tool || ""))}${data.reason ? ` — ${escapeHtml(String(data.reason))}` : ""}`,
       });
       break;
+    }
     // DR-033: tokens as they are spent, not only when a stage ends — a long
     // stage otherwise shows zero for minutes and reads as "nothing happening".
     case "round_usage":
@@ -876,6 +910,7 @@ function renderConversation() {
   if (seat.run) nodes.push(seat.run.slip, seat.run.node);
   dom.messages.replaceChildren(...nodes);
   if (seat.run) renderRun();
+  else renderInspector();
   if (pinned) scrollToBottom();
 }
 
@@ -1039,6 +1074,13 @@ function startRun(id, current) {
     verdict: null,
     thinkingLabel: "Thinking",
     running: true,
+    // DR-037: the structured record the inspector draws, one entry per tool
+    // call or notable moment, each tagged with the stage that produced it.
+    steps: [],
+    currentStage: "",
+    openSteps: new Set(),
+    detailed: false,
+    finishedAt: 0,
     timer: window.setInterval(() => tickElapsed(seat.run), 1000),
   };
   if (isFocused(id)) {
@@ -1063,6 +1105,9 @@ function setThinking(run, label) {
 
 function pushActivity(run, line) {
   if (!run || !line) return;
+  if (!line.stepless) {
+    run.steps.push({ type: "note", stage: run.currentStage, kind: line.kind || "", icon: line.icon, html: line.html });
+  }
   const previous = run.activities[run.activities.length - 1];
   if (previous && previous.html === line.html) {
     previous.count = (previous.count || 1) + 1;
@@ -1099,6 +1144,8 @@ const CARD_SKELETON = `
     <span class="eyebrow" data-part="phase"></span>
     <span class="work-title" data-part="title"></span>
     <span class="work-elapsed" data-part="elapsed"></span>
+    <button class="card-details" type="button" data-details="1" data-part="details"
+      title="Show every step, the stage output and the reasoning here"></button>
     <button class="card-stop" type="button" data-stop="1"
       title="Stop after the current step, keeping everything produced so far">Stop</button>
   </div>
@@ -1119,6 +1166,7 @@ function ensureCard(run) {
     title: part("title"),
     elapsed: part("elapsed"),
     stop: run.node.querySelector("[data-stop]"),
+    details: part("details"),
     stages: part("stages"),
     activity: part("activity"),
     narration: part("narration"),
@@ -1154,6 +1202,14 @@ function stagesMarkup(run) {
 }
 
 function activityMarkup(run) {
+  // DR-037: compact by default — the latest step only; the inspector and the
+  // card's own Details toggle hold the rest.
+  if (!run.detailed) {
+    const latest = run.activities[run.activities.length - 1];
+    return latest
+      ? `<div class="activity-line kind-${latest.kind}"><span class="act-icon">${latest.icon}</span><span>${latest.html}${latest.count > 1 ? ` <em>×${latest.count}</em>` : ""}</span></div>`
+      : "";
+  }
   const visible = run.expanded ? run.activities : run.activities.slice(-7);
   const hidden = run.activities.length - visible.length;
   return (
@@ -1179,6 +1235,8 @@ function renderRun() {
   // they scrolled away" on every single delta.
   const pinned = isPinnedToBottom();
 
+  run.node.classList.toggle("compact", !run.detailed);
+  setText(d.details, run.detailed ? "Less" : "Details");
   setText(d.phase, run.running ? "At work" : "Finishing");
   setText(d.title, run.thinkingLabel + (run.tier ? ` · ${run.tier}` : ""));
   setText(d.elapsed, formatElapsed(Date.now() - run.startedAt));
@@ -1201,6 +1259,36 @@ function renderRun() {
   d.thinking.hidden = !run.thinking;
 
   if (grew && pinned) scrollToBottom();
+  renderInspector();
+}
+
+/* ---------- inspector (DR-037) ---------- */
+
+let inspectorTab = "activity";
+
+/* The run the inspector describes: the one in progress, else the last one this
+ * tab watched. A turn finished before the page loaded has no step record, so
+ * there is nothing to show for it beyond its receipt in the conversation. */
+function inspectedRun() {
+  const seat = desk(focusId());
+  return seat.run || seat.lastRun || null;
+}
+
+function renderInspector() {
+  setHtml(el("inspector-tabs"), inspectorTabsMarkup(inspectorTab));
+  if (dom.shell.classList.contains("inspector-open")) {
+    setHtml(el("inspector-body"), activityPanelMarkup(inspectedRun()));
+  }
+}
+
+function setInspectorOpen(open) {
+  dom.shell.classList.toggle("inspector-open", open);
+  try {
+    localStorage.setItem("autose.inspector", open ? "open" : "closed");
+  } catch (error) {
+    // Storage can be unavailable (private window); the toggle still works.
+  }
+  renderInspector();
 }
 
 /* DR-030: the stop control on the card itself, because that is the thing the
@@ -1223,6 +1311,9 @@ function finishRun(id, turn) {
   const run = seat.run;
   if (!run) return;
   stopTimer(run);
+  run.running = false;
+  run.finishedAt = Date.now();
+  seat.lastRun = run;
   // The next state frame carries this turn in `history`, so the live pair is
   // dropped rather than drawn twice.
   seat.run = null;
@@ -1252,6 +1343,8 @@ function failRun(id, title, message) {
     // Nothing landed in history, so the card has to be kept deliberately or
     // the next repaint would erase the only account of what happened.
     seat.extras = seat.extras.concat([run.slip, run.node]);
+    run.finishedAt = Date.now();
+    seat.lastRun = run;
     seat.run = null;
     if (isFocused(id)) renderConversation();
   } else {
@@ -1694,7 +1787,7 @@ dom.messages.addEventListener("click", (event) => {
   // place, so the <details> element survives a paint and the browser keeps its
   // own open state.
   const target = event.target.closest(
-    "[data-starter], [data-expand], [data-open-diff], [data-stop]"
+    "[data-starter], [data-expand], [data-open-diff], [data-stop], [data-details]"
   );
   if (!target) return;
   if (target.dataset.starter !== undefined) {
@@ -1710,8 +1803,43 @@ dom.messages.addEventListener("click", (event) => {
     openDiff();
   } else if (target.dataset.stop) {
     requestStop();
+  } else if (target.dataset.details) {
+    const run = focusedRun();
+    if (!run) return;
+    run.detailed = !run.detailed;
+    renderRun();
   }
 });
+
+el("toggle-inspector").addEventListener("click", () => {
+  setInspectorOpen(!dom.shell.classList.contains("inspector-open"));
+});
+
+el("inspector-tabs").addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-inspector-tab]");
+  if (!tab) return;
+  inspectorTab = tab.dataset.inspectorTab;
+  renderInspector();
+});
+
+el("inspector-body").addEventListener("click", (event) => {
+  const toggle = event.target.closest("[data-toggle-step]");
+  if (!toggle) return;
+  const run = inspectedRun();
+  if (!run) return;
+  const id = toggle.dataset.toggleStep;
+  if (run.openSteps.has(id)) run.openSteps.delete(id);
+  else run.openSteps.add(id);
+  renderInspector();
+});
+
+// Open by default on a wide screen; a narrow one gets the conversation first.
+try {
+  const saved = localStorage.getItem("autose.inspector");
+  setInspectorOpen(saved ? saved === "open" : window.innerWidth >= 1240);
+} catch (error) {
+  setInspectorOpen(window.innerWidth >= 1240);
+}
 
 /* DR-031: the rail stays live while a turn runs. Switching sessions, opening
  * one and closing one are never gated on whether something is generating —
