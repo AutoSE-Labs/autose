@@ -197,7 +197,7 @@ def _tier(app: App, argument: str) -> bool:
         app.console.print(
             warning_text(
                 f"staying on '{effective}': a session's tier only ratchets up, "
-                f"never down (DR-003)."
+                f"never down."
             )
         )
     elif effective != previous:
