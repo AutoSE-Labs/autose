@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 from .common.context import MIN_USABLE_CONTEXT_TOKENS
 from .config import AutoSEConfig, load_config
 from .errors import AutoSEError
+from .inference.context_advice import advise_context
 from .inference.discovery import DetectedRuntime, discover_local_runtimes
-from .inference.ollama import OLLAMA_CONTEXT_ENV
 from .workflows import available_tiers
 
 __all__ = ["Diagnosis", "diagnose"]
@@ -104,22 +104,61 @@ def _context_advisories(runtimes: tuple[DetectedRuntime, ...]) -> tuple[str, ...
         ]
         if too_small:
             smallest = min(model.context_length or 0 for model in too_small)
+            largest = max(model.max_context_length or 0 for model in too_small)
+            remedy = next(
+                (
+                    advice.remedy
+                    for advice in (
+                        advise_context(
+                            model,
+                            provider=runtime.provider,
+                            min_usable=MIN_USABLE_CONTEXT_TOKENS,
+                        )
+                        for model in too_small
+                    )
+                    if advice.remedy
+                ),
+                "",
+            )
             advisories.append(
                 f"{runtime.provider} is serving {smallest:,} tokens, below the "
                 f"{MIN_USABLE_CONTEXT_TOKENS:,} AutoSE needs to work usefully — "
                 "tool schemas and the stage prompt consume most of that before "
                 "your request is counted."
+                + (
+                    f" The models support up to {largest:,}; the runtime is what "
+                    "caps them."
+                    if largest > smallest
+                    else ""
+                )
+                + (f" Raise it: `{remedy}`." if remedy else "")
             )
-        capped = [model for model in runtime.models if model.is_context_capped]
-        if not capped:
+        # DR-034: only a window that hurts is worth an advisory, and its remedy
+        # is computed for the model, not a fixed example value.
+        hurting = [
+            (model, advice)
+            for model in runtime.models
+            if model.context_length
+            and model.context_length >= MIN_USABLE_CONTEXT_TOKENS
+            for advice in (
+                advise_context(
+                    model,
+                    provider=runtime.provider,
+                    min_usable=MIN_USABLE_CONTEXT_TOKENS,
+                ),
+            )
+            if advice.level == "warning"
+        ]
+        if not hurting:
             continue
-        smallest = min(model.context_length or 0 for model in capped)
-        largest = max(model.max_context_length or 0 for model in capped)
+        smallest = min(model.context_length or 0 for model, _ in hurting)
+        remedy = next((advice.remedy for _, advice in hurting if advice.remedy), "")
         advisories.append(
             f"{runtime.provider} is serving a {smallest:,}-token window for "
-            f"{len(capped)} model(s) that support up to {largest:,}. An "
-            "over-long request is trimmed by the runtime, not refused. Raise it "
-            f"with `{OLLAMA_CONTEXT_ENV}=32768 ollama serve`."
+            f"{len(hurting)} model(s); multi-stage runs will keep dropping "
+            "earlier reads. An over-long request is trimmed by the runtime, not "
+            "refused."
+            + (f" Raise it: `{remedy}`." if remedy else "")
         )
     return tuple(advisories)
 
