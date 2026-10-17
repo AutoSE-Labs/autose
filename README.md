@@ -103,6 +103,7 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-033](docs/DecisionRecords/DR-033-the-live-view-survives-a-reload.md) | The dashboard's live view survives a reload, and shows usage as it is spent |
 | [DR-034](docs/DecisionRecords/DR-034-context-advice-not-a-fixed-warning.md) | A served context window gets a verdict and a computed remedy, not a fixed warning |
 | [DR-035](docs/DecisionRecords/DR-035-autose-chooses-the-context-window.md) | AutoSE chooses the context window where the runtime allows it, and the user can change it |
+| [DR-037](docs/DecisionRecords/DR-037-the-inspector-shows-the-run-in-full.md) | The dashboard has an inspector that shows the run in full; the conversation stays compact |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
 

@@ -809,7 +809,7 @@ def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
 
 def test_the_dashboard_fetches_nothing_from_the_network():
     """Local-first is a property of the page too, not only of inference."""
-    for name in ("index.html", "app.css", "app.js"):
+    for name in ("index.html", "app.css", "app.js", "inspector.js"):
         source = (STATIC_ROOT / name).read_text(encoding="utf-8")
         for marker in ("http://", "https://", "//cdn", "fonts.googleapis"):
             assert marker not in source, f"{name} reaches out to {marker}"
@@ -1017,3 +1017,25 @@ def test_a_window_that_is_not_a_number_is_refused_over_http(served):
     status, payload = _request(served, "/api/context", body={"tokens": "lots"})
     assert status == 400
     assert "whole number" in json.dumps(payload)
+
+
+# -- DR-037: the inspector ----------------------------------------------------
+
+
+def test_the_inspector_script_is_served_with_the_page(served):
+    port = served.server_address[1]
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{port}/inspector.js", timeout=5
+    ) as response:
+        assert response.status == 200
+        assert "activityPanelMarkup" in response.read().decode("utf-8")
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    # Before app.js, which calls into it from its first paint.
+    assert page.index("/inspector.js") < page.index("/app.js")
+
+
+def test_the_inspector_has_the_elements_it_is_drawn_into():
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    for element in ('id="inspector"', 'id="inspector-tabs"', 'id="inspector-body"', 'id="toggle-inspector"'):
+        assert element in page
+
