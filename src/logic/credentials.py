@@ -48,7 +48,7 @@ CREDENTIALS_FILENAME = "credentials.yaml"
 _MAX_KEY_LENGTH = 4096
 
 _HEADER = """\
-# AutoSE API keys (DR-036). Written by AutoSE; owner-only (0600).
+# AutoSE API keys. Written by AutoSE; readable by you alone (0600).
 # Never commit or share this file. Delete a key from the dashboard's settings,
 # or remove its entry here.
 """

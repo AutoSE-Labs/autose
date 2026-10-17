@@ -202,7 +202,7 @@ function changesPanelMarkup(view) {
     return (
       live ||
       `<div class="inspector-empty">Every file AutoSE writes is journalled with what it was before, so each
-        change can be read as a diff and undone (DR-024). Nothing has been written in this session yet.</div>`
+        change can be read as a diff and undone. Nothing has been written in this session yet.</div>`
     );
   }
   const total = view.turns.reduce(

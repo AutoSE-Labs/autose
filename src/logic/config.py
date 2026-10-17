@@ -272,7 +272,7 @@ def _from_document(document: Mapping[str, Any], *, source: Path | None) -> AutoS
     if auto_approve and not authorized_by.strip():
         raise ConfigurationError(
             "approval.auto_approve requires approval.authorized_by naming who "
-            "opted into unattended approval (DR-012)."
+            "opted into unattended approval."
         )
 
     tuning = Tuning.from_mapping(document.get("tuning"))
@@ -393,7 +393,7 @@ EXAMPLE_CONFIG = """\
 #
 # Every value here is optional. With no config file at all, AutoSE looks for a
 # local runtime (Ollama on its usual port) and picks a model from what it finds
-# — see DR-015. Set values here only to override that.
+# Set values here only to override that.
 
 inference:
   # Registered provider: ollama | ollama-cloud | lm-studio | vllm | llama-cpp |
@@ -405,7 +405,7 @@ inference:
   model: ""
   # Not needed for a local runtime. Prefer storing a hosted provider's key
   # from the dashboard's settings, which keeps it in an owner-only
-  # credentials.yaml beside this file rather than here (DR-036).
+  # credentials.yaml beside this file rather than here.
   api_key: ""
   # Leave empty to use the model's real context length where the runtime
   # publishes one, as Ollama does.
@@ -421,22 +421,22 @@ workspace:
   root: ""
 
 approval:
-  # DR-012: shell and network calls are shown to you and wait for approval.
+  # Shell and network calls are shown to you and wait for your approval.
   # Turning this off is for unattended runs only, and requires naming who did.
   auto_approve: false
   authorized_by: ""
-  # DR-024: file edits are journalled and revertible with /undo rather than
+  # File edits are journalled and revertible with /undo rather than
   # gated, because a local model makes many small edits and a prompt per edit
   # is a prompt people stop reading. Turn this on to be asked first as well.
   require_edit_approval: false
 
-# DR-021: every tunable knob AutoSE has, all optional, all commented out below
+# Every tunable knob AutoSE has, all optional, all commented out below
 # at the value that already applies if you leave them out. A repo's own
 # .autose/config.yaml (this file, at the workspace root) is always applied on
 # top of any machine-level config you also have, so these are the settings to
 # commit and share with a team working on this repo.
 #
-# DR-030: -1 means "no limit" for every cap here, and the caps that decide how
+# -1 means "no limit" for every cap here, and the caps that decide how
 # long AutoSE keeps working — tool rounds, validation loopbacks, format
 # retries, the wall clock — are -1 already. A small local model works in many
 # more, smaller steps than a hosted one, so a number that looks generous for
@@ -450,7 +450,7 @@ approval:
 #     reserved_output_fraction: 0.25
 #     reserved_output_min: 512
 #     reserved_output_max: 8192
-#     max_history_rounds: 20      # -1 keeps every round; see DR-022 first
+#     max_history_rounds: 20      # -1 keeps every round, at the cost of a fuller window
 #     min_usable_context_tokens: 8192  # -1 runs in a window too small to work in
 #   tool_output:
 #     max_chars: 8000             # ceiling; the window narrows it. -1 sends all
@@ -461,7 +461,7 @@ approval:
 #     max_edits_per_call: 20      # -1 accepts a batch of any size
 #   classifier:
 #     max_output_tokens: 200      # -1 sends no output cap at all
-#     reasoning_effort: none      # DR-020; empty disables the field entirely
+#     reasoning_effort: none      # empty disables the field entirely
 #     max_history_messages: 4
 #   session:
 #     max_history_exchanges: 4
