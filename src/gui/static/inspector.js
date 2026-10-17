@@ -14,6 +14,7 @@ const INSPECTOR_TABS = [
   { id: "activity", label: "Activity" },
   { id: "requirements", label: "Requirements" },
   { id: "changes", label: "Changes" },
+  { id: "usage", label: "Usage" },
 ];
 
 function inspectorTabsMarkup(active) {
@@ -265,4 +266,107 @@ function diffRowsMarkup(diff) {
     })
     .join("");
   return rows || `<span class="row meta">(no textual diff)</span>`;
+}
+
+/* ---------- usage (DR-041) ---------- */
+
+/* `view`: { run: {rounds: [{stage, prompt, completion, estimated, limit}],
+ * stageTimes: {stage: {start, end}}, stages, running} | null,
+ * turns: [{index, prompt, tier, total, prompt_tokens, completion_tokens}],
+ * session: {prompt_tokens, completion_tokens, total_tokens} }. */
+function usagePanelMarkup(view) {
+  const session = view.session || {};
+  const head =
+    `<div class="usage-tiles">` +
+    usageTile("Session", formatCount(session.total_tokens || 0), "tokens") +
+    usageTile("In", formatCount(session.prompt_tokens || 0), "prompt") +
+    usageTile("Out", formatCount(session.completion_tokens || 0), "completion") +
+    `</div>`;
+  const run = view.run;
+  let runPart = "";
+  if (run && run.rounds.length) {
+    const titles = new Map((run.stages || []).map((stage) => [stage.name, stage.title]));
+    const byStage = new Map();
+    run.rounds.forEach((round) => {
+      const key = round.stage || "";
+      const entry = byStage.get(key) || { rounds: 0, prompt: 0, completion: 0 };
+      entry.rounds += 1;
+      entry.prompt += round.prompt || 0;
+      entry.completion += round.completion || 0;
+      byStage.set(key, entry);
+    });
+    const rows = [...byStage.entries()]
+      .map(([stage, entry]) => {
+        const times = (run.stageTimes || {})[stage];
+        const seconds = times && times.start ? ((times.end || Date.now() / 1000) - times.start) : null;
+        return (
+          `<tr><td>${escapeHtml(titles.get(stage) || humanize(stage) || "Run")}</td>` +
+          `<td>${entry.rounds}</td><td>${escapeHtml(formatCount(entry.prompt))}</td>` +
+          `<td>${escapeHtml(formatCount(entry.completion))}</td>` +
+          `<td>${seconds === null ? "" : escapeHtml(formatDuration(Math.round(seconds * 1000)))}</td></tr>`
+        );
+      })
+      .join("");
+    runPart =
+      `<div class="step-group">${run.running ? "This run, so far" : "Last run"}</div>` +
+      `<table class="usage-table"><thead><tr><th>Stage</th><th>Rounds</th><th>In</th><th>Out</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table>` +
+      `<div class="step-group">Context used each round</div>` +
+      contextBarsMarkup(run.rounds);
+  }
+  const turns = (view.turns || []).filter((turn) => turn.total);
+  const max = Math.max(1, ...turns.map((turn) => turn.total));
+  const turnPart = turns.length
+    ? `<div class="step-group">Tokens per turn</div>` +
+      turns
+        .map(
+          (turn) =>
+            `<div class="usage-turn"><span class="usage-turn-label">${turn.index + 1}. ${escapeHtml(elideMiddle(turn.prompt || "", 34))}</span>` +
+            shareBarMarkup(turn.total / max) +
+            `<span class="usage-turn-value">${escapeHtml(formatCount(turn.total))}</span></div>`
+        )
+        .join("")
+    : "";
+  if (!runPart && !turnPart) {
+    return head + `<div class="inspector-empty">Tokens and time appear here as a request runs — per stage, per round, and per turn of the session.</div>`;
+  }
+  return head + runPart + turnPart;
+}
+
+function usageTile(label, value, unit) {
+  return `<div class="usage-tile"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><em>${escapeHtml(unit)}</em></div>`;
+}
+
+/* One bar per round: how much of the window the request filled. The ratio
+ * is the reported prompt size when the runtime gives one, else the budget's
+ * own estimate (DR-033). Drawn as SVG with sizes as attributes: the page's
+ * Content-Security-Policy refuses inline style attributes (DR-029). */
+function contextBarsMarkup(rounds) {
+  const width = 360;
+  const height = 64;
+  const gap = 2;
+  const barWidth = Math.max(2, Math.min(14, (width - gap * rounds.length) / Math.max(1, rounds.length)));
+  const bars = rounds
+    .map((round, index) => {
+      const used = round.prompt || round.estimated || 0;
+      const ratio = round.limit ? Math.min(1, used / round.limit) : 0;
+      const tone = ratio > 0.9 ? "hot" : ratio > 0.7 ? "warn" : "";
+      const barHeight = Math.max(2, Math.round(ratio * (height - 14)));
+      const x = index * (barWidth + gap);
+      return (
+        `<rect class="ctx-bar ${tone}" x="${x}" y="${height - barHeight}" width="${barWidth}" height="${barHeight}">` +
+        `<title>Round ${index + 1}: ${escapeHtml(formatCount(used))} of ${round.limit ? escapeHtml(formatCount(round.limit)) : "?"} tokens (${Math.round(ratio * 100)}%)</title></rect>`
+      );
+    })
+    .join("");
+  const peak = Math.max(0, ...rounds.map((round) => (round.limit ? (round.prompt || round.estimated || 0) / round.limit : 0)));
+  return (
+    `<div class="ctx-chart"><svg class="ctx-bars" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Context used per round">${bars}</svg>` +
+    `<div class="ctx-chart-note">peak ${Math.round(peak * 100)}% of the window · ${rounds.length} round${rounds.length === 1 ? "" : "s"}</div></div>`
+  );
+}
+
+/* A horizontal share bar, as SVG for the same CSP reason. */
+function shareBarMarkup(ratio) {
+  const width = Math.max(2, Math.round(Math.min(1, ratio) * 100));
+  return `<svg class="usage-bar" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="0" width="${width}" height="6"></rect></svg>`;
 }

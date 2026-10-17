@@ -433,6 +433,7 @@ function handleEvent(id, frame) {
       });
       run.narration = "";
       run.currentStage = String(data.stage || "");
+      run.stageTimes[run.currentStage] = { start: frame.timestamp || Date.now() / 1000, end: 0 };
       setThinking(run, data.title || humanize(String(data.stage || "")));
       if (data.iteration > 1) {
         pushActivity(run, { icon: "↺", html: `${escapeHtml(data.title || humanize(String(data.stage)))} again, pass ${data.iteration}` });
@@ -446,6 +447,7 @@ function handleEvent(id, frame) {
       pushActivity(run, { kind: "fail", icon: "△", html: `Retrying ${escapeHtml(humanize(String(data.stage || "")))}: ${escapeHtml(frame.message || "")}` });
       break;
     case "stage_finished":
+      if (run.stageTimes[data.stage]) run.stageTimes[data.stage].end = frame.timestamp || Date.now() / 1000;
       run.stages.forEach((stage) => {
         if (stage.name === data.stage) stage.status = "done";
       });
@@ -527,6 +529,13 @@ function handleEvent(id, frame) {
     // DR-033: tokens as they are spent, not only when a stage ends — a long
     // stage otherwise shows zero for minutes and reads as "nothing happening".
     case "round_usage":
+      run.rounds.push({
+        stage: String(data.stage || ""),
+        prompt: data.prompt_tokens || 0,
+        completion: data.completion_tokens || 0,
+        estimated: data.estimated_input_tokens || 0,
+        limit: data.context_limit || 0,
+      });
       run.liveTokens = (run.liveTokens || 0) + (data.prompt_tokens || 0) + (data.completion_tokens || 0);
       if (isFocused(id)) {
         lastPromptTokens = data.prompt_tokens || data.estimated_input_tokens || lastPromptTokens;
@@ -1102,6 +1111,9 @@ function startRun(id, current) {
     // DR-038: the ledger as each stage left it, in order, and every loop-back.
     ledger: [],
     loopbacks: [],
+    // DR-041: every model round's usage, and when each stage started and ended.
+    rounds: [],
+    stageTimes: {},
     currentStage: "",
     openSteps: new Set(),
     detailed: false,
@@ -1384,6 +1396,20 @@ async function toggleChange(key, turnIndex) {
   renderInspector();
 }
 
+/* DR-041: the run this page watched, plus every stored turn's totals. */
+function usageView() {
+  const history = (state && state.history) || [];
+  return {
+    run: inspectedRun(),
+    turns: history.map((turn, index) => ({
+      index,
+      prompt: turn.prompt,
+      total: (turn.usage && turn.usage.total_tokens) || 0,
+    })),
+    session: (state && state.usage) || {},
+  };
+}
+
 function renderInspector() {
   setHtml(el("inspector-tabs"), inspectorTabsMarkup(inspectorTab));
   if (!dom.shell.classList.contains("inspector-open")) return;
@@ -1392,7 +1418,9 @@ function renderInspector() {
       ? requirementsPanelMarkup(requirementsView())
       : inspectorTab === "changes"
         ? changesPanelMarkup(changesView())
-        : activityPanelMarkup(inspectedRun());
+        : inspectorTab === "usage"
+          ? usagePanelMarkup(usageView())
+          : activityPanelMarkup(inspectedRun());
   setHtml(el("inspector-body"), body);
 }
 
@@ -1421,7 +1449,14 @@ function renderCardStop() {
 function finishRun(id, turn) {
   const seat = desk(id);
   if (isFocused(id)) {
-    lastPromptTokens = (turn.usage && turn.usage.prompt_tokens) || lastPromptTokens;
+    // The meter is how full the window was on the last round. A turn's
+    // prompt_tokens is the sum over every round, which overstates it many
+    // times over; it is only a fallback when no round was seen (DR-041).
+    const rounds = seat.run ? seat.run.rounds : [];
+    const last = rounds[rounds.length - 1];
+    lastPromptTokens = last
+      ? last.prompt || last.estimated || lastPromptTokens
+      : (turn.usage && turn.usage.prompt_tokens) || lastPromptTokens;
   }
   const run = seat.run;
   if (!run) return;

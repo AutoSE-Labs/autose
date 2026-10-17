@@ -1111,3 +1111,12 @@ def test_a_turn_that_does_not_exist_is_a_404(scripted, tmp_path):
 def test_a_turn_index_that_is_not_a_number_is_refused_over_http(served):
     status, _payload = _request(served, "/api/changes?turn=latest")
     assert status == 400
+
+
+def test_no_page_script_writes_inline_styles():
+    """The CSP is default-src 'self' (DR-029), which drops inline style
+    attributes without a word: a bar drawn with style="height:…" renders as
+    nothing. Sizes go in SVG attributes or classes instead (DR-041)."""
+    for name in ("app.js", "inspector.js", "settings.js"):
+        source = (STATIC_ROOT / name).read_text(encoding="utf-8")
+        assert 'style="' not in source, f"{name} writes an inline style attribute"

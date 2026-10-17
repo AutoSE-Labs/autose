@@ -108,6 +108,7 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-038](docs/DecisionRecords/DR-038-the-requirements-ledger-is-kept-and-shown.md) | Each turn keeps its final requirements ledger, and the dashboard shows it as a board |
 | [DR-039](docs/DecisionRecords/DR-039-a-malformed-tool-call-is-retried.md) | A tool call the runtime cannot parse is retried, not fatal |
 | [DR-040](docs/DecisionRecords/DR-040-the-changes-tab-reads-any-turn-s-diff.md) | The inspector's Changes tab lists every turn's writes and reads any turn's diff on demand |
+| [DR-041](docs/DecisionRecords/DR-041-the-usage-tab-shows-where-tokens-and-time-went.md) | The inspector's Usage tab shows where the tokens and the time went |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
 
