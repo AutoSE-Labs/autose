@@ -1318,13 +1318,81 @@ function requirementsView() {
   return turn ? { requirements: turn.requirements, journey: [], verdict: null, loopbacks: [], live: false } : null;
 }
 
+/* DR-040: the Changes tab's diffs, per session and turn, fetched on demand. */
+const changeDiffs = new Map();
+const openChanges = new Set();
+
+function changesView() {
+  const session = focusId();
+  const history = (state && state.history) || [];
+  // `undo` reverts the most recent turn that wrote (DR-024); only that turn
+  // offers it, so the button never promises more than undo does.
+  let lastWriting = -1;
+  history.forEach((turn, index) => {
+    if ((turn.changes || []).length) lastWriting = index;
+  });
+  const turns = history
+    .map((turn, index) => {
+      const files = (turn.changes || []).map((change) => ({
+        path: change.path,
+        kind: change.kind,
+        added: change.added || 0,
+        removed: change.removed || 0,
+      }));
+      return {
+        index,
+        prompt: turn.prompt,
+        files,
+        added: files.reduce((sum, file) => sum + file.added, 0),
+        removed: files.reduce((sum, file) => sum + file.removed, 0),
+        undoable: index === lastWriting && !(state && state.running),
+      };
+    })
+    .filter((turn) => turn.files.length)
+    .reverse();
+  const run = focusedRun();
+  const liveEdits = run
+    ? run.steps.filter((step) => step.type === "tool" && ["write_file", "edit_file"].includes(step.tool) && step.status === "done").length
+    : 0;
+  const diffs = new Map();
+  turns.forEach((turn) => {
+    const cached = changeDiffs.get(`${session}:${turn.index}`);
+    if (cached) diffs.set(turn.index, cached);
+  });
+  return { turns, liveEdits, diffs, open: openChanges };
+}
+
+async function toggleChange(key, turnIndex) {
+  if (openChanges.has(key)) {
+    openChanges.delete(key);
+    renderInspector();
+    return;
+  }
+  openChanges.add(key);
+  renderInspector();
+  const cacheKey = `${focusId()}:${turnIndex}`;
+  if (changeDiffs.has(cacheKey)) return;
+  try {
+    const payload = await api(
+      `/api/changes?session=${encodeURIComponent(focusId())}&turn=${encodeURIComponent(turnIndex)}`
+    );
+    changeDiffs.set(cacheKey, payload.changes || []);
+  } catch (error) {
+    openChanges.delete(key);
+    toast(String(error.message || error), "bad");
+  }
+  renderInspector();
+}
+
 function renderInspector() {
   setHtml(el("inspector-tabs"), inspectorTabsMarkup(inspectorTab));
   if (!dom.shell.classList.contains("inspector-open")) return;
   const body =
     inspectorTab === "requirements"
       ? requirementsPanelMarkup(requirementsView())
-      : activityPanelMarkup(inspectedRun());
+      : inspectorTab === "changes"
+        ? changesPanelMarkup(changesView())
+        : activityPanelMarkup(inspectedRun());
   setHtml(el("inspector-body"), body);
 }
 
@@ -1887,15 +1955,22 @@ el("doctor-close").addEventListener("click", closeOverlays);
 el("approval-allow").addEventListener("click", () => resolveApproval(true));
 el("approval-deny").addEventListener("click", () => resolveApproval(false));
 
-el("diff-undo").addEventListener("click", async () => {
-  if (!window.confirm("Put these files back as they were before the last turn?")) return;
+/* One undo for the diff popup and the Changes tab: both revert the most
+ * recent turn that wrote, and only that one (DR-024). */
+async function undoChanges() {
+  if (!window.confirm("Put these files back as they were before the last turn that changed them?")) return;
   const payload = await post("/api/undo", { session: focusId() });
   if (!payload) return;
   closeOverlays();
+  changeDiffs.clear();
+  openChanges.clear();
   if ((payload.skipped || []).length) {
     payload.skipped.forEach((item) => toast(`Left ${item.path} alone: ${item.reason}`, "bad"));
   }
-});
+  renderInspector();
+}
+
+el("diff-undo").addEventListener("click", undoChanges);
 
 dom.jump.addEventListener("click", scrollToBottom);
 
@@ -1944,6 +2019,15 @@ el("inspector-tabs").addEventListener("click", (event) => {
 });
 
 el("inspector-body").addEventListener("click", (event) => {
+  const change = event.target.closest("[data-toggle-change]");
+  if (change) {
+    toggleChange(change.dataset.toggleChange, Number(change.dataset.turn));
+    return;
+  }
+  if (event.target.closest("[data-undo-turn]")) {
+    undoChanges();
+    return;
+  }
   const toggle = event.target.closest("[data-toggle-step]");
   if (!toggle) return;
   const run = inspectedRun();

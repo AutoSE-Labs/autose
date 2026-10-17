@@ -1064,3 +1064,50 @@ def test_a_key_is_only_ever_typed_into_a_password_field():
     # The renderer never reads a raw key field off the payload.
     assert not re.search(r"\.api_key\b|\[\s*[\"']api_key[\"']\s*\]", script)
 
+
+
+# -- DR-040: any turn's diffs, on demand -----------------------------------------
+
+
+def test_an_earlier_turn_s_diffs_can_be_read_by_its_index(scripted, tmp_path):
+    (tmp_path / "notes.txt").write_text("draft\n")
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(
+                tool_call(
+                    "edit_file",
+                    path="notes.txt",
+                    edits=[{"old_str": "draft", "new_str": "first"}],
+                )
+            ),
+            answer("wrote it"),
+            answer("nothing to write this time"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("write the notes")
+    _drain(subscriber, "turn")
+    bridge.submit("say something")
+    _drain(subscriber, "turn")
+
+    first = bridge.changes(turn=0)
+    assert first["turn"] == 0
+    (change,) = first["changes"]
+    assert change["path"] == "notes.txt"
+    assert "+first" in change["diff"]
+    # The latest turn wrote nothing; asking for it by index says so.
+    assert bridge.changes(turn=1)["changes"] == []
+
+
+def test_a_turn_that_does_not_exist_is_a_404(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    with pytest.raises(BridgeError) as caught:
+        bridge.changes(turn=7)
+    assert caught.value.status == 404
+
+
+def test_a_turn_index_that_is_not_a_number_is_refused_over_http(served):
+    status, _payload = _request(served, "/api/changes?turn=latest")
+    assert status == 400

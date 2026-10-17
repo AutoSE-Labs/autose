@@ -13,6 +13,7 @@
 const INSPECTOR_TABS = [
   { id: "activity", label: "Activity" },
   { id: "requirements", label: "Requirements" },
+  { id: "changes", label: "Changes" },
 ];
 
 function inspectorTabsMarkup(active) {
@@ -185,4 +186,83 @@ function requirementsPanelMarkup(view) {
     })
     .join("");
   return summary + verdict + loops + `<div class="reqs">${rows}</div>`;
+}
+
+/* ---------- changes (DR-040) ---------- */
+
+/* `view`: { turns: [{index, prompt, files: [{path, kind, added, removed}],
+ * added, removed, undoable}], liveEdits, diffs: Map(index -> [change]),
+ * open: Set("index:path") }. Newest turn first. */
+function changesPanelMarkup(view) {
+  const live = view.liveEdits
+    ? `<div class="step note"><span class="act-icon">✎</span><span>This turn has made ${view.liveEdits} edit${view.liveEdits === 1 ? "" : "s"} so far; its diff appears here when it finishes.</span></div>`
+    : "";
+  if (!view.turns.length) {
+    return (
+      live ||
+      `<div class="inspector-empty">Every file AutoSE writes is journalled with what it was before, so each
+        change can be read as a diff and undone (DR-024). Nothing has been written in this session yet.</div>`
+    );
+  }
+  const total = view.turns.reduce(
+    (sum, turn) => ({ files: sum.files + turn.files.length, added: sum.added + turn.added, removed: sum.removed + turn.removed }),
+    { files: 0, added: 0, removed: 0 }
+  );
+  const summary =
+    `<div class="inspector-summary"><span><strong>${total.files}</strong> file change${total.files === 1 ? "" : "s"}</span>` +
+    `<span class="added">+${total.added}</span><span class="removed">−${total.removed}</span>` +
+    `<span class="inspector-state">${view.turns.length} turn${view.turns.length === 1 ? "" : "s"}</span></div>`;
+  const turns = view.turns
+    .map((turn) => {
+      const diffs = view.diffs.get(turn.index);
+      const files = turn.files
+        .map((file) => {
+          const key = `${turn.index}:${file.path}`;
+          const open = view.open.has(key);
+          const change = diffs && diffs.find((item) => item.path === file.path);
+          const body = open
+            ? change
+              ? `<pre class="diff-lines inline">${diffRowsMarkup(change.diff)}</pre>`
+              : `<div class="step-pending">Loading the diff…</div>`
+            : "";
+          return (
+            `<div class="step tool${open ? " open" : ""}">` +
+            `<button type="button" class="step-head" data-toggle-change="${escapeHtml(key)}" data-turn="${turn.index}" aria-expanded="${open}">` +
+            `<span class="act-icon">✎</span>` +
+            `<span class="step-title mono">${escapeHtml(elideMiddle(file.path, 46))}</span>` +
+            `<span class="step-meta"><span class="added">+${file.added}</span> <span class="removed">−${file.removed}</span>${file.kind && file.kind !== "modified" ? ` · ${escapeHtml(file.kind)}` : ""}</span>` +
+            `</button>${body}</div>`
+          );
+        })
+        .join("");
+      return (
+        `<div class="change-turn">` +
+        `<div class="step-group">Turn ${turn.index + 1} · ${escapeHtml(elideMiddle(turn.prompt || "", 60))}</div>` +
+        files +
+        (turn.undoable
+          ? `<button type="button" class="ghost-button small change-undo" data-undo-turn="${turn.index}">Undo this turn's changes</button>`
+          : "") +
+        `</div>`
+      );
+    })
+    .join("");
+  return summary + live + turns;
+}
+
+function diffRowsMarkup(diff) {
+  const rows = String(diff || "")
+    .split("\n")
+    .map((line) => {
+      const kind =
+        line.startsWith("+") && !line.startsWith("+++")
+          ? "add"
+          : line.startsWith("-") && !line.startsWith("---")
+            ? "del"
+            : line.startsWith("@@") || line.startsWith("+++") || line.startsWith("---")
+              ? "meta"
+              : "";
+      return `<span class="row ${kind}">${escapeHtml(line) || " "}</span>`;
+    })
+    .join("");
+  return rows || `<span class="row meta">(no textual diff)</span>`;
 }

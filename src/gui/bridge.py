@@ -697,14 +697,28 @@ class SessionBridge:
             "current": focus,
         }
 
-    def changes(self, session_id: str | None = None) -> dict[str, Any]:
-        """The last turn's writes, with diffs — what ``/diff`` shows (DR-024)."""
+    def changes(
+        self, session_id: str | None = None, *, turn: int | None = None
+    ) -> dict[str, Any]:
+        """One turn's writes, with diffs — the last turn's by default (DR-024).
+
+        *turn* is an index into the session's history, so the Changes tab can
+        read any turn's diffs on demand rather than receiving every diff of
+        the session with each state frame (DR-040).
+        """
         session = self._target(session_id).session
-        changes = session.last_changes
+        if turn is None:
+            changes = session.last_changes
+        else:
+            history = session.history
+            if not 0 <= turn < len(history):
+                raise BridgeError(f"there is no turn {turn} in this session", status=404)
+            changes = history[turn].changes
         added = sum(change.stats[0] for change in changes)
         removed = sum(change.stats[1] for change in changes)
         return {
             "session": session.session_id,
+            "turn": turn,
             "changes": [
                 change_payload(change, with_diff=True) for change in changes
             ],

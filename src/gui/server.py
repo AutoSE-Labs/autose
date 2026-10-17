@@ -174,7 +174,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         readers = {
             "/api/state": self._bridge.snapshot,
             "/api/sessions": self._bridge.sessions,
-            "/api/changes": lambda: self._bridge.changes(target),
+            "/api/changes": lambda: self._bridge.changes(
+                target, turn=_turn_of(query)
+            ),
             "/api/doctor": self._bridge.doctor,
             "/api/providers": self._bridge.providers,
         }
@@ -575,6 +577,17 @@ def _optional_url(value: Any) -> str | None:
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise BridgeError("base_url must be an http:// or https:// address")
     return text
+
+
+def _turn_of(query: dict[str, list[str]]) -> int | None:
+    """The ``turn`` index a read asks for, or ``None`` for the latest (DR-040)."""
+    raw = _first(query.get("turn"))
+    if raw is None or raw == "":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise BridgeError("turn must be a whole number") from None
 
 
 def _session_of(body: dict[str, Any]) -> str | None:
