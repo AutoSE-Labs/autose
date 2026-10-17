@@ -14,6 +14,7 @@ from .config import AutoSEConfig, load_config
 from .errors import AutoSEError
 from .inference.context_advice import advise_context
 from .inference.discovery import DetectedRuntime, discover_local_runtimes
+from .inference.registry import available_providers
 from .workflows import available_tiers
 
 __all__ = ["Diagnosis", "diagnose"]
@@ -96,6 +97,12 @@ def _context_advisories(runtimes: tuple[DetectedRuntime, ...]) -> tuple[str, ...
     """
     advisories: list[str] = []
     for runtime in runtimes:
+        provider = available_providers().get(runtime.provider)
+        if provider is not None and provider.serves_requested_window:
+            # DR-035: AutoSE asks this runtime for its own window on every
+            # request, so the window it was started with is not what AutoSE
+            # runs in, and advising a restart would change nothing.
+            continue
         too_small = [
             model
             for model in runtime.models

@@ -122,3 +122,23 @@ def test_ollama_reports_how_much_of_a_loaded_model_is_on_the_gpu(monkeypatch):
     assert model.context_length == 32_768
     assert model.gpu_fraction is not None
     assert round(model.gpu_fraction, 2) == 0.58
+
+
+def test_an_unknown_gpu_share_is_not_reported_as_fitting():
+    """Right after the window changes, the GPU share is unknown — not "fits"."""
+    advice = _advise(_model(65_536, gpu=None))
+    assert advice.level == "info"
+    assert "on the GPU" in advice.detail
+    assert "whole model" not in advice.detail
+    assert advice.recommended is None
+
+
+def test_where_autose_chooses_the_window_the_remedy_keeps_the_current_one():
+    advice = advise_context(
+        _model(65_536, gpu=None),
+        provider="ollama",
+        min_usable=MIN_USABLE_CONTEXT_TOKENS,
+        adjustable=True,
+    )
+    assert advice.remedy == "inference:\n  context_limit: 65536"
+

@@ -320,8 +320,23 @@ def test_selecting_another_model_in_setup_carries_its_context_limit(monkeypatch)
     )
     monkeypatch.setattr("logic.session.discover_local_runtimes", lambda **kwargs: (runtime,))
     setup = setup_from_config(AutoSEConfig()).with_model("tiny:1b")
-    assert setup.inference.context_limit == 4096
+    # DR-035: Ollama is asked for a usable window rather than inheriting the
+    # 4,096 it reported for a model it has not loaded.
+    assert setup.inference.context_limit == 32768
     assert any("tool-calling" in warning for warning in setup.warnings)
+
+
+def test_a_runtime_that_cannot_honour_a_window_keeps_the_one_it_reports(monkeypatch):
+    """DR-035 only applies where the runtime serves what a request asks for."""
+    runtime = DetectedRuntime(
+        provider="lm-studio",
+        base_url="http://localhost:1234/v1",
+        reachable=True,
+        models=(_TINY,),
+    )
+    monkeypatch.setattr("logic.session.discover_local_runtimes", lambda **kwargs: (runtime,))
+    setup = setup_from_config(AutoSEConfig())
+    assert setup.inference.context_limit == 4096
 
 
 def test_discovery_can_be_disabled(monkeypatch):

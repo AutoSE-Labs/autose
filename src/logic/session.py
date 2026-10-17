@@ -36,9 +36,18 @@ from .config import AutoSEConfig
 from .errors import ConfigurationError
 from .inference.base import ChatModel
 from .inference.catalog import ModelInfo
-from .inference.context_advice import advise_context
+from .inference.context_advice import (
+    COMFORTABLE_CONTEXT_TOKENS,
+    ContextAdvice,
+    advise_context,
+)
 from .inference.discovery import DetectedRuntime, discover_local_runtimes
-from .inference.registry import create_chat_model, create_model_catalog, local_providers
+from .inference.registry import (
+    available_providers,
+    create_chat_model,
+    create_model_catalog,
+    local_providers,
+)
 from .inference.settings import InferenceSettings
 from .inference.types import Usage
 from .limits import count_limit
@@ -143,15 +152,84 @@ class SessionSetup:
         info = next(
             (model for model in self.available_models if model.name == name), None
         )
-        inference = self.inference.with_model(name)
-        if info is not None and info.context_length:
-            inference = inference.with_context_limit(info.context_length)
+        inference, info = adopt_context_window(
+            self.inference.with_model(name),
+            info,
+            explicit=self.config.inference.context_limit,
+        )
         return replace(
             self,
             inference=inference,
             model_info=info,
             warnings=_capability_warnings(info, inference.provider),
         )
+
+
+def _raise_it(advice: ContextAdvice) -> str:
+    """The remedy as a sentence: AutoSE's own setting, or the runtime's (DR-035)."""
+    if not advice.remedy or advice.recommended is None:
+        return ""
+    if advice.adjustable:
+        return (
+            f" Raise it to {advice.recommended:,} from the dashboard's CTX panel, "
+            f"or with `inference.context_limit: {advice.recommended}` in "
+            ".autose/config.yaml."
+        )
+    return f" Raise it: `{advice.remedy}`."
+
+
+def serves_requested_window(provider: str) -> bool:
+    """Whether *provider* serves the window a request asks for (DR-035)."""
+    registered = available_providers().get((provider or "").strip().lower())
+    return bool(registered and registered.serves_requested_window)
+
+
+def adopt_context_window(
+    inference: InferenceSettings,
+    info: ModelInfo | None,
+    *,
+    explicit: int | None,
+) -> tuple[InferenceSettings, ModelInfo | None]:
+    """Decide the window to budget against, and to request where that works.
+
+    For a runtime that only serves what it was started with, that is the
+    configured limit or else the window it reports (DR-010, DR-022). For one
+    that serves what a request asks for (DR-035), AutoSE chooses: the
+    configured limit; else the window the runtime reports, when that is at
+    least comfortable; else a comfortable window, capped by the model's maximum
+    — never the runtime's 4,096 default. The returned :class:`ModelInfo` then
+    describes the window that will be served, not the one last observed.
+    """
+    if not serves_requested_window(inference.provider):
+        if explicit:
+            return inference.with_context_limit(explicit), info
+        if info is not None and info.context_length:
+            return inference.with_context_limit(info.context_length), info
+        return inference, info
+    maximum = info.max_context_length if info is not None else None
+    if explicit:
+        window = explicit
+    elif (
+        info is not None
+        and info.context_length
+        and info.context_length >= COMFORTABLE_CONTEXT_TOKENS
+    ):
+        window = info.context_length
+    else:
+        window = COMFORTABLE_CONTEXT_TOKENS
+    if maximum:
+        window = min(window, maximum)
+    if info is None:
+        return inference.with_context_limit(window), None
+    observed = info.context_length_measured and info.context_length == window
+    return inference.with_context_limit(window), replace(
+        info,
+        context_length=window,
+        context_length_measured=True,
+        # Measured at a different window, the GPU share says nothing about
+        # this one; it is re-read after the next request loads the model.
+        gpu_fraction=info.gpu_fraction if observed else None,
+    )
 
 
 def setup_from_config(config: AutoSEConfig, *, discover: bool = True) -> SessionSetup:
@@ -168,13 +246,9 @@ def setup_from_config(config: AutoSEConfig, *, discover: bool = True) -> Session
         # let a failed enumeration block a run that was explicitly set up.
         runtime = _enumerate(configured)
         info = runtime.model(configured.model) if runtime else None
-        inference = configured
-        if (
-            info is not None
-            and info.context_length
-            and configured.context_limit is None
-        ):
-            inference = configured.with_context_limit(info.context_length)
+        inference, info = adopt_context_window(
+            configured, info, explicit=configured.context_limit
+        )
         return SessionSetup(
             config=config,
             runtimes=(runtime,) if runtime else (),
@@ -207,9 +281,10 @@ def setup_from_config(config: AutoSEConfig, *, discover: bool = True) -> Session
         timeout=configured.timeout,
         discovery_timeout=configured.discovery_timeout,
     )
-    if configured.context_limit:
-        inference = inference.with_context_limit(configured.context_limit)
     info = usable.model(inference.model)
+    inference, info = adopt_context_window(
+        inference, info, explicit=configured.context_limit
+    )
     return SessionSetup(
         config=config,
         runtimes=runtimes,
@@ -249,6 +324,9 @@ class Session:
             require_edit_approval=require_edit_approval
         )
         self._model_info = model_info
+        #: A window the user picked this session (DR-035), kept across a
+        #: model switch; ``None`` lets each model get the chosen default.
+        self._chosen_window: int | None = None
         self._model: ChatModel = create_chat_model(self._inference)
         self._turns: list[Turn] = []
         # DR-021: a repo's `.autose/config.yaml` tuning/prompts apply to every
@@ -511,15 +589,69 @@ class Session:
         info = next(
             (model for model in self.available_models() if model.name == name), None
         )
-        inference = self._inference.with_model(name)
-        if info is not None and info.context_length:
-            inference = inference.with_context_limit(info.context_length)
+        inference, info = adopt_context_window(
+            self._inference.with_model(name), info, explicit=self._chosen_window
+        )
         self._inference = inference.require_model()
         self._model_info = info
         self._model = create_chat_model(self._inference)
         self._emit(
             "model_selected", name, model=name, provider=self._inference.provider
         )
+
+    def set_context_window(self, tokens: int) -> None:
+        """Serve and budget against *tokens* from the next request on (DR-035).
+
+        Only for a runtime that honours a requested window; any other serves
+        what it was started with, and claiming otherwise would make the budget
+        a lie about what the model can see (DR-022).
+        """
+        if not serves_requested_window(self._inference.provider):
+            raise ConfigurationError(
+                f"{self._inference.provider} serves the window it was started "
+                "with; AutoSE cannot change it from here"
+            )
+        floor = count_limit(self._tuning.context.min_usable_context_tokens)
+        if floor is not None and tokens < floor:
+            raise ConfigurationError(
+                f"{tokens:,} tokens is below the {floor:,} AutoSE needs to work"
+            )
+        info = self._model_info
+        maximum = info.max_context_length if info is not None else None
+        if maximum and tokens > maximum:
+            raise ConfigurationError(
+                f"'{self._inference.model}' supports at most {maximum:,} tokens"
+            )
+        previous = self._inference.context_limit
+        self._chosen_window = tokens
+        self._inference, self._model_info = adopt_context_window(
+            self._inference, info, explicit=tokens
+        )
+        self._model = create_chat_model(self._inference)
+        self._emit(
+            "context_window_changed",
+            f"{previous or 0} -> {tokens}",
+            previous=previous,
+            tokens=tokens,
+        )
+
+    def refresh_model_info(self) -> None:
+        """Re-read what the runtime reports about the current model.
+
+        Cheap (one catalog call), and the only way to learn how much of the
+        model landed on the GPU at the window it was just loaded with (DR-034,
+        DR-035). A runtime that cannot be reached leaves the old facts alone.
+        """
+        info = self._model_info
+        if info is None:
+            return
+        fresh = next(
+            (model for model in self.available_models() if model.name == info.name),
+            None,
+        )
+        if fresh is None or fresh.context_length != self._inference.context_limit:
+            return
+        self._model_info = replace(info, gpu_fraction=fresh.gpu_fraction)
 
     def request_tier(self, tier: str) -> str:
         """Ask for a tier. The ratchet may return a higher one (DR-003)."""
@@ -713,7 +845,12 @@ class Session:
             return
         capped = info is not None and info.is_context_capped
         advice = (
-            advise_context(info, provider=self.inference.provider, min_usable=floor)
+            advise_context(
+                info,
+                provider=self.inference.provider,
+                min_usable=floor,
+                adjustable=serves_requested_window(self.inference.provider),
+            )
             if info is not None
             else None
         )
@@ -721,7 +858,7 @@ class Session:
             f"The model itself supports {info.max_context_length:,} tokens — the "
             f"runtime is what is serving {limit:,}."
             + (
-                f" Raise it: `{advice.remedy}`."
+                _raise_it(advice)
                 if advice and advice.remedy
                 else f" Serve it with at least {advice.recommended:,} tokens."
                 if advice and advice.recommended
@@ -836,12 +973,15 @@ def _capability_warnings(
     # warning. A deliberate 32k cap on a 256k model is not, and a remedy that
     # repeats the value already set is worse than none.
     advice = advise_context(
-        info, provider=provider, min_usable=MIN_USABLE_CONTEXT_TOKENS
+        info,
+        provider=provider,
+        min_usable=MIN_USABLE_CONTEXT_TOKENS,
+        adjustable=serves_requested_window(provider),
     )
     if advice.level == "warning":
         warnings.append(
             f"'{info.name}': {advice.summary} {advice.detail}"
-            + (f" Raise it: `{advice.remedy}`." if advice.remedy else "")
+            + _raise_it(advice)
         )
     if info.context_length and info.context_length < MIN_USABLE_CONTEXT_TOKENS:
         # Not "requests get trimmed" — with a truthful budget they fail closed
@@ -858,7 +998,7 @@ def _capability_warnings(
                 if info.is_context_capped and info.max_context_length
                 else ""
             )
-            + (f" Raise it: `{advice.remedy}`." if advice.remedy else "")
+            + _raise_it(advice)
         )
     return tuple(warnings)
 
