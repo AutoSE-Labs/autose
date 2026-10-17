@@ -1,110 +1,235 @@
 #!/bin/sh
 # AutoSE installer (macOS / Linux)
-# Clones AutoSE and sets up the `autose` CLI with uv.
+# Installs AutoSE, adds an AutoSE shortcut to your desktop (and app menu on
+# Linux), and opens the dashboard in your browser.
 #
 #   curl -fsSL https://autose.dev/install.sh | sh
 #
+# Run it again at any time to update.
+#
 # Honors these environment variables:
-#   AUTOSE_HOME     where to clone AutoSE        (default: $HOME/.autose-cli)
-#   AUTOSE_BIN_DIR  where to place the launcher  (default: $HOME/.local/bin)
-#   AUTOSE_REF      git ref to check out         (default: the repo default branch)
+#   AUTOSE_HOME         where to clone AutoSE          (default: $HOME/.autose-cli)
+#   AUTOSE_BIN_DIR      where to place the launchers   (default: $HOME/.local/bin)
+#   AUTOSE_REF          git ref to check out           (default: the repo default branch)
+#   AUTOSE_REPO         repository to clone            (default: the AutoSE GitHub repo)
+#   AUTOSE_NO_SHORTCUT  set to 1 to skip the desktop shortcut
+#   AUTOSE_NO_LAUNCH    set to 1 to skip opening the dashboard at the end
 
 set -eu
 
-REPO_URL="https://github.com/AutoSE-Labs/autose.git"
+REPO_URL="${AUTOSE_REPO:-https://github.com/AutoSE-Labs/autose.git}"
 INSTALL_DIR="${AUTOSE_HOME:-$HOME/.autose-cli}"
 BIN_DIR="${AUTOSE_BIN_DIR:-$HOME/.local/bin}"
 REF="${AUTOSE_REF:-}"
+OS="$(uname -s)"
 
 # Pretty output
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   BOLD=$(printf '\033[1m'); DIM=$(printf '\033[2m'); RESET=$(printf '\033[0m')
-  INK=$(printf '\033[38;5;24m'); SIGNAL=$(printf '\033[38;5;166m')
+  INK=$(printf '\033[38;5;24m'); SIGNAL=$(printf '\033[38;5;166m'); OK=$(printf '\033[32m')
 else
-  BOLD=""; DIM=""; RESET=""; INK=""; SIGNAL=""
+  BOLD=""; DIM=""; RESET=""; INK=""; SIGNAL=""; OK=""
 fi
 say()  { printf '%s\n' "$*"; }
 step() { printf '%s>%s %s\n' "$SIGNAL" "$RESET" "$*"; }
 die()  { printf '%serror:%s %s\n' "$SIGNAL" "$RESET" "$*" >&2; exit 1; }
 
 say ""
-say "${BOLD}${INK}AutoSE${RESET}  sovereign autonomous software engineering"
-say "${DIM}local-first, org-aware, zero cloud${RESET}"
+say "${BOLD}${INK}AutoSE${RESET}  local-first autonomous software engineering"
+say "${DIM}free edition: web dashboard + terminal, on models you run yourself${RESET}"
 say ""
 
 # Prerequisites
-command -v git >/dev/null 2>&1 || die "git is required but was not found. Install it from https://git-scm.com"
+if ! command -v git >/dev/null 2>&1; then
+  if [ "$OS" = "Darwin" ]; then
+    xcode-select --install >/dev/null 2>&1 || true
+    die "git is required. macOS is now offering to install the developer tools that include it; accept that, then run this again."
+  fi
+  die "git is required but was not found. Install it with your package manager (for example: sudo apt install git), then run this again."
+fi
 
 # uv manages the Python runtime and dependencies. Install it if it is missing.
+# A previous install may have put it where this shell's PATH does not look.
+for d in "$HOME/.local/bin" "$HOME/.cargo/bin"; do
+  if ! command -v uv >/dev/null 2>&1 && [ -x "$d/uv" ]; then PATH="$d:$PATH"; fi
+done
 if ! command -v uv >/dev/null 2>&1; then
   step "Installing uv (Python toolchain manager)"
   curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1 \
-    || die "Could not install uv automatically. Install it from https://docs.astral.sh/uv/ and re-run."
+    || die "Could not install uv automatically. Install it from https://docs.astral.sh/uv/ and run this again."
   # uv drops its binary in one of these; make it available for the rest of this run.
   for d in "$HOME/.local/bin" "$HOME/.cargo/bin"; do
     [ -x "$d/uv" ] && PATH="$d:$PATH"
   done
   command -v uv >/dev/null 2>&1 \
-    || die "uv was installed but is not on your PATH yet. Open a new terminal and re-run this installer."
+    || die "uv was installed but is not on your PATH yet. Open a new terminal and run this again."
 fi
+# Launchers call uv by full path, so a desktop shortcut works without a login
+# shell's PATH.
+UV="$(command -v uv)"
 
 # Fetch
 if [ -d "$INSTALL_DIR/.git" ]; then
   step "Updating AutoSE in $INSTALL_DIR"
-  git -C "$INSTALL_DIR" fetch --depth 1 origin >/dev/null 2>&1
-  if [ -n "$REF" ]; then
-    git -C "$INSTALL_DIR" checkout -q "$REF"
-    git -C "$INSTALL_DIR" reset --hard -q "origin/$REF" 2>/dev/null || git -C "$INSTALL_DIR" pull -q
-  else
-    git -C "$INSTALL_DIR" reset --hard -q '@{u}' 2>/dev/null || git -C "$INSTALL_DIR" pull -q
-  fi
+  git -C "$INSTALL_DIR" remote set-url origin "$REPO_URL"
+  git -C "$INSTALL_DIR" fetch -q --depth 1 origin "${REF:-HEAD}" >/dev/null 2>&1 \
+    || die "Could not fetch $REPO_URL"
+  git -C "$INSTALL_DIR" reset -q --hard FETCH_HEAD \
+    || die "Could not update $INSTALL_DIR"
 else
   [ -e "$INSTALL_DIR" ] && die "$INSTALL_DIR already exists but is not a git checkout. Remove it or set AUTOSE_HOME."
-  step "Cloning AutoSE into $INSTALL_DIR"
+  step "Downloading AutoSE into $INSTALL_DIR"
   if [ -n "$REF" ]; then
-    git clone --depth 1 --branch "$REF" "$REPO_URL" "$INSTALL_DIR" >/dev/null 2>&1 \
+    git clone -q --depth 1 --branch "$REF" "$REPO_URL" "$INSTALL_DIR" >/dev/null 2>&1 \
       || die "Failed to clone $REPO_URL at ref $REF"
   else
-    git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" >/dev/null 2>&1 \
+    git clone -q --depth 1 "$REPO_URL" "$INSTALL_DIR" >/dev/null 2>&1 \
       || die "Failed to clone $REPO_URL"
   fi
 fi
 
 # Set up the environment (uv fetches Python and installs dependencies)
-step "Setting up the Python environment with uv (this can take a minute)"
-( cd "$INSTALL_DIR" && uv sync >/dev/null 2>&1 ) \
+step "Setting up Python with uv (the first time can take a minute)"
+( cd "$INSTALL_DIR" && "$UV" sync -q >/dev/null 2>&1 ) \
   || die "uv sync failed. Run 'uv sync' in $INSTALL_DIR to see the error."
 
-# Link the launcher
-step "Linking the autose launcher into $BIN_DIR"
+# Launchers
+step "Installing the autose command into $BIN_DIR"
 mkdir -p "$BIN_DIR"
-LAUNCHER="$BIN_DIR/autose"
-cat > "$LAUNCHER" <<EOF
+
+cat > "$BIN_DIR/autose" <<EOF
 #!/bin/sh
 # AutoSE launcher, generated by install.sh
-exec uv run --project "$INSTALL_DIR" autose "\$@"
+exec "$UV" run -q --project "$INSTALL_DIR" autose "\$@"
 EOF
-chmod +x "$LAUNCHER"
+chmod +x "$BIN_DIR/autose"
+
+# The dashboard launcher asks which project to open (remembering the last
+# one), then serves the dashboard for it on a free port and opens the browser.
+# Closing its terminal window stops the dashboard.
+DASHBOARD="$BIN_DIR/autose-dashboard"
+cat > "$DASHBOARD" <<EOF
+#!/bin/sh
+# AutoSE dashboard launcher, generated by install.sh. Re-run the installer to regenerate it.
+UV="$UV"
+INSTALL_DIR="$INSTALL_DIR"
+EOF
+cat >> "$DASHBOARD" <<'EOF'
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/autose"
+LAST_FILE="$STATE_DIR/last-workspace"
+mkdir -p "$STATE_DIR"
+
+workspace="${1:-}"
+if [ -z "$workspace" ]; then
+  last=""
+  [ -f "$LAST_FILE" ] && last="$(cat "$LAST_FILE")"
+  [ -n "$last" ] && [ -d "$last" ] || last="$HOME"
+  if [ "$(uname -s)" = "Darwin" ]; then
+    workspace="$(osascript \
+      -e 'on run argv' \
+      -e 'POSIX path of (choose folder with prompt "Choose the project folder AutoSE should work in" default location ((item 1 of argv) as POSIX file))' \
+      -e 'end run' "$last" 2>/dev/null)" || exit 0
+  elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null 2>&1; then
+    workspace="$(zenity --file-selection --directory \
+      --title="Choose the project folder AutoSE should work in" --filename="$last/" 2>/dev/null)" || exit 0
+  elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v kdialog >/dev/null 2>&1; then
+    workspace="$(kdialog --getexistingdirectory "$last" \
+      --title "Choose the project folder AutoSE should work in" 2>/dev/null)" || exit 0
+  elif [ -t 0 ]; then
+    printf 'Project folder for AutoSE [%s]: ' "$last"
+    read -r workspace || exit 0
+    [ -n "$workspace" ] || workspace="$last"
+  else
+    workspace="$last"
+  fi
+fi
+case "$workspace" in "~"*) workspace="$HOME${workspace#\~}" ;; esac
+[ -d "$workspace" ] || { echo "not a folder: $workspace" >&2; exit 1; }
+printf '%s\n' "$workspace" > "$LAST_FILE"
+
+echo ""
+echo "AutoSE  the dashboard is opening in your browser."
+echo "Keep this window open while you use it. Close it (or press ctrl-c) to stop AutoSE."
+echo ""
+exec "$UV" run -q --project "$INSTALL_DIR" autose --web --port 0 --workspace "$workspace"
+EOF
+chmod +x "$DASHBOARD"
+
+# Shortcuts
+desktop_dir() {
+  if command -v xdg-user-dir >/dev/null 2>&1; then
+    d="$(xdg-user-dir DESKTOP 2>/dev/null || true)"
+    [ -n "$d" ] && [ "$d" != "$HOME" ] && [ -d "$d" ] && { printf '%s' "$d"; return; }
+  fi
+  [ -d "$HOME/Desktop" ] && printf '%s' "$HOME/Desktop"
+}
+
+if [ "${AUTOSE_NO_SHORTCUT:-}" != "1" ]; then
+  DESKTOP="$(desktop_dir)"
+  if [ "$OS" = "Darwin" ]; then
+    if [ -n "$DESKTOP" ]; then
+      step "Adding AutoSE to your desktop"
+      SHORTCUT="$DESKTOP/AutoSE.command"
+      printf '#!/bin/sh\n# Double-click to open the AutoSE dashboard.\nexec "%s"\n' "$DASHBOARD" > "$SHORTCUT"
+      chmod +x "$SHORTCUT"
+    fi
+  else
+    step "Adding AutoSE to your applications menu and desktop"
+    APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
+    mkdir -p "$APPS" "$ICONS"
+    ICON="autose"
+    curl -fsSL https://autose.dev/favicon.svg -o "$ICONS/autose.svg" 2>/dev/null && ICON="$ICONS/autose.svg" || true
+    ENTRY="$APPS/autose.desktop"
+    cat > "$ENTRY" <<EOF
+[Desktop Entry]
+Type=Application
+Name=AutoSE
+Comment=Open the AutoSE dashboard
+Exec="$DASHBOARD"
+Icon=$ICON
+Terminal=true
+Categories=Development;
+EOF
+    chmod +x "$ENTRY"
+    if [ -n "$DESKTOP" ]; then
+      cp "$ENTRY" "$DESKTOP/autose.desktop"
+      chmod +x "$DESKTOP/autose.desktop"
+      # GNOME refuses to launch a desktop file it has not been told to trust.
+      command -v gio >/dev/null 2>&1 && gio set "$DESKTOP/autose.desktop" metadata::trusted true 2>/dev/null || true
+    fi
+  fi
+fi
 
 # Done
 say ""
-say "${BOLD}AutoSE is installed.${RESET}"
+say "${OK}${BOLD}AutoSE is installed.${RESET}"
 say ""
-
+if [ "$OS" = "Darwin" ]; then
+  say "Open it any time from ${BOLD}AutoSE${RESET} on your desktop."
+else
+  say "Open it any time from ${BOLD}AutoSE${RESET} in your applications menu or on your desktop."
+fi
+say "In a terminal:  ${BOLD}autose --web${RESET} (dashboard)   ${BOLD}autose${RESET} (terminal)   ${BOLD}autose --doctor${RESET}"
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *)
-    say "${SIGNAL}One more step.${RESET} $BIN_DIR is not on your PATH yet."
-    say "Add this line to your shell profile (~/.zshrc, ~/.bashrc, and so on):"
     say ""
+    say "${SIGNAL}To use autose in a terminal,${RESET} add $BIN_DIR to your PATH. Put this line in"
+    say "your shell profile (~/.zshrc, ~/.bashrc, and so on):"
     say "    ${BOLD}export PATH=\"$BIN_DIR:\$PATH\"${RESET}"
-    say ""
     ;;
 esac
-
-say "Next steps:"
-say "  1. Point AutoSE at your model. It works with any OpenAI-compatible endpoint"
-say "     (Ollama, LM Studio, vLLM, and so on). Set base_url and model in"
-say "     ${DIM}~/.config/autose/config.yaml${RESET}, or copy ${DIM}profiles/config.yaml${RESET} from the repo."
-say "  2. Run ${BOLD}autose${RESET} in your project to start an interactive session."
 say ""
+say "AutoSE runs on a model you host. No model yet? Install Ollama from https://ollama.com"
+say "and run  ${BOLD}ollama pull qwen2.5-coder:14b${RESET} . AutoSE finds it by itself."
+say ""
+
+# Open the dashboard now, where there is a screen to open it on.
+if [ "${AUTOSE_NO_LAUNCH:-}" != "1" ]; then
+  if [ "$OS" = "Darwin" ] || [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    step "Opening the dashboard. Pick the project folder AutoSE should work in."
+    # stdin is this script when piped from curl; give the launcher the terminal.
+    if [ -r /dev/tty ]; then exec "$DASHBOARD" </dev/tty; else exec "$DASHBOARD"; fi
+  fi
+fi

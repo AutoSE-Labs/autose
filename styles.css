@@ -693,6 +693,45 @@ code {
   color: var(--slate);
 }
 
+.spec p a,
+.tier-footnote a {
+  color: var(--signal-deep);
+}
+
+/* --- editions ------------------------------------------------ */
+.spec-grid.editions-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.edition-list {
+  margin: 0 0 1rem;
+  padding-left: 1.1rem;
+  font-size: 0.94rem;
+  color: var(--slate);
+}
+
+.edition-list li {
+  margin-bottom: 0.35rem;
+}
+
+.pro-chip {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--signal-deep);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  color: var(--signal-deep);
+  vertical-align: middle;
+}
+
+@media (max-width: 600px) {
+  .spec-grid.editions-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* --- install detail ----------------------------------------- */
 .install-detail {
   padding: 5rem 0;

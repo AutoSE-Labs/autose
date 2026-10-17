@@ -67,9 +67,9 @@
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "macOS, Linux, Windows",
         "url": "https://autose.dev/",
-        "downloadUrl": "https://github.com/AutoSE-Labs/autose/releases/latest/download/AutoSE-Setup.exe",
-        "softwareVersion": "0.1.0",
-        "description": "AutoSE is a sovereign, local-first SDLC runtime that turns plain-English requirements into reviewed, governed code. It runs the whole workflow (requirements, architecture, ADRs, code generation, and human sign-off) on infrastructure you own, with no cloud and no telemetry.",
+        "downloadUrl": "https://autose.dev/#install",
+        "softwareVersion": "0.2.0",
+        "description": "AutoSE is a sovereign, local-first software engineering agent that turns plain-English requirements into reviewed, validated code, from a browser dashboard or the terminal. It plans, implements, and independently validates changes on models you run yourself, with no cloud and no telemetry. AutoSE Pro adds architecture decision records and organisational standards for teams.",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -120,33 +120,33 @@
 
   <header class="hero" id="top">
     <div class="wrap">
-      <p class="eyebrow"><span class="tick"></span>SOVEREIGN ENGINEERING RUNTIME / v0.1 POC</p>
+      <p class="eyebrow"><span class="tick"></span>SOVEREIGN ENGINEERING RUNTIME / v0.2 FREE EDITION</p>
       <h1 class="hero-title">
         Autonomous software<br />engineering, <span class="ink-underline">under your&nbsp;control.</span>
       </h1>
       <p class="hero-sub">
-        AutoSE turns a plain-English requirement into reviewed, governed code. A complexity
+        AutoSE turns a plain-English requirement into reviewed, validated code. A complexity
         classifier routes each request to the right-sized pipeline — from a quick single-agent
-        fix to a full design → plan → execute → validate loop with ADRs — all on your machine.
-        No cloud. Nothing leaves your infrastructure.
+        fix to a full plan → execute → validate loop — driven from a dashboard in your browser,
+        all on your machine. No cloud. Nothing leaves your infrastructure.
       </p>
 
-      <!-- primary action: download the desktop app -->
-      <div class="download-row" aria-label="Download AutoSE">
-        <a class="dl dl-primary" href="https://github.com/AutoSE-Labs/autose/releases/latest/download/AutoSE-Setup.exe">
+      <!-- primary action: the one-line installer -->
+      <div class="download-row" aria-label="Get AutoSE">
+        <a class="dl dl-primary" href="#install-card">
           <span class="dl-top">
-            <span class="dl-name">Download for Windows</span>
+            <span class="dl-name">Install AutoSE, free</span>
           </span>
-          <span class="dl-meta">Desktop app · .exe installer</span>
+          <span class="dl-meta">macOS · Linux · Windows · one line</span>
         </a>
-        <a class="dl dl-cli" href="#install-card">
-          <span class="dl-top"><span class="dl-name">Get the CLI</span></span>
-          <span class="dl-meta">macOS · Linux · Windows</span>
+        <a class="dl dl-cli" href="#editions">
+          <span class="dl-top"><span class="dl-name">AutoSE Pro</span></span>
+          <span class="dl-meta">ADRs and standards, for teams</span>
         </a>
       </div>
 
-      <!-- the CLI, for every OS -->
-      <p class="install-alt-label">The CLI: one line, any OS</p>
+      <!-- the installer, for every OS -->
+      <p class="install-alt-label">Installs AutoSE, adds a desktop shortcut, and opens the dashboard</p>
       <div class="install-card" id="install-card">
         <div class="install-tabs" role="tablist" aria-label="Operating system">
           <button class="tab is-active" data-os="unix" role="tab" aria-selected="true">macOS / Linux</button>
@@ -162,12 +162,12 @@
           </button>
         </div>
         <p class="install-foot">Needs <strong>git</strong>; the installer sets up <strong>uv</strong> and Python for
-          you. Bring any OpenAI-compatible endpoint like <a href="https://ollama.com">Ollama</a>.</p>
+          you. Bring a local model from <a href="https://ollama.com">Ollama</a>, LM Studio, vLLM, or llama.cpp.</p>
       </div>
 
       <div class="hero-meta">
         <span><span class="dot"></span>Runs offline</span>
-        <span><span class="dot"></span>Org-grounded</span>
+        <span><span class="dot"></span>Browser dashboard</span>
         <span><span class="dot"></span>Human-in-the-loop</span>
         <span><span class="dot"></span>Small local models</span>
         <span><span class="dot"></span>Made in India</span>
@@ -326,8 +326,8 @@
       <p class="section-label"><span class="tick"></span>THE WORKFLOW</p>
       <h2 class="section-title">One request flows through the right-sized pipeline.</h2>
       <p class="section-lede">A classifier reads your prompt and automatically scales the pipeline to match —
-        simple asks stay fast and light, complex ones get deeper design and validation, including a loop
-        that sends work back for another pass before it ever reaches you.</p>
+        simple asks stay fast and light, everyday work gets a plan and independent validation, including a
+        loop that sends work back for another pass before it ever reaches you.</p>
 
       <ol class="pipeline" aria-label="AutoSE SDLC pipeline">
         <li class="stage">
@@ -337,13 +337,13 @@
         </li>
         <li class="stage">
           <span class="stage-id">PH-01</span>
-          <h3>Design</h3>
-          <p>Architecture is analysed against your ADRs and governance rules.</p>
+          <h3>Design <span class="pro-chip">PRO</span></h3>
+          <p>For bigger changes, the approach is decided against your ADRs and standards, and recorded as a new ADR.</p>
         </li>
         <li class="stage">
           <span class="stage-id">PH-02</span>
           <h3>Plan</h3>
-          <p>A detailed, ordered implementation plan is produced from the design.</p>
+          <p>An ordered implementation plan, with a requirements ledger every later stage is checked against.</p>
         </li>
         <li class="stage">
           <span class="stage-id">PH-03</span>
@@ -353,12 +353,12 @@
         <li class="stage">
           <span class="stage-id">PH-04</span>
           <h3>Validate</h3>
-          <p>Tests and lint run automatically; failures loop back for another pass.</p>
+          <p>An independent stage with no write access verifies each requirement; failures loop back.</p>
         </li>
         <li class="stage is-gate">
           <span class="stage-id">GATE</span>
           <h3>Your review</h3>
-          <p>Inspect, diff, approve, or reject. Nothing writes without sign-off.</p>
+          <p>Approve every command, inspect the diff, and undo any turn in one click.</p>
         </li>
       </ol>
     </div>
@@ -387,13 +387,14 @@
             run before you see the result.</p>
         </article>
         <article class="spec">
-          <span class="spec-tag">BIGGER CHANGES</span>
-          <h3>Designed, validated, looped*</h3>
-          <p>Larger or riskier work gets architectural analysis, ADR generation, and a time-boxed
-            validation loop that retries failed steps before handing off to you.</p>
+          <span class="spec-tag">BIGGER CHANGES · PRO</span>
+          <h3>Designed, recorded, validated*</h3>
+          <p>Architecture-level work gets a design stage first: the approach is decided against your
+            existing ADRs and standards, written down as a new ADR, then planned and validated.</p>
         </article>
       </div>
-      <p class="tier-footnote">* In active development and rolling out as a premium tier.</p>
+      <p class="tier-footnote">* Part of <a href="#editions">AutoSE Pro</a>. In the free edition, bigger changes run
+        through the planned, tested pipeline.</p>
     </div>
   </section>
 
@@ -412,16 +413,16 @@
             and sends no telemetry.</p>
         </article>
         <article class="spec">
-          <span class="spec-tag">CONTEXT</span>
+          <span class="spec-tag">CONTEXT · PRO</span>
           <h3>Grounded in your org</h3>
-          <p>A profile encodes your coding standards, approved libraries, and architectural rules. Every output is
-            shaped by them.</p>
+          <p>Your coding standards, approved libraries, and recorded decisions are retrieved into every run, and
+            every claim about them must cite its source.</p>
         </article>
         <article class="spec">
           <span class="spec-tag">GOVERNANCE</span>
           <h3>Traceable by default</h3>
-          <p>Requirements link to decisions, decisions to code, and code to review. The audit trail is part of how the
-            runtime works.</p>
+          <p>Each change is planned as ID'd requirements, implemented against them, and verified one by one. Every
+            file it writes is journalled, so you can review the diff and undo it.</p>
         </article>
         <article class="spec">
           <span class="spec-tag">CONTROL</span>
@@ -436,9 +437,9 @@
         </article>
         <article class="spec">
           <span class="spec-tag">SURFACE</span>
-          <h3>Interactive TUI or desktop app</h3>
-          <p>Drive workflows from an interactive terminal session, or from the AutoSE desktop app —
-            same local-first core underneath either surface.</p>
+          <h3>Browser dashboard or terminal</h3>
+          <p>Open AutoSE from its desktop shortcut and work in a local dashboard with several sessions at once, or
+            drive the same agent from an interactive terminal session.</p>
         </article>
         <article class="spec">
           <span class="spec-tag">SUSTAINABILITY</span>
@@ -447,10 +448,10 @@
             cloud model, cutting the energy and carbon cost of everyday engineering work.</p>
         </article>
         <article class="spec">
-          <span class="spec-tag">CODE HEALTH</span>
+          <span class="spec-tag">CODE HEALTH · PRO</span>
           <h3>Debt-aware, not debt-adding</h3>
-          <p>Every generation is checked against your organization's coding standards and architectural
-            constraints, so output reduces technical debt instead of quietly adding to it.</p>
+          <p>Designs are checked against your organization's coding standards and earlier architectural
+            decisions, so output reduces technical debt instead of quietly adding to it.</p>
         </article>
         <article class="spec">
           <span class="spec-tag">ORIGIN</span>
@@ -463,25 +464,56 @@
     </div>
   </section>
 
+  <!-- EDITIONS: what is free, what Pro adds -->
+  <section class="features" id="editions">
+    <div class="wrap">
+      <p class="section-label"><span class="tick"></span>EDITIONS</p>
+      <h2 class="section-title">Free for every developer. Pro for teams.</h2>
+      <p class="section-lede">The free edition is the whole agent: install it below and use it on any project.
+        AutoSE Pro adds the decision-record and knowledge layer organisations need.</p>
+
+      <div class="spec-grid editions-grid">
+        <article class="spec">
+          <span class="spec-tag">FREE · ON THIS SITE</span>
+          <h3>AutoSE</h3>
+          <ul class="edition-list">
+            <li>Browser dashboard, several sessions at once, plus the terminal interface</li>
+            <li>Quick fixes and planned, independently validated changes</li>
+            <li>Approval before every command, diff and undo for every file</li>
+            <li>Sessions that resume after you close the window</li>
+            <li>Finds Ollama, LM Studio, vLLM, or llama.cpp on its own</li>
+          </ul>
+          <p><a href="#install">Install it free →</a></p>
+        </article>
+        <article class="spec">
+          <span class="spec-tag">PRO · FOR TEAMS</span>
+          <h3>AutoSE Pro</h3>
+          <ul class="edition-list">
+            <li>Everything in the free edition</li>
+            <li>A design stage that records each architectural decision as an ADR</li>
+            <li>Your ADRs and organisational standards retrieved into every run</li>
+            <li>Citation checking, so no rule is attributed that was never shown</li>
+            <li>Learned project facts, kept only once a person approves them</li>
+          </ul>
+          <p><a href="mailto:sa4sserc@gmail.com?subject=AutoSE%20Pro">Ask us about Pro →</a></p>
+        </article>
+      </div>
+    </div>
+  </section>
+
   <!-- INSTALL detail -->
   <section class="install-detail" id="install">
     <div class="wrap install-detail-inner">
       <div class="install-detail-copy">
         <p class="section-label"><span class="tick"></span>GET STARTED</p>
-        <h2 class="section-title">Three commands to your first workflow.</h2>
-        <p class="section-lede">On Windows, the desktop app is one download away. Everywhere (macOS, Linux,
-          Windows) the CLI below gets you the same runtime.</p>
-        <p class="desktop-callout">
-          <a class="dl-inline"
-            href="https://github.com/AutoSE-Labs/autose/releases/latest/download/AutoSE-Setup.exe">Download the Windows
-            app (.exe)</a>
-          <span>Prefer the terminal? Follow the steps below.</span>
-        </p>
+        <h2 class="section-title">One line to your first session.</h2>
+        <p class="section-lede">The installer works the same on macOS, Linux, and Windows. Run it again any
+          time to update.</p>
         <ol class="run-list">
           <li><span class="run-n">1</span>
-            <div><strong>Install the CLI</strong><br />Run the one-line command for your OS (in the panel). It clones
-              AutoSE, sets up its environment with <code>uv</code>, and adds the <code>autose</code> launcher to your
-              PATH.</div>
+            <div><strong>Install AutoSE</strong><br />Run the one-line command for your OS (in the panel). It
+              downloads AutoSE, sets up its environment with <code>uv</code>, adds an <strong>AutoSE</strong>
+              shortcut to your desktop, and opens the dashboard.</div>
           </li>
           <li><span class="run-n">2</span>
             <div><strong>Set up a local model</strong><br />AutoSE runs on inference you own. Install <a
@@ -489,8 +521,9 @@
             </div>
           </li>
           <li><span class="run-n">3</span>
-            <div><strong>Run it in your project</strong><br />From any project folder, run <code>autose</code> for an
-              interactive session, or <code>autose "add tests for the parser"</code> to start from a prompt.</div>
+            <div><strong>Open it on your project</strong><br />Double-click the AutoSE shortcut and choose your
+              project folder; the dashboard opens in your browser. In a terminal, <code>autose --web</code> does the
+              same for the current folder, and <code>autose</code> starts a terminal session.</div>
           </li>
         </ol>
       </div>
@@ -513,7 +546,7 @@
         <p class="panel-note">Want to read it first? Both scripts are plain text.
           See <a href="install.sh">install.sh</a> and <a href="install.ps1">install.ps1</a>.
           You can also build from source by following the <a
-            href="https://github.com/AutoSE-Labs/autose#install">README</a>.</p>
+            href="https://github.com/AutoSE-Labs/autose#development">README</a>.</p>
       </div>
     </div>
   </section>
@@ -523,7 +556,7 @@
       <div class="footer-brand">
         <span class="brand-mark" aria-hidden="true"></span>
         Auto<span class="brand-accent">SE</span>
-        <p>A research-grade, sovereign engineering runtime. Local-first by design.</p>
+        <p>A research-grade, sovereign engineering runtime. Local-first by design. Free edition v0.2.</p>
       </div>
       <div class="footer-links">
         <a href="https://github.com/AutoSE-Labs/autose">Repository</a>

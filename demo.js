@@ -1,4 +1,4 @@
-// AutoSE interactive demo: a faithful miniature of the desktop app
+// AutoSE interactive demo: a faithful miniature of the AutoSE dashboard
 // (desktop/src/main.ts on main), replayed with scripted sessions.
 // Every control works: rail, settings, usage, sessions, window caps.
 (function () {
