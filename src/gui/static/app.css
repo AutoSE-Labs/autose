@@ -473,6 +473,75 @@ select {
   background: var(--signal-deep);
 }
 
+/* DR-034: the CTX cell is a button that explains the window. Its mark carries
+ * the advice level, so a deliberate cap reads as calm and a hurting one does
+ * not need a banner to be noticed. */
+.ctx-cell {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-right: 1px solid var(--line-soft);
+  cursor: pointer;
+}
+
+.ctx-cell:hover em,
+.ctx-cell:focus-visible em {
+  color: var(--ink);
+}
+
+.ctx-mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.ctx-mark.ok,
+.ctx-mark.info {
+  background: var(--go);
+}
+
+.ctx-mark.warning {
+  background: var(--signal);
+}
+
+.ctx-mark.blocking {
+  background: var(--signal-deep);
+}
+
+.context-figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.context-figure {
+  border: 1px solid var(--line-soft);
+  padding: 8px 10px;
+}
+
+.context-figure span {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.context-figure strong {
+  font-size: 18px;
+}
+
+.context-remedy-label {
+  font-size: 12px;
+  color: var(--slate);
+}
+
 /* ---------- rail ---------- */
 
 .rail {

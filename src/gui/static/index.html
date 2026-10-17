@@ -100,11 +100,15 @@
           id="dir-label">—</em></span>
       <span class="status-cell" id="status-session">SESSION <em id="session-label">—</em></span>
       <span class="status-cell status-right" id="status-tokens"
-        title="Tokens this session, and how full the context window was last round">
+        title="Tokens this session, counted as they are spent">
         TOKENS <em id="tokens-label">0</em>
+      </span>
+      <button class="status-cell ctx-cell" id="status-ctx" type="button"
+        title="How full the context window was last round — click for what the window means here">
         <span class="ctx-meter" aria-hidden="true"><span class="ctx-fill" id="ctx-fill"></span></span>
         <em id="ctx-label">CTX —</em>
-      </span>
+        <span class="ctx-mark" id="ctx-mark" aria-hidden="true"></span>
+      </button>
       <span class="status-cell status-stamp" id="status-stamp"
         title="Where this runs, and what it will do without asking">LOCAL / NO CLOUD</span>
       <button id="open-tips" class="tip-button" type="button" aria-label="Tips for using AutoSE"
@@ -184,6 +188,24 @@ ollama pull qwen3:8b</code></pre>
       <div class="overlay-actions">
         <button class="ghost-button" id="doctor-close" type="button">Close</button>
         <button class="primary-button" id="doctor-refresh" type="button">Check again</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="context-overlay" hidden>
+    <div class="overlay-panel cropped">
+      <span class="eyebrow"><span class="tick"></span>Context window</span>
+      <h2 id="context-title">What the model can see</h2>
+      <p class="overlay-lede" id="context-summary"></p>
+      <p id="context-detail"></p>
+      <div class="context-figures" id="context-figures"></div>
+      <div class="context-remedy" id="context-remedy" hidden>
+        <span class="context-remedy-label" id="context-remedy-label">To change it</span>
+        <pre class="approval-args"><code id="context-remedy-code"></code></pre>
+      </div>
+      <div class="overlay-actions">
+        <button class="ghost-button" id="context-close" type="button">Close</button>
+        <button class="primary-button" id="context-copy" type="button" hidden>Copy command</button>
       </div>
     </div>
   </div>

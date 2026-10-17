@@ -847,3 +847,94 @@ def test_the_page_keeps_one_live_card_per_session():
     assert "const desks = new Map()" in script
     # And only the focused session is painted; the rest accumulate in memory.
     assert "isFocused(run.session)" in script
+
+
+# -- DR-033: a page opened mid-turn sees what the turn has already done --------
+
+
+class _PausesBeforeRound(ScriptedChatModel):
+    """Runs its first round, then parks the next one until the test says go."""
+
+    def __init__(self, script, *, pause_at: int) -> None:
+        super().__init__(script)
+        self.pause_at = pause_at
+        self.calls_seen = 0
+        self.paused = threading.Event()
+        self.go = threading.Event()
+
+    def stream(self, messages, **kwargs):
+        self.calls_seen += 1
+        if self.calls_seen == self.pause_at:
+            self.paused.set()
+            self.go.wait(5.0)
+        return super().stream(messages, **kwargs)
+
+
+def test_a_snapshot_taken_mid_turn_carries_the_turn_so_far(scripted, tmp_path):
+    """DR-033: a reloaded page used to show a bare "Thinking" card.
+
+    The stream had already delivered the tool calls; a page that connected
+    afterwards streams only from its snapshot onwards, so unless the snapshot
+    carries the turn so far, everything before the reload is gone.
+    """
+    (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
+    model = _PausesBeforeRound(
+        [calls(tool_call("read_file", path="notes.txt")), answer("read it")],
+        pause_at=2,
+    )
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    subscriber = bridge.subscribe()
+    bridge.submit("read the notes")
+    assert model.paused.wait(5.0)
+
+    current = bridge.snapshot()["current"]
+    kinds = [frame["event"] for frame in current["timeline"]]
+    assert "tool_called" in kinds
+    assert "round_usage" in kinds
+    # Deltas are summarised by their tail, not replayed one by one.
+    assert "agent_reasoning_delta" not in kinds
+    assert "stage_output_delta" not in kinds
+
+    model.go.set()
+    _drain(subscriber, "turn")
+    # A new turn starts from an empty timeline.
+    assert bridge.snapshot()["current"] is None
+
+
+def test_the_snapshot_and_the_stream_never_both_carry_one_event(scripted, tmp_path):
+    """DR-033: replay the timeline, then stream from the snapshot's sequence.
+
+    Every event the timeline holds must be at or before that sequence, or the
+    page would draw it twice.
+    """
+    (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
+    model = _PausesBeforeRound(
+        [calls(tool_call("read_file", path="notes.txt")), answer("read it")],
+        pause_at=2,
+    )
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    bridge.submit("read the notes")
+    assert model.paused.wait(5.0)
+
+    state = bridge.snapshot()
+    after = bridge.subscribe(since=state["sequence"])
+    model.go.set()
+    streamed = []
+    while True:
+        _, frame = after.frames.get(timeout=5.0)
+        if frame.get("kind") == "turn":
+            break
+        if frame.get("kind") == "event":
+            streamed.append((frame["event"], frame["timestamp"]))
+    replayed = {(f["event"], f["timestamp"]) for f in state["current"]["timeline"]}
+    assert not replayed & set(streamed)
+
+
+def test_the_snapshot_explains_the_served_context_window(scripted, tmp_path):
+    """DR-034: the page shows a verdict, not a raw pair of numbers."""
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    advice = bridge.snapshot()["context_advice"]
+    assert advice["level"] in {"ok", "info", "warning", "blocking"}
+    assert advice["served"] == 32768
