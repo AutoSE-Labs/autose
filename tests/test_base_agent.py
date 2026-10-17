@@ -408,3 +408,38 @@ def test_every_round_reports_its_usage_as_it_happens(workspace):
     # The budget's estimate stands in for a runtime that reports no usage.
     assert rounds[0].data["estimated_input_tokens"] > 0
     assert rounds[0].data["context_limit"] == 32_768
+
+
+# -- DR-037: a step's result reaches an adapter, bounded ---------------------
+
+
+def test_a_completed_tool_call_carries_a_bounded_preview_of_its_result(workspace):
+    """DR-037: the inspector shows what came back without re-reading anything."""
+    (workspace.root / "m.txt").write_text("file body " * 400, encoding="utf-8")
+    events = RecordingEventSink()
+    agent = _agent(
+        workspace,
+        [calls(tool_call("read_file", path="m.txt")), answer("done")],
+        events=events,
+    )
+    agent.run("read it")
+
+    (called,) = events.of_type("tool_called")
+    (completed,) = events.of_type("tool_completed")
+    assert completed.data["call_id"] == called.data["call_id"]
+    assert "file body" in completed.data["preview"]
+    assert len(completed.data["preview"]) <= 1_200 + 2
+    assert completed.data["failed"] is False
+    assert completed.data["elapsed_ms"] >= 0
+
+
+def test_a_failed_tool_call_is_marked_failed(workspace):
+    events = RecordingEventSink()
+    agent = _agent(
+        workspace,
+        [calls(tool_call("read_file", path="missing.txt")), answer("done")],
+        events=events,
+    )
+    agent.run("read it")
+    (completed,) = events.of_type("tool_completed")
+    assert completed.data["failed"] is True

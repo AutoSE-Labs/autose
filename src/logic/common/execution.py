@@ -19,6 +19,7 @@ construction: there is no path to a tool result that goes around it.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from typing import Any
 
@@ -142,16 +143,30 @@ class ToolExecutor:
                     executed=False,
                 )
 
-        self._emit("tool_called", f"{call.name}", tool=call.name, arguments=arguments)
+        self._emit(
+            "tool_called",
+            f"{call.name}",
+            tool=call.name,
+            arguments=arguments,
+            call_id=call.id,
+        )
+        started = time.monotonic()
         raw = self._invoke(tool, arguments)
+        elapsed_ms = round((time.monotonic() - started) * 1000)
         content, artifact = self._output.apply(call.name, arguments, raw)
         self._emit(
             "tool_completed",
             call.name,
             tool=call.name,
+            call_id=call.id,
             result_chars=len(raw),
             truncated=artifact is not None or len(content) < len(raw),
             artifact=artifact,
+            # DR-037: what the model was handed back, bounded, so an adapter
+            # can show a step's result without re-reading anything.
+            preview=_preview(content),
+            failed=content.lstrip().startswith("Error"),
+            elapsed_ms=elapsed_ms,
         )
         return ToolResult(call.name, content, artifact=artifact)
 
@@ -196,3 +211,15 @@ class ToolExecutor:
 
     def _emit(self, event_type: str, message: str = "", **data: Any) -> None:
         self._events.emit(Event(type=event_type, message=message, data=data))
+
+
+#: Characters of a tool's result carried in ``tool_completed`` (DR-037). Enough
+#: to see what came back; the full result went to the model, and an oversized
+#: one is on disk as its artifact (DR-011).
+TOOL_PREVIEW_CHARS = 1_200
+
+
+def _preview(content: str) -> str:
+    if len(content) <= TOOL_PREVIEW_CHARS:
+        return content
+    return content[:TOOL_PREVIEW_CHARS].rstrip() + "\n…"
