@@ -811,7 +811,7 @@ def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
 
 def test_the_dashboard_fetches_nothing_from_the_network():
     """Local-first is a property of the page too, not only of inference."""
-    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js"):
+    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js"):
         source = (STATIC_ROOT / name).read_text(encoding="utf-8")
         for marker in ("http://", "https://", "//cdn", "fonts.googleapis"):
             assert marker not in source, f"{name} reaches out to {marker}"
@@ -1119,7 +1119,7 @@ def test_no_page_script_writes_inline_styles():
     """The CSP is default-src 'self' (DR-029), which drops inline style
     attributes without a word: a bar drawn with style="height:…" renders as
     nothing. Sizes go in SVG attributes or classes instead (DR-041)."""
-    for name in ("app.js", "inspector.js", "settings.js"):
+    for name in ("app.js", "inspector.js", "settings.js", "notify.js"):
         source = (STATIC_ROOT / name).read_text(encoding="utf-8")
         assert 'style="' not in source, f"{name} writes an inline style attribute"
 
@@ -1191,3 +1191,26 @@ def test_queued_prompts_can_be_reordered_and_removed(scripted, tmp_path):
     assert caught.value.status == 404
     bridge.queue_action("clear")
     hold.set()
+
+
+# -- DR-043: desktop notifications ---------------------------------------------
+
+
+def test_notifications_are_opt_in_and_never_leave_the_machine(served):
+    """DR-043: raised only after the person turns them on and the browser
+    grants permission, through the browser itself — no server endpoint."""
+    port = served.server_address[1]
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/notify.js", timeout=5) as response:
+        script = response.read().decode("utf-8")
+    assert 'Notification.permission === "granted"' in script
+    assert "notifyWanted()" in script
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    assert page.index("/notify.js") < page.index("/app.js")
+    assert 'id="toggle-notify"' in page
+
+
+def test_an_approval_is_always_announced_when_the_window_is_elsewhere():
+    script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    block = script[script.index('case "approval":') : script.index('case "approval_closed":')]
+    assert "notifyAbout(" in block and "urgent: true" in block
+

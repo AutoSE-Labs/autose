@@ -362,12 +362,26 @@ function handleFrame(frame) {
     }
     case "turn":
       finishRun(id, frame.turn);
+      notifyAbout(id, {
+        title: frame.turn.succeeded ? "Task finished" : "Task ended without finishing",
+        body: `${frame.turn.prompt || ""}${(frame.turn.files_changed || []).length ? ` — ${frame.turn.files_changed.length} file(s) changed` : ""}`,
+        tag: `turn-${id}`,
+      });
       break;
     case "failed":
       failRun(id, frame.title || "Stopped", frame.message || "");
+      notifyAbout(id, { title: `Task stopped: ${frame.title || "failed"}`, body: frame.message || "", tag: `turn-${id}` });
       break;
     case "approval":
       approvals.push({ ...frame.request, session: id });
+      // DR-043: the one thing that cannot proceed without the person.
+      notifyAbout(id, {
+        title: "AutoSE is waiting for your decision",
+        body: `${humanize(String(frame.request.tool || "a call"))}: ${frame.request.summary || ""}`,
+        tag: `ask-${frame.request.id}`,
+        urgent: true,
+        always: true,
+      });
       if (!isFocused(id)) {
         toast(`Session ${shortId(id)} is waiting for your decision.`, "", `ask-${frame.request.id}`);
       }
@@ -385,6 +399,13 @@ function handleFrame(frame) {
       if (entry) {
         entry.queued = (frame.queue || []).length;
         entry.queue_held = Boolean(frame.held);
+      }
+      if (frame.held && (frame.queue || []).length) {
+        notifyAbout(id, {
+          title: "Queue held",
+          body: `${frame.queue.length} request(s) wait for you to resume them.`,
+          tag: `queue-${id}`,
+        });
       }
       if (state && isFocused(id)) {
         state.queue = frame.queue || [];
@@ -869,6 +890,7 @@ function renderStatus() {
 /* ---------- the rail ---------- */
 
 function renderRail() {
+  renderWaitingCount();
   renderSessionTabs();
   const open = (state && state.open) || [];
   const openIds = new Set(open.map((entry) => entry.session_id));
@@ -894,6 +916,50 @@ function renderRail() {
 
 function groupHead(label) {
   return `<div class="session-group"><span class="eyebrow">${escapeHtml(label)}</span></div>`;
+}
+
+/* ---------- notifications (DR-043) ---------- */
+
+/* Raise a desktop notification about session `id` when it is news: the page
+ * is hidden, or the session is not the one on screen. `always` covers an
+ * approval, which is worth raising for a visible page too when the window
+ * itself is not focused. */
+function notifyAbout(id, { title, body, tag, urgent = false, always = false }) {
+  const elsewhere = document.hidden || !isFocused(id) || (always && !document.hasFocus());
+  if (!elsewhere) return;
+  const entry = openEntry(id);
+  raiseNotification({
+    title,
+    body: entry && entry.title ? `${entry.title}\n${body}` : body,
+    tag,
+    urgent,
+    onOpen: () => {
+      if (!isFocused(id)) post("/api/session", { action: "focus", id });
+    },
+  });
+}
+
+/* What waits for the person, as a number in the tab title. */
+function renderWaitingCount() {
+  const held = ((state && state.open) || []).filter((entry) => entry.queue_held && entry.queued).length;
+  setTitleCount(approvals.length + held);
+}
+
+function renderNotifyButton() {
+  const button = el("toggle-notify");
+  const supported = notifySupported();
+  const on = notifyActive();
+  const denied = supported && Notification.permission === "denied";
+  button.setAttribute("aria-pressed", String(on));
+  button.classList.toggle("on", on);
+  button.hidden = !supported;
+  button.title = !supported
+    ? "This browser cannot show notifications"
+    : denied
+      ? "Notifications are blocked for this page in the browser's site settings"
+      : on
+        ? "Notifications on — click to turn off"
+        : "Notify me when something waits for me";
 }
 
 /* DR-042: the open sessions as tabs above the conversation. Same actions as
@@ -2026,6 +2092,13 @@ el("clear-history").addEventListener("click", () => {
 el("open-diff").addEventListener("click", openDiff);
 el("open-doctor").addEventListener("click", openDoctor);
 el("open-settings").addEventListener("click", openSettings);
+el("toggle-notify").addEventListener("click", async () => {
+  const result = await setNotifications(!notifyActive());
+  if (result === "on") toast("Notifications on: you'll hear about approvals, finished tasks and held queues while you're elsewhere.", "good");
+  else if (result === "denied") toast("The browser blocked notifications for this page — allow them in its site settings, then try again.", "bad");
+  renderNotifyButton();
+});
+renderNotifyButton();
 el("open-settings-header").addEventListener("click", openSettings);
 el("settings-close").addEventListener("click", closeOverlays);
 el("settings-refresh").addEventListener("click", loadProviders);

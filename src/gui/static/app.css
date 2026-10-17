@@ -1300,6 +1300,20 @@ select {
   white-space: nowrap;
 }
 
+/* ---------- notifications (DR-043) ---------- */
+
+#toggle-notify .notify-off-mark {
+  stroke: var(--slate);
+}
+
+#toggle-notify.on {
+  color: var(--go);
+}
+
+#toggle-notify.on .notify-off-mark {
+  display: none;
+}
+
 /* ---------- compact work card (DR-037) ---------- */
 
 .work-card.compact .thinking {
