@@ -164,6 +164,7 @@ const overlays = {
   doctor: el("doctor-overlay"),
   tips: el("tips-overlay"),
   context: el("context-overlay"),
+  settings: el("settings-overlay"),
 };
 
 let state = null;
@@ -714,14 +715,20 @@ function renderHeader() {
   dom.tier.value = chosen;
   dom.tier.disabled = !state.ready || state.running;
 
-  const models = (state.models || []).filter(Boolean);
-  const names = models.map((model) => model.name);
-  if (state.model && !names.includes(state.model)) names.unshift(state.model);
-  dom.model.innerHTML = names
-    .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
-    .join("");
-  dom.model.value = state.model || "";
-  dom.model.disabled = !state.ready || state.running || names.length < 2;
+  // DR-036: every usable provider's models, grouped, once /api/providers has
+  // answered; until then the focused session's own provider's list.
+  const current = { provider: state.provider || "", model: state.model || "" };
+  if (providers) {
+    dom.model.innerHTML = modelPickerMarkup(providers, current);
+  } else {
+    const names = (state.models || []).filter(Boolean).map((model) => model.name);
+    if (state.model && !names.includes(state.model)) names.unshift(state.model);
+    dom.model.innerHTML = names
+      .map((name) => `<option value="${escapeHtml(`${current.provider}|${name}`)}">${escapeHtml(name)}</option>`)
+      .join("");
+  }
+  dom.model.value = `${current.provider}|${current.model}`;
+  dom.model.disabled = !state.ready || state.running || dom.model.options.length < 2;
 
   // DR-031: a session running is no reason not to open another one. The only
   // thing that closes this button is the desk being full.
@@ -1660,8 +1667,70 @@ async function copyContextRemedy() {
   }
 }
 
+/* ---------- settings: providers and keys (DR-036) ---------- */
+
+let providers = null;
+
+async function loadProviders() {
+  try {
+    providers = await api("/api/providers");
+  } catch (error) {
+    providers = providers || null;
+  }
+  if (state) renderHeader();
+  if (!overlays.settings.hidden) renderSettings();
+}
+
+function renderSettings() {
+  el("settings-body").innerHTML = settingsMarkup(providers, {
+    provider: (state && state.provider) || "",
+    model: (state && state.model) || "",
+  });
+}
+
+async function openSettings() {
+  overlays.settings.hidden = false;
+  renderSettings();
+  await loadProviders();
+}
+
+async function providerAction(button) {
+  const provider = button.dataset.provider;
+  const action = button.dataset.providerAction;
+  const card = button.closest(".provider-card");
+  if (action === "save_key") {
+    const input = card.querySelector("[data-key-input]");
+    const key = input.value.trim();
+    if (!key) {
+      toast("Paste the key first.", "bad");
+      input.focus();
+      return;
+    }
+    const result = await post("/api/providers", { action, provider, api_key: key }, `Key saved for ${providerTitle(provider)}.`);
+    input.value = "";
+    if (result) providers = result;
+  } else if (action === "delete_key") {
+    const result = await post("/api/providers", { action, provider }, `Key removed for ${providerTitle(provider)}.`);
+    if (result) providers = result;
+  } else if (action === "use" || action === "set_default") {
+    const model = card.querySelector("[data-model-input]").value;
+    if (action === "use") {
+      const result = await post("/api/model", { model, provider, session: focusId() }, `This session now uses ${model}.`);
+      if (result) {
+        state = result;
+        adoptState();
+      }
+    } else {
+      const result = await post("/api/providers", { action, provider, model }, `New sessions will start on ${model}.`);
+      if (result) providers = result;
+    }
+  }
+  renderSettings();
+  if (state) renderHeader();
+}
+
 function closeOverlays() {
-  ["diff", "doctor", "tips", "context"].forEach((name) => {
+  ["diff", "doctor", "tips", "context", "settings"].forEach((name) => {
     overlays[name].hidden = true;
   });
 }
@@ -1759,7 +1828,8 @@ dom.tier.addEventListener("change", () => {
 });
 
 dom.model.addEventListener("change", () => {
-  post("/api/model", { model: dom.model.value, session: focusId() });
+  const [provider, ...rest] = dom.model.value.split("|");
+  post("/api/model", { model: rest.join("|"), provider, session: focusId() });
 });
 
 el("toggle-rail").addEventListener("click", () => {
@@ -1779,6 +1849,17 @@ el("clear-history").addEventListener("click", () => {
 
 el("open-diff").addEventListener("click", openDiff);
 el("open-doctor").addEventListener("click", openDoctor);
+el("open-settings").addEventListener("click", openSettings);
+el("open-settings-header").addEventListener("click", openSettings);
+el("settings-close").addEventListener("click", closeOverlays);
+el("settings-refresh").addEventListener("click", loadProviders);
+el("settings-body").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-provider-action]");
+  if (button) providerAction(button);
+});
+// The picker lists every provider's models; fetched once at load, in the
+// background — a slow hosted API must not hold up the first paint.
+loadProviders();
 el("open-tips").addEventListener("click", () => {
   hideTipPopup();
   openTips();

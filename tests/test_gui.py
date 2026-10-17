@@ -809,7 +809,7 @@ def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
 
 def test_the_dashboard_fetches_nothing_from_the_network():
     """Local-first is a property of the page too, not only of inference."""
-    for name in ("index.html", "app.css", "app.js", "inspector.js"):
+    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js"):
         source = (STATIC_ROOT / name).read_text(encoding="utf-8")
         for marker in ("http://", "https://", "//cdn", "fonts.googleapis"):
             assert marker not in source, f"{name} reaches out to {marker}"
@@ -1038,4 +1038,29 @@ def test_the_inspector_has_the_elements_it_is_drawn_into():
     page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
     for element in ('id="inspector"', 'id="inspector-tabs"', 'id="inspector-body"', 'id="toggle-inspector"'):
         assert element in page
+
+
+# -- DR-036: the settings page ---------------------------------------------------
+
+
+def test_the_settings_script_is_served_and_loaded_before_the_page_script(served):
+    port = served.server_address[1]
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{port}/settings.js", timeout=5
+    ) as response:
+        assert response.status == 200
+        assert "providerCardMarkup" in response.read().decode("utf-8")
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    assert page.index("/settings.js") < page.index("/app.js")
+
+
+def test_a_key_is_only_ever_typed_into_a_password_field():
+    """DR-036: what is drawn on the settings page is the masked tail, never the key."""
+    script = (STATIC_ROOT / "settings.js").read_text(encoding="utf-8")
+    import re
+
+    assert 'type="password"' in script
+    assert "masked_key" in script
+    # The renderer never reads a raw key field off the payload.
+    assert not re.search(r"\.api_key\b|\[\s*[\"']api_key[\"']\s*\]", script)
 
