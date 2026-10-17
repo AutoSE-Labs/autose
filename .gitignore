@@ -1,89 +1,10 @@
-# Python
+.venv/
+.env
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-eggs/
-parts/
-var/
-sdist/
-wheels/
-*.egg-link
-.installed.cfg
-lib/
-lib64/
-MANIFEST
-
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-.env
-
-# Distribution / packaging
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
 .pytest_cache/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-*.ipynb
-
-# pyenv
-.python-version
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre
-.pyre/
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Secrets / environment
-.env
-.env.*
-*.pem
-*.key
-secrets.json
-config.local.*
-.sandbox/
-
-# Logs
-*.log
-logs/
-
-# Desktop app
-desktop/node_modules/
-desktop/src-tauri/target/
-desktop/src-tauri/backend/
+*.egg-info/
+build/
+dist/
+.autose/
+testbed/

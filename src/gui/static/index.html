@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>AutoSE</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+
+<body>
+  <div class="blueprint-grid" aria-hidden="true"></div>
+
+  <div class="app-shell rail-open" id="app-shell">
+    <aside class="rail" id="rail" aria-label="Worklog">
+      <div class="rail-head"><span class="eyebrow"><span class="tick"></span>Worklog</span></div>
+      <button id="new-session" class="new-task-button" type="button">+ New session</button>
+      <div class="session-list" id="session-list"></div>
+      <div class="rail-foot">
+        <button class="rail-link" id="open-doctor" type="button">Machine check</button>
+      </div>
+    </aside>
+
+    <header class="app-header">
+      <button id="toggle-rail" class="icon-button" type="button" aria-label="Show or hide the worklog"
+        title="Show or hide the worklog">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
+          stroke-width="1.5">
+          <path d="M2 4.5h12M2 8h12M2 11.5h7" />
+        </svg>
+      </button>
+      <span class="brand"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Auto<span
+            class="brand-accent">SE</span></span></span>
+
+      <label class="header-field" title="Which pipeline a request runs through (DR-003)">
+        <span class="eyebrow">Tier</span>
+        <select id="tier-select"></select>
+      </label>
+      <label class="header-field" title="The model AutoSE thinks with">
+        <span class="eyebrow">Model</span>
+        <select id="model-select"></select>
+      </label>
+
+      <button id="open-diff" class="icon-button push-right" type="button" aria-label="Review file changes"
+        title="Review what it changed">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
+          stroke-width="1.5">
+          <path d="M4 2.75h5.5L12 5.25v8H4z" />
+          <path d="M5.75 8.5h4.5M8 6.25v4.5" />
+        </svg>
+      </button>
+      <button id="clear-history" class="icon-button" type="button" aria-label="Forget this conversation"
+        title="Forget this conversation (the files stay)">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
+          stroke-width="1.5">
+          <path d="M3 5.5h10M6.25 5.5V3.75h3.5V5.5M4.5 5.5l.6 7.75h5.8l.6-7.75" />
+        </svg>
+      </button>
+    </header>
+
+    <div class="main-column">
+      <!-- Pre-flight problems that will break every run until they are fixed
+           (a too-small context window, a model with no tool calling). A toast
+           is the wrong shape for these: they are not events, they are the
+           standing state of the machine, and they outlive any one turn. -->
+      <div class="setup-warnings" id="setup-warnings" role="status" hidden></div>
+      <section class="conversation" id="conversation">
+        <div class="conversation-inner" id="messages"></div>
+      </section>
+
+      <div class="jump-wrap"><button id="jump-latest" class="jump-latest" type="button" hidden>↓ Jump to the
+          latest</button></div>
+
+      <section class="composer-area" aria-label="New request">
+        <div class="composer cropped" id="composer">
+          <div class="composer-label"><span class="eyebrow"><span class="tick"></span>New request</span></div>
+          <textarea id="prompt" rows="2" spellcheck="true" aria-label="Describe your request"
+            placeholder="Describe a change, a bug, or a question about this workspace. Plain English is fine."></textarea>
+          <div class="composer-foot">
+            <span class="composer-hint" id="composer-hint">ENTER ↵ STARTS · SHIFT+ENTER FOR A NEW LINE</span>
+            <!-- DR-030: nothing caps a run any more, so stopping it is a
+                   first-class control, not a page reload. -->
+            <button id="stop-button" class="send-button stop-button" type="button" hidden
+              title="Stop after the current step, keeping everything produced so far">Stop</button>
+            <button id="send-button" class="send-button" type="button">Start work</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="status-bar">
+      <div class="presence status-cell" id="presence" aria-live="polite">
+        <span class="presence-dot"></span>
+        <span id="presence-text">Connecting</span>
+      </div>
+      <span class="status-cell" id="status-model">MODEL <em id="model-label">—</em></span>
+      <span class="status-cell" id="status-dir" title="The workspace AutoSE reads and writes">DIR <em
+          id="dir-label">—</em></span>
+      <span class="status-cell" id="status-session">SESSION <em id="session-label">—</em></span>
+      <span class="status-cell status-right" id="status-tokens"
+        title="Tokens this session, and how full the context window was last round">
+        TOKENS <em id="tokens-label">0</em>
+        <span class="ctx-meter" aria-hidden="true"><span class="ctx-fill" id="ctx-fill"></span></span>
+        <em id="ctx-label">CTX —</em>
+      </span>
+      <span class="status-cell status-stamp" id="status-stamp"
+        title="Where this runs, and what it will do without asking">LOCAL / NO CLOUD</span>
+      <button id="open-tips" class="tip-button" type="button" aria-label="Tips for using AutoSE"
+        aria-describedby="tip-popup">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor"
+          stroke-width="1.3">
+          <path d="M8 1.5a4 4 0 0 0-2.3 7.27c.45.33.55.7.55 1.03v.7h3.5v-.7c0-.33.1-.7.55-1.03A4 4 0 0 0 8 1.5Z" />
+          <path d="M6.25 12.75h3.5M6.75 14.25h2.5" />
+        </svg>
+      </button>
+    </footer>
+  </div>
+
+  <div class="tip-popup" id="tip-popup" role="tooltip" hidden>
+    <span class="tip-popup-title" id="tip-popup-title"></span>
+    <span class="tip-popup-text" id="tip-popup-text"></span>
+  </div>
+
+  <div class="overlay" id="setup-overlay" hidden>
+    <div class="overlay-panel cropped">
+      <span class="eyebrow"><span class="tick"></span>Nothing to run against</span>
+      <h2>AutoSE needs a model</h2>
+      <p class="overlay-lede" id="setup-problem"></p>
+      <div class="setup-hint">
+        <p>AutoSE looks for a runtime already on this machine — Ollama, LM Studio, vLLM, llama.cpp — and uses whatever
+          it serves. Nothing is bundled, nothing is proxied.</p>
+        <pre><code>ollama serve
+ollama pull qwen3:8b</code></pre>
+        <p>Any other OpenAI-compatible endpoint works too: set <code>AUTOSE_BASE_URL</code> and
+          <code>AUTOSE_MODEL</code>, then look again.</p>
+      </div>
+      <div class="overlay-actions">
+        <button class="ghost-button" id="setup-doctor" type="button">Machine check</button>
+        <button class="primary-button" id="setup-retry" type="button">Look again</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="approval-overlay" hidden>
+    <div class="overlay-panel cropped approval-panel">
+      <span class="eyebrow"><span class="tick"></span>Waiting on you</span>
+      <h2 id="approval-title">Approve this call?</h2>
+      <p class="overlay-lede" id="approval-lede"></p>
+      <pre class="approval-args"><code id="approval-args"></code></pre>
+      <label class="field">
+        <span>Or refuse it, and say why
+          <small>The reason goes back to the model, which is how it tries something else instead of the same call
+            again.</small>
+        </span>
+        <input type="text" id="approval-reason" placeholder="e.g. stay off the network — read the vendored copy" />
+      </label>
+      <p class="approval-more" id="approval-more" hidden></p>
+      <div class="overlay-actions">
+        <button class="ghost-button" id="approval-deny" type="button">Refuse</button>
+        <button class="primary-button" id="approval-allow" type="button">Run it once</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="diff-overlay" hidden>
+    <div class="overlay-panel cropped wide-panel">
+      <span class="eyebrow"><span class="tick"></span>File changes</span>
+      <h2>What it wrote <em class="panel-stat" id="diff-stat"></em></h2>
+      <div id="diff-body" class="diff-body"></div>
+      <div class="overlay-actions">
+        <button class="ghost-button" id="diff-close" type="button">Close</button>
+        <button class="primary-button" id="diff-undo" type="button">Undo these changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="doctor-overlay" hidden>
+    <div class="overlay-panel cropped wide-panel">
+      <span class="eyebrow"><span class="tick"></span>Machine check</span>
+      <h2>What this machine can run</h2>
+      <div id="doctor-body"></div>
+      <div class="overlay-actions">
+        <button class="ghost-button" id="doctor-close" type="button">Close</button>
+        <button class="primary-button" id="doctor-refresh" type="button">Check again</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="tips-overlay" hidden>
+    <div class="overlay-panel cropped wide-panel">
+      <span class="eyebrow"><span class="tick"></span>Tips</span>
+      <h2>Get more out of AutoSE</h2>
+      <div id="tips-body"></div>
+      <div class="overlay-actions">
+        <button class="ghost-button" id="tips-close" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toasts" aria-live="polite"></div>
+
+  <script src="/app.js"></script>
+</body>
+
+</html>

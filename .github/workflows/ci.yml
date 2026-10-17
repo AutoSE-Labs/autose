@@ -1,0 +1,105 @@
+# Continuous integration for AutoSE.
+#
+# Three gates, in the order that fails fastest:
+#
+#   1. ruff   — the mechanical mistakes review reliably misses.
+#   2. mypy   — `src/` is thoroughly annotated, so this is nearly free and
+#               catches the class of bug a test suite finds only by accident.
+#   3. pytest — including `tests/test_architecture.py`, which is where DR-002's
+#               layering and DR-003's retired tier names stop being documentation
+#               and start being enforced.
+#
+# Deliberately no `ruff format --check`: this codebase's formatting is
+# hand-tuned and reformatting it wholesale would bury real changes under a
+# mechanical diff. Adding the formatter is its own decision, taken separately.
+#
+# No inference runtime is needed. Every test uses the scripted `ChatModel`
+# double from `tests/support/fakes.py` — that is what DR-006's provider seam is
+# for — so CI never reaches the network or a model.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push supersedes an in-flight run of the same branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+        include:
+          # DR-015 targets whatever machine the user already has. The git
+          # tools (DR-025) and the workspace path handling are the parts most
+          # likely to differ, so one macOS and one Windows job run the suite
+          # on the current Python rather than the whole matrix.
+          - os: macos-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.13"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Type-check
+        run: mypy
+
+      - name: Test
+        run: pytest -q
+
+  decision-records:
+    name: decision records
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Every DR is numbered, unique, and linked from the README
+        # DR-001 makes the records binding context rather than historical
+        # trivia. A record nobody can find from the README is one nobody
+        # reads, and two records sharing a number is how a citation stops
+        # resolving.
+        run: |
+          set -euo pipefail
+          missing=0
+          for record in docs/DecisionRecords/DR-*.md; do
+            name=$(basename "$record")
+            number=$(printf '%s' "$name" | cut -d- -f1,2)
+            if ! grep -q "$name" README.md; then
+              echo "::error file=README.md::$name is not linked from the README"
+              missing=1
+            fi
+            count=$(ls docs/DecisionRecords/"$number"-*.md 2>/dev/null | wc -l)
+            if [ "$count" -ne 1 ]; then
+              echo "::error file=$record::$number is used by $count records"
+              missing=1
+            fi
+          done
+          exit "$missing"

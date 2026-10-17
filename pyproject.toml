@@ -1,19 +1,140 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "autose"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "AutoSE — a local-first AI software engineering agent."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["ai", "agent", "llm", "local-first", "software-engineering"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+]
 dependencies = [
-    "rich>=15.0.0",
-    "pyyaml>=6.0",
+    "PyYAML>=6.0",
+    "rich>=13.0",
 ]
 
+[project.optional-dependencies]
+# The web dashboard ships in both editions (DR-032). This extra is empty and
+# stays empty: DR-029 makes the dashboard standard-library only, so
+# `python -m gui` needs nothing installed that the CLI does not.
+gui = []
+dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11", "types-PyYAML"]
+
 [project.scripts]
-autose = "autose.cli:run"
+autose = "tui.cli:main"
 
-[tool.uv]
-package = true
+[tool.setuptools]
+package-dir = { "" = "src" }
 
-[tool.setuptools.package-dir]
-"" = "src"
+[tool.setuptools.packages.find]
+where = ["src"]
+# DR-013: `gui*` is listed here for the Pro build; a public-edition build
+# excludes it, leaving `logic` and `tui` byte-for-byte identical. Both patterns
+# are inert when the folder is absent, which is what makes that build a
+# deletion rather than an edit.
+include = ["logic*", "tui*", "gui*"]
+
+[tool.setuptools.package-data]
+# The dashboard's page ships as-is (DR-029): no build step, so these files are
+# the artifact and have to travel with the wheel.
+gui = ["static/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+# -- ruff ---------------------------------------------------------------------
+# Chosen to catch what review reliably misses — an unused import, a mutable
+# default, a bare except swallowing a real failure — without arguing about
+# style this codebase has already settled.
+
+[tool.ruff]
+line-length = 90
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # import sorting
+    "UP",   # pyupgrade — this project is 3.11+, so old idioms are noise
+    "B",    # bugbear: mutable defaults, loop-variable capture, useless code
+    "C4",   # comprehension simplifications
+    "SIM",  # obvious simplifications
+    "RUF",  # ruff's own checks
+    "BLE",  # blind `except Exception` — every deliberate one is annotated
+    "SLF",  # reaching into another object's privates
+    "S",    # bandit: subprocess, eval, insecure defaults
+]
+ignore = [
+    "B008",    # function call in a default argument — dataclass fields use it
+    "SIM105",  # contextlib.suppress over try/except/pass reads worse here
+    "E501",    # line length is a formatting matter, not a lint failure
+    # Typography in user-facing strings is deliberate: `−` is a real minus
+    # sign in a diff summary, `…` an ellipsis, `›` the prompt marker. Flagging
+    # them as "ambiguous unicode" is exactly wrong for an interface's text.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # `_read_only() + ("run_command",)` states "the read-only set, plus this"
+    # far better than unpacking into a literal does, and that phrasing is the
+    # point of DR-008's tool lists.
+    "RUF005",
+    # `__all__` is ordered to group related names, not alphabetically.
+    "RUF022",
+    "RUF023",
+    # `assert` in `logic/` marks an invariant the type system cannot state;
+    # these are not input validation.
+    "S101",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests reach into private state deliberately — asserting on the wiring a
+# public API is not supposed to expose is much of what they are for — and they
+# build fixtures (temp paths, a real loopback HTTP server, scripted
+# subprocesses) that the security rules correctly flag in production code and
+# wrongly flag here.
+"tests/*" = ["S", "BLE001", "SLF001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["logic", "tui", "gui"]
+
+# -- mypy ---------------------------------------------------------------------
+# `logic/` is checked strictly: it is the layer every interface depends on, and
+# a type error there is a bug in all of them. Adapters are checked less
+# strictly, because they are mostly calls into a third-party rendering library.
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_reexport = false
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "logic.*"
+disallow_untyped_defs = false
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+module = ["rich.*", "yaml.*"]
+ignore_missing_imports = true
