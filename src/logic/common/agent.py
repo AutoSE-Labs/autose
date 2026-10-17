@@ -460,6 +460,27 @@ class BaseAgent:
                     max_output_tokens=self._budget.max_output_tokens,
                 )
             usage = _add_usage(usage, completion.usage)
+            # Per-round usage, so an adapter can show tokens and context fill
+            # while a stage is still running rather than only when it ends
+            # (DR-033). The estimate is the budget's own figure, which is the
+            # only one available from a runtime that reports no usage at all.
+            self._emit(
+                "round_usage",
+                stage=self.name,
+                round=round_number,
+                prompt_tokens=completion.usage.prompt_tokens,
+                completion_tokens=completion.usage.completion_tokens,
+                estimated_input_tokens=(
+                    prepared.metrics.estimated_input_tokens
+                    if prepared.metrics is not None
+                    else 0
+                ),
+                context_limit=(
+                    prepared.metrics.context_limit
+                    if prepared.metrics is not None
+                    else None
+                ),
+            )
 
             if not truncation_reported and _looks_truncated(
                 prepared.metrics, completion.usage

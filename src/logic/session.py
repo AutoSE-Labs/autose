@@ -36,8 +36,8 @@ from .config import AutoSEConfig
 from .errors import ConfigurationError
 from .inference.base import ChatModel
 from .inference.catalog import ModelInfo
+from .inference.context_advice import advise_context
 from .inference.discovery import DetectedRuntime, discover_local_runtimes
-from .inference.ollama import OLLAMA_CONTEXT_ENV
 from .inference.registry import create_chat_model, create_model_catalog, local_providers
 from .inference.settings import InferenceSettings
 from .inference.types import Usage
@@ -150,7 +150,7 @@ class SessionSetup:
             self,
             inference=inference,
             model_info=info,
-            warnings=_capability_warnings(info),
+            warnings=_capability_warnings(info, inference.provider),
         )
 
 
@@ -180,7 +180,7 @@ def setup_from_config(config: AutoSEConfig, *, discover: bool = True) -> Session
             runtimes=(runtime,) if runtime else (),
             inference=inference,
             model_info=info,
-            warnings=_capability_warnings(info),
+            warnings=_capability_warnings(info, inference.provider),
         )
 
     if not discover:
@@ -215,7 +215,7 @@ def setup_from_config(config: AutoSEConfig, *, discover: bool = True) -> Session
         runtimes=runtimes,
         inference=inference,
         model_info=info,
-        warnings=_capability_warnings(info),
+        warnings=_capability_warnings(info, inference.provider),
     )
 
 
@@ -712,10 +712,21 @@ class Session:
             # first turn loads the model.
             return
         capped = info is not None and info.is_context_capped
+        advice = (
+            advise_context(info, provider=self.inference.provider, min_usable=floor)
+            if info is not None
+            else None
+        )
         remedy = (
             f"The model itself supports {info.max_context_length:,} tokens — the "
-            f"runtime is what is serving {limit:,}. Raise it with "
-            f"{OLLAMA_CONTEXT_ENV}, e.g. `{OLLAMA_CONTEXT_ENV}=32768 ollama serve`."
+            f"runtime is what is serving {limit:,}."
+            + (
+                f" Raise it: `{advice.remedy}`."
+                if advice and advice.remedy
+                else f" Serve it with at least {advice.recommended:,} tokens."
+                if advice and advice.recommended
+                else ""
+            )
             if capped and info is not None and info.max_context_length
             else "Pick a model served in a larger window."
         )
@@ -807,7 +818,9 @@ def _enumerate(settings: InferenceSettings) -> DetectedRuntime | None:
     )
 
 
-def _capability_warnings(info: ModelInfo | None) -> tuple[str, ...]:
+def _capability_warnings(
+    info: ModelInfo | None, provider: str = ""
+) -> tuple[str, ...]:
     """Pre-flight checks DR-015 wants surfaced before work starts."""
     if info is None:
         return ()
@@ -818,17 +831,17 @@ def _capability_warnings(info: ModelInfo | None) -> tuple[str, ...]:
             "read and change files — pick a tool-capable model, or expect it to "
             "answer from the prompt alone."
         )
-    # DR-022: the gap between what the model supports and what the runtime
-    # actually serves is invisible otherwise — the request is not rejected,
-    # it is silently truncated from the front.
-    if info.is_context_capped:
-        assert info.context_length is not None and info.max_context_length is not None
+    # DR-022 made the gap between what the model supports and what the
+    # runtime serves visible; DR-034 decides whether it is worth a standing
+    # warning. A deliberate 32k cap on a 256k model is not, and a remedy that
+    # repeats the value already set is worse than none.
+    advice = advise_context(
+        info, provider=provider, min_usable=MIN_USABLE_CONTEXT_TOKENS
+    )
+    if advice.level == "warning":
         warnings.append(
-            f"'{info.name}' supports {info.max_context_length:,} tokens but the "
-            f"runtime is serving only {info.context_length:,}. AutoSE will budget "
-            "against the served window; anything larger would be silently dropped "
-            f"by the runtime. Raise it with {OLLAMA_CONTEXT_ENV}, e.g. "
-            f"`{OLLAMA_CONTEXT_ENV}=32768 ollama serve`."
+            f"'{info.name}': {advice.summary} {advice.detail}"
+            + (f" Raise it: `{advice.remedy}`." if advice.remedy else "")
         )
     if info.context_length and info.context_length < MIN_USABLE_CONTEXT_TOKENS:
         # Not "requests get trimmed" — with a truthful budget they fail closed
@@ -839,6 +852,13 @@ def _capability_warnings(info: ModelInfo | None) -> tuple[str, ...]:
             "schemas and the stage prompt take most of it before your request is "
             "counted, so reading even one file may exceed the budget and stop the "
             "stage rather than silently truncating it."
+            + (
+                f" The model supports {info.max_context_length:,}; the runtime "
+                "is what caps it."
+                if info.is_context_capped and info.max_context_length
+                else ""
+            )
+            + (f" Raise it: `{advice.remedy}`." if advice.remedy else "")
         )
     return tuple(warnings)
 

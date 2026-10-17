@@ -163,6 +163,7 @@ const overlays = {
   diff: el("diff-overlay"),
   doctor: el("doctor-overlay"),
   tips: el("tips-overlay"),
+  context: el("context-overlay"),
 };
 
 let state = null;
@@ -177,6 +178,10 @@ let approvals = [];
 let armedDelete = "";
 let connected = false;
 let lastPromptTokens = 0;
+/* True while a snapshot's timeline is being replayed into a work card
+ * (DR-033). Toasts announce what is happening now; replaying them would
+ * re-announce what already happened. */
+let replaying = false;
 let railTimer = 0;
 
 function desk(id) {
@@ -384,7 +389,10 @@ function handleFrame(frame) {
 function handleEvent(id, frame) {
   const data = frame.data || {};
   const run = desk(id).run;
-  if (!run && !["session_save_failed", "model_selected", "history_cleared"].includes(frame.event)) {
+  if (
+    !run &&
+    !["session_save_failed", "model_selected", "history_cleared", "tier_changed", "session_resumed"].includes(frame.event)
+  ) {
     // Events that belong to a turn we are not tracking (another tab started
     // it, or this one reloaded); the next state frame will catch us up.
     return;
@@ -467,6 +475,28 @@ function handleEvent(id, frame) {
         html: `${data.approved ? "Approved" : "Refused"} ${escapeHtml(String(data.tool || ""))}${data.reason ? ` — ${escapeHtml(String(data.reason))}` : ""}`,
       });
       break;
+    // DR-033: tokens as they are spent, not only when a stage ends — a long
+    // stage otherwise shows zero for minutes and reads as "nothing happening".
+    case "round_usage":
+      run.liveTokens = (run.liveTokens || 0) + (data.prompt_tokens || 0) + (data.completion_tokens || 0);
+      if (isFocused(id)) {
+        lastPromptTokens = data.prompt_tokens || data.estimated_input_tokens || lastPromptTokens;
+        renderStatus();
+      }
+      break;
+    // Covered by the `busy`, `turn` and `state` frames, which carry the same
+    // facts with the payload the card needs; named so their absence from the
+    // switch reads as a decision rather than an oversight.
+    case "turn_started":
+    case "turn_finished":
+    case "workflow_finished":
+      break;
+    case "tier_changed":
+      if (!run) toast(`Tier is now ${humanize(String(data.tier || ""))}.`, "good");
+      break;
+    case "session_resumed":
+      toast(`Picked up session ${shortId(String(data.session_id || ""))} — ${data.turns || 0} earlier turn(s).`, "good");
+      break;
     case "agent_reasoning_delta":
       run.thinking += frame.message || "";
       scheduleRun(run);
@@ -543,8 +573,21 @@ function adoptState() {
   if (state.running && !seat.run && focusId()) {
     // Joined mid-turn: rebuild what we can from the snapshot and let the
     // stream fill in the rest.
-    startRun(focusId(), state.current || {});
+    const current = state.current || {};
+    startRun(focusId(), current);
     seat.run.answer = state.answer || "";
+    // DR-033: the snapshot carries what this turn has done so far. Replaying
+    // it through the same handler the stream uses draws the card exactly as a
+    // tab that watched from the start would have it.
+    replaying = true;
+    try {
+      (current.timeline || []).forEach((frame) => handleEvent(focusId(), frame));
+    } finally {
+      replaying = false;
+    }
+    seat.run.narration = current.narration || seat.run.narration;
+    seat.run.thinking = current.thinking || seat.run.thinking;
+    scheduleRun(seat.run);
   }
   if (!state.running && seat.run && seat.run.running) {
     seat.run.running = false;
@@ -639,7 +682,10 @@ function renderStatus() {
   dom.dirLabel.textContent = shortenPath(state.workspace || "");
   dom.dirLabel.title = state.workspace || "";
   dom.sessionLabel.textContent = state.session_id ? shortId(state.session_id) : "—";
-  dom.tokensLabel.textContent = formatCount(usage.total_tokens || 0);
+  // The session's settled total plus what the running turn has spent so far;
+  // the turn's share moves into `usage` when it finishes (DR-033).
+  const spending = (focusedRun() && focusedRun().liveTokens) || 0;
+  dom.tokensLabel.textContent = formatCount((usage.total_tokens || 0) + spending);
 
   const limit = state.context_limit || 0;
   if (limit && lastPromptTokens) {
@@ -652,6 +698,14 @@ function renderStatus() {
     dom.ctxFill.style.width = "0%";
     dom.ctxLabel.textContent = limit ? `CTX ${formatCount(limit)}` : "CTX —";
   }
+  // DR-034: the mark carries the advice level — calm for a deliberate cap,
+  // loud only for a window that will actually hurt.
+  const advice = state.context_advice;
+  const mark = el("ctx-mark");
+  mark.className = `ctx-mark ${advice ? advice.level : ""}`.trim();
+  el("status-ctx").title = advice
+    ? `${advice.summary} Click for details.`
+    : "How full the context window was last round";
 
   const run = focusedRun();
   const elsewhere = runningElsewhere();
@@ -1353,8 +1407,48 @@ function doctorMarkup(report) {
   return blocks.join("");
 }
 
+function openContext() {
+  const advice = (state && state.context_advice) || null;
+  const titles = {
+    ok: "The window is fine",
+    info: "The window is fine",
+    warning: "The window is tight",
+    blocking: "The window is too small",
+  };
+  el("context-title").textContent = advice ? titles[advice.level] || "Context window" : "Context window";
+  el("context-summary").textContent = advice ? advice.summary : "The runtime has not reported its window.";
+  el("context-detail").textContent = advice ? advice.detail : "";
+  const figure = (label, value) =>
+    `<div class="context-figure"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+  el("context-figures").innerHTML = advice
+    ? [
+        figure("Served", advice.served ? formatCount(advice.served) : "?"),
+        figure("Model max", advice.maximum ? formatCount(advice.maximum) : "?"),
+        figure("Suggested", advice.recommended ? formatCount(advice.recommended) : "keep"),
+      ].join("")
+    : "";
+  const remedy = (advice && advice.remedy) || "";
+  el("context-remedy").hidden = !remedy;
+  el("context-remedy-label").textContent =
+    advice && advice.level === "info" ? "Optional — if you want more room" : "To change it";
+  el("context-remedy-code").textContent = remedy;
+  el("context-copy").hidden = !remedy || !navigator.clipboard;
+  overlays.context.hidden = false;
+}
+
+async function copyContextRemedy() {
+  const remedy = (state && state.context_advice && state.context_advice.remedy) || "";
+  if (!remedy) return;
+  try {
+    await navigator.clipboard.writeText(remedy);
+    toast("Copied — run it where the model server runs, then restart that server.", "good");
+  } catch (error) {
+    toast("Could not copy; select the command instead.", "bad");
+  }
+}
+
 function closeOverlays() {
-  ["diff", "doctor", "tips"].forEach((name) => {
+  ["diff", "doctor", "tips", "context"].forEach((name) => {
     overlays[name].hidden = true;
   });
 }
@@ -1477,6 +1571,9 @@ el("open-tips").addEventListener("click", () => {
   openTips();
 });
 el("tips-close").addEventListener("click", closeOverlays);
+el("status-ctx").addEventListener("click", openContext);
+el("context-close").addEventListener("click", closeOverlays);
+el("context-copy").addEventListener("click", copyContextRemedy);
 el("open-tips").addEventListener("mouseenter", showTipPopup);
 el("open-tips").addEventListener("mouseleave", hideTipPopup);
 el("open-tips").addEventListener("focus", showTipPopup);
@@ -1596,6 +1693,7 @@ function scrollToBottom() {
 const shownToasts = new Set();
 
 function toast(message, tone = "", once = "") {
+  if (replaying) return;
   if (once) {
     if (shownToasts.has(once)) return;
     shownToasts.add(once);

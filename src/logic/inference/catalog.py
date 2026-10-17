@@ -67,6 +67,11 @@ class ModelInfo:
     #: On-disk size in bytes, when known.
     size_bytes: int | None = None
     family: str = ""
+    #: Share of the loaded model resident in GPU memory, 0.0-1.0, when the
+    #: runtime reports it (Ollama's ``/api/ps``). ``None`` for a model that is
+    #: not loaded or a runtime that does not say. Below 1.0 the rest runs on
+    #: the CPU, which is what makes a larger window slower (DR-034).
+    gpu_fraction: float | None = None
 
     @property
     def is_tool_capable(self) -> bool:

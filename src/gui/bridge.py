@@ -48,10 +48,12 @@ from logic.common.approval import (
     ApprovalRequest,
     CallbackApprovalGate,
 )
+from logic.common.context import MIN_USABLE_CONTEXT_TOKENS
 from logic.common.events import CallbackEventSink, Event, EventSink
 from logic.config import AutoSEConfig, load_config
 from logic.diagnostics import diagnose
 from logic.errors import AutoSEError, ConfigurationError
+from logic.inference.context_advice import advise_context
 from logic.persistence import SESSIONS_DIRECTORY, FileSessionStore, SessionRecord
 from logic.session import Session, SessionSetup, setup_from_config
 from logic.tiers import SPARK, is_tier
@@ -97,6 +99,18 @@ _FRAME_HISTORY = 600
 #: Frames a single browser may fall behind by before it is told to resynchronise
 #: from ``/api/state`` instead of being fed an ever-growing backlog.
 _QUEUE_LIMIT = 2_000
+
+#: Events kept per running turn so a page opened mid-turn can rebuild the work
+#: card (DR-033). Streaming deltas are left out — they are a few hundred per
+#: stage and the card keeps only their tail — so this holds the stages, tool
+#: calls, approvals and verdicts of even a long run.
+_TIMELINE_LIMIT = 400
+
+#: Characters of streamed stage output and reasoning kept for that same page.
+_STREAM_TAIL = 6_000
+
+#: Event types that are deltas of a stream rather than steps of the run.
+_STREAMED_EVENTS = frozenset({"agent_reasoning_delta", "stage_output_delta"})
 
 #: More than a handful of dashboards on one session is a bug, not a use case:
 #: every subscriber is a thread parked on a socket.
@@ -216,6 +230,38 @@ class _Live:
         self.answer: list[str] = []
         self.pending: dict[str, _Pending] = {}
         self.opened_at = time.time()
+        # DR-033: what the current turn has done so far, for a page that opens
+        # after it started. Reset by every new turn.
+        self.timeline: list[dict[str, Any]] = []
+        self.narration = ""
+        self.thinking = ""
+
+    def reset_turn(self) -> None:
+        self.answer = []
+        self.timeline = []
+        self.narration = ""
+        self.thinking = ""
+
+    def record(self, payload: dict[str, Any]) -> None:
+        """Keep one event of the running turn, bounded (DR-033)."""
+        kind = payload.get("event")
+        message = str(payload.get("message") or "")
+        if kind == "stage_output_delta":
+            self.narration = (self.narration + message)[-_STREAM_TAIL:]
+        elif kind == "agent_reasoning_delta":
+            self.thinking = (self.thinking + message)[-_STREAM_TAIL:]
+        elif kind == "agent_reasoning":
+            self.thinking = (self.thinking + message + "\n")[-_STREAM_TAIL:]
+        if kind in _STREAMED_EVENTS:
+            return
+        if kind == "stage_started":
+            # The card shows the running stage's output, not the last one's.
+            self.narration = ""
+        if len(self.timeline) >= _TIMELINE_LIMIT:
+            # Keep the head — `workflow_started` names the stages — and drop
+            # the oldest of the rest.
+            del self.timeline[1]
+        self.timeline.append(payload)
 
     @property
     def id(self) -> str:
@@ -474,6 +520,14 @@ class SessionBridge:
             live = self._open.get(self._focus)
             desk = [self._live_payload(one) for one in self._open.values()]
             focus = self._focus
+            sequence = self._bus.sequence
+            # Read with `sequence`: the timeline must end exactly where the
+            # stream a page opens from this snapshot begins (DR-033).
+            turn_view = (
+                (list(live.timeline), live.narration, live.thinking, "".join(live.answer))
+                if live is not None
+                else ([], "", "", "")
+            )
             running_elsewhere = [
                 one.id for one in self._open.values() if one.running and one is not live
             ]
@@ -487,7 +541,7 @@ class SessionBridge:
             "problem": self._problem,
             "workspace": str(self._config.resolve_workspace_root()),
             "config_source": str(self._config.source) if self._config.source else "",
-            "sequence": self._bus.sequence,
+            "sequence": sequence,
             "focus": focus,
             "open": desk,
             "max_open": MAX_OPEN_SESSIONS,
@@ -522,6 +576,7 @@ class SessionBridge:
                     "answer": "",
                     "pending_approvals": [],
                     "context_limit": None,
+                    "context_advice": None,
                     "model_info": None,
                     "models": [],
                     "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
@@ -533,7 +588,11 @@ class SessionBridge:
         with self._lock:
             running = live.running
             current = dict(live.current) if live.current else None
-            answer = "".join(live.answer) if running else ""
+            if current is not None:
+                # DR-033: enough to redraw the work card from cold. Only the
+                # focused session carries it; the rail's summaries stay small.
+                current["timeline"], current["narration"], current["thinking"], _ = turn_view
+            answer = turn_view[3] if running else ""
             pending = [item.payload() for item in live.pending.values()]
         history = session.history
         state.update(
@@ -549,6 +608,17 @@ class SessionBridge:
                 "answer": answer,
                 "pending_approvals": pending,
                 "context_limit": session.context_limit(),
+                # DR-034: one verdict about the served window, so the page can
+                # tell a deliberate cap from a window that will hurt.
+                "context_advice": (
+                    advise_context(
+                        session.model_info,
+                        provider=session.inference.provider,
+                        min_usable=MIN_USABLE_CONTEXT_TOKENS,
+                    ).to_dict()
+                    if session.model_info is not None
+                    else None
+                ),
                 "model_info": model_payload(session.model_info),
                 "models": [
                     model_payload(info)
@@ -648,7 +718,7 @@ class SessionBridge:
                     "a task is already running in this session", status=409
                 )
             live.running = True
-            live.answer = []
+            live.reset_turn()
             live.current = {
                 "prompt": text,
                 "requested_tier": tier or "",
@@ -793,7 +863,7 @@ class SessionBridge:
             for chunk in stream:
                 with self._lock:
                     live.answer.append(chunk)
-                self._publish_for(live, {"kind": "answer", "text": chunk})
+                    self._publish_for(live, {"kind": "answer", "text": chunk})
             turn = stream.turn
             if turn is not None:
                 self._publish_for(
@@ -887,7 +957,15 @@ class SessionBridge:
         self._bus.unsubscribe(subscriber)
 
     def _on_event(self, live: _Live, event: Event) -> None:
-        self._publish_for(live, {"kind": "event", **event_payload(event)})
+        payload = event_payload(event)
+        # Recorded and published under one lock, and the snapshot reads the
+        # timeline and the frame sequence under the same lock, so a page that
+        # replays the timeline and then streams from that sequence sees every
+        # event exactly once (DR-033).
+        with self._lock:
+            if live.running:
+                live.record(payload)
+            self._publish_for(live, {"kind": "event", **payload})
 
     def _publish(self, frame: dict[str, Any]) -> None:
         """A frame about the dashboard rather than about one session."""

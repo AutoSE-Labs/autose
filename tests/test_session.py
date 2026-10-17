@@ -515,7 +515,11 @@ def test_a_turn_is_refused_outright_when_the_window_is_too_small(scripted, tmp_p
     # The number, the remedy, and the way out — an error that only says "too
     # small" leaves the user exactly as stuck as the stall did.
     assert "4,096" in message and "8,192" in message
-    assert "OLLAMA_CONTEXT_LENGTH" in message
+    # DR-034: the remedy is computed for this runtime. This one has no known
+    # command, so the advice names the window to serve rather than borrowing
+    # Ollama's environment variable for a runtime that is not Ollama.
+    assert "32,768" in message
+    assert "OLLAMA_CONTEXT_LENGTH" not in message
     assert "min_usable_context_tokens: -1" in message
 
 

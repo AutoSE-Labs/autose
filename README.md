@@ -100,6 +100,8 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-030](docs/DecisionRecords/DR-030-unlimited-by-default-caps-and-a-user-held-stop.md) | Every cap is unlimited by default; the user holds the stop |
 | [DR-031](docs/DecisionRecords/DR-031-concurrent-sessions-in-the-dashboard.md) | The dashboard holds several sessions at once, each with its own turn |
 | [DR-032](docs/DecisionRecords/DR-032-pro-edition-is-the-decision-record-and-knowledge-layer.md) | Pro is the decision-record and knowledge layer; the dashboard ships in both editions |
+| [DR-033](docs/DecisionRecords/DR-033-the-live-view-survives-a-reload.md) | The dashboard's live view survives a reload, and shows usage as it is spent |
+| [DR-034](docs/DecisionRecords/DR-034-context-advice-not-a-fixed-warning.md) | A served context window gets a verdict and a computed remedy, not a fixed warning |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
 

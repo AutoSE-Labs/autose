@@ -378,3 +378,33 @@ def test_ordinary_tokenizer_drift_does_not_warn(workspace):
     assert not [
         event for event in events.events if event.type == "context_truncated_by_runtime"
     ]
+
+
+# -- DR-033: usage reaches an adapter while the stage is still running -------
+
+
+def test_every_round_reports_its_usage_as_it_happens(workspace):
+    """DR-033: a dashboard that only hears about tokens when a stage ends shows
+    zero for the whole of a long stage, which reads as "nothing is happening".
+    """
+    (workspace.root / "m.txt").write_text("file body", encoding="utf-8")
+    events = RecordingEventSink()
+    agent = _agent(
+        workspace,
+        [
+            calls(tool_call("read_file", path="m.txt")),
+            answer("done", prompt_tokens=120, completion_tokens=7),
+        ],
+        events=events,
+        budget=ContextBudget(context_limit=32_768),
+    )
+    agent.run("read it")
+
+    rounds = events.of_type("round_usage")
+    assert [event.data["round"] for event in rounds] == [1, 2]
+    assert all(event.data["stage"] == "test-stage" for event in rounds)
+    assert rounds[1].data["prompt_tokens"] == 120
+    assert rounds[1].data["completion_tokens"] == 7
+    # The budget's estimate stands in for a runtime that reports no usage.
+    assert rounds[0].data["estimated_input_tokens"] > 0
+    assert rounds[0].data["context_limit"] == 32_768
