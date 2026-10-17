@@ -19,7 +19,12 @@ import urllib.request
 from collections.abc import Iterator
 from typing import Any
 
-from ..errors import InferenceError, InferenceTimeoutError, ProviderContextLengthError
+from ..errors import (
+    InferenceError,
+    InferenceTimeoutError,
+    MalformedToolCallError,
+    ProviderContextLengthError,
+)
 from .ollama import native_root
 from .openai_compatible import OpenAICompatibleChatModel
 from .types import CompletionResult, StreamChunk, ToolCall, Usage
@@ -27,6 +32,11 @@ from .types import CompletionResult, StreamChunk, ToolCall, Usage
 __all__ = ["OllamaChatModel", "to_native_messages"]
 
 _CONTEXT_ERROR_HINTS = ("context", "num_ctx", "too long", "exceed")
+
+#: Ollama's own parser rejecting the tool call a model wrote — seen in practice
+#: as "XML syntax error on line 3: element <function> closed by </parameter>"
+#: from a Qwen model (DR-039).
+_TOOL_CALL_ERROR_HINTS = ("xml syntax error", "tool call", "parsing tool", "parse tool")
 
 
 class OllamaChatModel(OpenAICompatibleChatModel):
@@ -235,6 +245,8 @@ def _parse_ndjson_line(raw_line: bytes) -> dict | None:
 
 def _raise_for_error_text(text: str) -> None:
     lowered = text.lower()
+    if any(hint in lowered for hint in _TOOL_CALL_ERROR_HINTS):
+        raise MalformedToolCallError(text)
     if any(hint in lowered for hint in _CONTEXT_ERROR_HINTS):
         raise ProviderContextLengthError(text or "context window exceeded")
 

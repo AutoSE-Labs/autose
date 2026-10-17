@@ -104,6 +104,7 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-034](docs/DecisionRecords/DR-034-context-advice-not-a-fixed-warning.md) | A served context window gets a verdict and a computed remedy, not a fixed warning |
 | [DR-035](docs/DecisionRecords/DR-035-autose-chooses-the-context-window.md) | AutoSE chooses the context window where the runtime allows it, and the user can change it |
 | [DR-037](docs/DecisionRecords/DR-037-the-inspector-shows-the-run-in-full.md) | The dashboard has an inspector that shows the run in full; the conversation stays compact |
+| [DR-039](docs/DecisionRecords/DR-039-a-malformed-tool-call-is-retried.md) | A tool call the runtime cannot parse is retried, not fatal |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
 

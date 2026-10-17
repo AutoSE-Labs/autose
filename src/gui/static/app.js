@@ -557,6 +557,14 @@ function handleEvent(id, frame) {
     case "tool_call_repeated":
       pushActivity(run, { kind: "fail", icon: "⊘", html: escapeHtml(frame.message || "Refused a repeated call") });
       break;
+    // DR-039: a retried tool call is visible, not silently absorbed.
+    case "tool_call_malformed":
+      pushActivity(run, {
+        kind: "fail",
+        icon: "△",
+        html: `The model wrote a tool call the runtime could not parse; asked it to write it again (${escapeHtml(String(data.attempt || 1))}/3)`,
+      });
+      break;
     case "agent_stalled":
       pushActivity(run, { kind: "fail", icon: "△", html: escapeHtml(frame.message || "Stopped going in circles") });
       break;

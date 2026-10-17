@@ -443,3 +443,42 @@ def test_a_failed_tool_call_is_marked_failed(workspace):
     agent.run("read it")
     (completed,) = events.of_type("tool_completed")
     assert completed.data["failed"] is True
+
+
+# -- DR-039: a tool call the runtime could not parse is retried --------------
+
+
+def _malformed() -> Exception:
+    from logic.errors import MalformedToolCallError
+
+    return MalformedToolCallError(
+        "XML syntax error on line 3: element <function> closed by </parameter>"
+    )
+
+
+def test_a_malformed_tool_call_is_retried_with_what_was_wrong(workspace):
+    """DR-039: seen live — Ollama's parser rejected a Qwen tool call mid-stream
+    and the whole run stopped at Plan. One bad generation is not a failure."""
+    events = RecordingEventSink()
+    model = ScriptedChatModel([_malformed(), answer("done")])
+    agent = _Stage(model=model, tools=catalog_subset("read_file"), workspace=workspace, events=events)
+
+    result = agent.run("read something")
+
+    assert result.content == "done"
+    (event,) = events.of_type("tool_call_malformed")
+    assert "XML syntax error" in event.message
+    retried = model.requests[-1]["messages"][-1]
+    assert retried["role"] == "user"
+    assert "could not parse" in retried["content"]
+
+
+def test_a_model_that_keeps_writing_malformed_calls_fails_the_stage(workspace):
+    from logic.errors import MalformedToolCallError
+
+    model = ScriptedChatModel([_malformed() for _ in range(4)])
+    agent = _Stage(model=model, tools=catalog_subset("read_file"), workspace=workspace)
+
+    with pytest.raises(MalformedToolCallError):
+        agent.run("read something")
+    assert model.call_count == 4
