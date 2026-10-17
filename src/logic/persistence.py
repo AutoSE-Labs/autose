@@ -94,6 +94,10 @@ def new_session_id() -> str:
     return f"{stamp}-{uuid.uuid4().hex[:6]}"
 
 
+#: The fields a stored requirement keeps (DR-038).
+_REQUIREMENT_KEYS = ("id", "status", "description", "evidence")
+
+
 @dataclass(frozen=True)
 class TurnRecord:
     """One completed exchange, in the form that goes to disk."""
@@ -106,6 +110,9 @@ class TurnRecord:
     completion_tokens: int = 0
     files_changed: tuple[str, ...] = ()
     changes: tuple[FileChange, ...] = ()
+    #: The final requirements ledger (DR-038). Optional on read: a session
+    #: written before it existed simply has none, which is not a format change.
+    requirements: tuple[dict[str, str], ...] = ()
 
     @property
     def succeeded(self) -> bool:
@@ -121,6 +128,7 @@ class TurnRecord:
             "completion_tokens": self.completion_tokens,
             "files_changed": list(self.files_changed),
             "changes": [_change_to_dict(change) for change in self.changes],
+            "requirements": [dict(item) for item in self.requirements],
         }
 
     @classmethod
@@ -135,6 +143,11 @@ class TurnRecord:
             files_changed=tuple(str(p) for p in document.get("files_changed", ())),
             changes=tuple(
                 _change_from_dict(item) for item in document.get("changes", ())
+            ),
+            requirements=tuple(
+                {key: str(item.get(key, "")) for key in _REQUIREMENT_KEYS}
+                for item in document.get("requirements", ())
+                if isinstance(item, Mapping)
             ),
         )
 

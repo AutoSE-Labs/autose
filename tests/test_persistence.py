@@ -402,6 +402,9 @@ def test_the_snapshot_holds_only_what_the_session_promoted(make_session, store):
         "completion_tokens",
         "files_changed",
         "changes",
+        # DR-038: the final ledger is a canonical outcome, like files_changed —
+        # not the intermediate loop state DR-004 keeps out of the durable copy.
+        "requirements",
     }
 
 
@@ -413,3 +416,28 @@ def test_restoring_re_bounds_a_history_longer_than_this_session_allows(make_sess
     )
 
     assert len(session.memory.exchanges) <= 4
+
+
+# -- DR-038: the final requirements ledger survives a restart ----------------
+
+
+def test_a_turn_s_requirements_ledger_round_trips():
+    from logic.persistence import TurnRecord
+
+    record = TurnRecord(
+        prompt="fix it",
+        answer="done",
+        tier="craft",
+        requirements=(
+            {"id": "R1", "status": "Verified", "description": "mul multiplies", "evidence": "test_ops.py"},
+        ),
+    )
+    assert TurnRecord.from_dict(record.to_dict()).requirements == record.requirements
+
+
+def test_a_turn_stored_before_ledgers_were_kept_still_loads():
+    from logic.persistence import TurnRecord
+
+    old = {"prompt": "p", "answer": "a", "tier": "craft"}
+    assert TurnRecord.from_dict(old).requirements == ()
+

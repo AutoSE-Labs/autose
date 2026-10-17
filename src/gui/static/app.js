@@ -449,7 +449,13 @@ function handleEvent(id, frame) {
         if (stage.name === data.stage) stage.status = "done";
       });
       if (data.content) run.notes[data.artifact || data.stage] = data.content;
-      if (Array.isArray(data.requirements) && data.requirements.length) run.requirements = data.requirements;
+      if (Array.isArray(data.requirements) && data.requirements.length) {
+        run.requirements = data.requirements;
+        run.ledger.push({
+          title: data.title || humanize(String(data.stage || "")),
+          statuses: Object.fromEntries(data.requirements.map((item) => [item.id, item.status])),
+        });
+      }
       pushActivity(run, { icon: "☰", html: `${escapeHtml(data.title || frame.message || humanize(String(data.stage)))} done` });
       break;
     case "validation_verdict":
@@ -463,6 +469,7 @@ function handleEvent(id, frame) {
       });
       break;
     case "loopback":
+      run.loopbacks.push(data);
       pushActivity(run, { icon: "↺", html: `Back to ${escapeHtml(humanize(String(data.target || "")))} (${data.iteration}/${data.cap})` });
       break;
     case "tool_called":
@@ -1085,6 +1092,9 @@ function startRun(id, current) {
     // DR-037: the structured record the inspector draws, one entry per tool
     // call or notable moment, each tagged with the stage that produced it.
     steps: [],
+    // DR-038: the ledger as each stage left it, in order, and every loop-back.
+    ledger: [],
+    loopbacks: [],
     currentStage: "",
     openSteps: new Set(),
     detailed: false,
@@ -1282,11 +1292,33 @@ function inspectedRun() {
   return seat.run || seat.lastRun || null;
 }
 
+/* DR-038: the requirements view — the run this page watched, with each
+ * stage's statuses; else the latest stored turn, with its final ledger. */
+function requirementsView() {
+  const run = inspectedRun();
+  if (run && run.requirements && run.requirements.length) {
+    return {
+      requirements: run.requirements,
+      journey: run.ledger,
+      verdict: run.verdict,
+      loopbacks: run.loopbacks,
+      live: Boolean(run.running),
+    };
+  }
+  const turn = [...((state && state.history) || [])]
+    .reverse()
+    .find((item) => item.requirements && item.requirements.length);
+  return turn ? { requirements: turn.requirements, journey: [], verdict: null, loopbacks: [], live: false } : null;
+}
+
 function renderInspector() {
   setHtml(el("inspector-tabs"), inspectorTabsMarkup(inspectorTab));
-  if (dom.shell.classList.contains("inspector-open")) {
-    setHtml(el("inspector-body"), activityPanelMarkup(inspectedRun()));
-  }
+  if (!dom.shell.classList.contains("inspector-open")) return;
+  const body =
+    inspectorTab === "requirements"
+      ? requirementsPanelMarkup(requirementsView())
+      : activityPanelMarkup(inspectedRun());
+  setHtml(el("inspector-body"), body);
 }
 
 function setInspectorOpen(open) {

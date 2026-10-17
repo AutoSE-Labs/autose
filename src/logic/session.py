@@ -102,6 +102,8 @@ class Turn:
     #: (DR-024). Carrying both halves on the turn is what makes the change
     #: reviewable as a diff and revertible after the run has finished.
     changes: tuple[FileChange, ...] = ()
+    #: The requirements ledger as it stood when the turn ended (DR-038).
+    requirements: tuple[dict[str, str], ...] = ()
 
     @property
     def succeeded(self) -> bool:
@@ -509,6 +511,7 @@ class Session:
                     completion_tokens=turn.usage.completion_tokens,
                     files_changed=turn.files_changed,
                     changes=turn.changes,
+                    requirements=turn.requirements,
                 )
                 for turn in self._turns
             ),
@@ -535,6 +538,7 @@ class Session:
                 ),
                 files_changed=item.files_changed,
                 changes=item.changes,
+                requirements=item.requirements,
             )
             for item in record.turns
         ]
@@ -799,6 +803,7 @@ class Session:
             artifacts=dict(outcome.artifacts),
             files_changed=outcome.files_changed,
             changes=outcome.changes,
+            requirements=outcome.requirements,
         )
         self._record(turn)
         holder["turn"] = turn

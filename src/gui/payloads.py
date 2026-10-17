@@ -68,6 +68,7 @@ def turn_payload(turn: Turn, *, index: int = -1) -> dict[str, Any]:
             else None
         ),
         "files_changed": list(turn.files_changed),
+        "requirements": [dict(item) for item in turn.requirements],
         "changes": [change_payload(change) for change in turn.changes],
         "artifacts": {
             name: _clip(text, ARTIFACT_CHARS)

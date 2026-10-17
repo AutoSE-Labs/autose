@@ -10,7 +10,10 @@
  * a renderer runs, by which time they exist. No build step (DR-029).
  */
 
-const INSPECTOR_TABS = [{ id: "activity", label: "Activity" }];
+const INSPECTOR_TABS = [
+  { id: "activity", label: "Activity" },
+  { id: "requirements", label: "Requirements" },
+];
 
 function inspectorTabsMarkup(active) {
   return INSPECTOR_TABS.map(
@@ -105,4 +108,81 @@ function formatDuration(ms) {
   if (ms < 1000) return `${ms} ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
   return formatElapsed(ms);
+}
+
+/* ---------- requirements (DR-038) ---------- */
+
+const REQUIREMENT_TONES = {
+  "not started": "idle",
+  "in progress": "work",
+  implemented: "work",
+  blocked: "bad",
+  verified: "good",
+  failed: "bad",
+};
+
+function requirementTone(status) {
+  return REQUIREMENT_TONES[String(status || "").toLowerCase()] || "idle";
+}
+
+/* `view` is either a live run's ledger journey or a finished turn's final
+ * ledger: { requirements, journey: [{title, statuses: {id: status}}], verdict,
+ * loopbacks, live }. */
+function requirementsPanelMarkup(view) {
+  if (!view || !view.requirements.length) {
+    return `<div class="inspector-empty">Craft and Forge write down what "done" means before they touch a
+      file — a numbered list of requirements — and Validate checks each one independently. That
+      list appears here as soon as the plan exists. Spark answers directly and has none.</div>`;
+  }
+  const counts = {};
+  view.requirements.forEach((item) => {
+    const key = String(item.status || "").toLowerCase();
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  const summary =
+    `<div class="inspector-summary"><span><strong>${view.requirements.length}</strong> requirement${view.requirements.length === 1 ? "" : "s"}</span>` +
+    Object.entries(counts)
+      .map(([status, count]) => `<span class="tone-${requirementTone(status)}"><strong>${count}</strong> ${escapeHtml(status)}</span>`)
+      .join("") +
+    `<span class="inspector-state">${view.live ? "live" : "final"}</span></div>`;
+
+  const verdict = view.verdict
+    ? `<div class="verdict ${view.verdict.passed ? "passed" : "failed"}">` +
+      `<strong>${view.verdict.passed ? "Validate: it holds" : "Validate: not yet"}</strong>` +
+      (view.verdict.unmet && view.verdict.unmet.length
+        ? `<div>Unmet: ${view.verdict.unmet.map((id) => `<span class="mono">${escapeHtml(id)}</span>`).join(", ")}</div>`
+        : "") +
+      (view.verdict.feedback ? `<div class="verdict-feedback">${escapeHtml(view.verdict.feedback)}</div>` : "") +
+      `</div>`
+    : "";
+  const loops = (view.loopbacks || [])
+    .map(
+      (loop) =>
+        `<div class="step note kind-fail"><span class="act-icon">↺</span><span>Sent back to ${escapeHtml(humanize(String(loop.target || "")))} (pass ${escapeHtml(String(loop.iteration || ""))})${loop.feedback ? ` — ${escapeHtml(loop.feedback)}` : ""}</span></div>`
+    )
+    .join("");
+
+  const journey = view.journey || [];
+  const rows = view.requirements
+    .map((item) => {
+      const trail = journey
+        .map((step) => {
+          const status = step.statuses[item.id];
+          if (!status) return "";
+          return `<span class="req-step tone-${requirementTone(status)}" title="${escapeHtml(step.title)}: ${escapeHtml(status)}">${escapeHtml(step.title)} · ${escapeHtml(status)}</span>`;
+        })
+        .filter(Boolean)
+        .join(`<span class="req-arrow">→</span>`);
+      return (
+        `<div class="req tone-${requirementTone(item.status)}">` +
+        `<div class="req-head"><span class="req-id mono">${escapeHtml(item.id)}</span>` +
+        `<span class="req-desc">${escapeHtml(item.description)}</span>` +
+        `<span class="req-status">${escapeHtml(item.status)}</span></div>` +
+        (trail ? `<div class="req-trail">${trail}</div>` : "") +
+        (item.evidence ? `<div class="req-evidence"><span class="arg-key">evidence</span> ${escapeHtml(item.evidence)}</div>` : "") +
+        `</div>`
+      );
+    })
+    .join("");
+  return summary + verdict + loops + `<div class="reqs">${rows}</div>`;
 }
