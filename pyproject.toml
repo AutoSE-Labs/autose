@@ -120,6 +120,11 @@ known-first-party = ["logic", "tui", "gui"]
 
 [tool.mypy]
 python_version = "3.11"
+# Check against one platform's stubs everywhere. `termios`, `tty` and
+# `readline` are POSIX-only and guarded at runtime (each is None where it
+# cannot import), but Windows stubs omit their functions entirely, so a mypy
+# run on the Windows CI job would otherwise fail on code it never executes.
+platform = "linux"
 files = ["src"]
 mypy_path = "src"
 namespace_packages = true
