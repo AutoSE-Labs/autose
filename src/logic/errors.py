@@ -46,6 +46,15 @@ class InferenceTimeoutError(InferenceError):
     """The inference backend did not respond in time, or was unreachable."""
 
 
+class MalformedToolCallError(InferenceError):
+    """The runtime could not parse a tool call the model wrote (DR-039).
+
+    A property of one generation, not of the connection: the same request can
+    succeed when the model writes the call again, so the agent loop retries
+    the round rather than failing the stage.
+    """
+
+
 class ProviderContextLengthError(InferenceError):
     """The *provider* rejected the request for exceeding its context window.
 

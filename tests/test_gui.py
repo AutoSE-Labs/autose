@@ -786,11 +786,13 @@ def test_the_page_offers_two_ways_to_stop_a_run():
 
     assert 'id="stop-button"' in page, "the composer needs a stop control"
     assert 'data-stop="1"' in script, "the live card needs a stop control"
-    # Both reach the one endpoint, and Stop stands in the send button's place
-    # rather than beside a disabled one.
+    # Both reach the one endpoint, and Stop never stands beside a dead,
+    # disabled send button: while a run works, that button queues the next
+    # request instead (DR-042).
     assert script.count("requestStop()") >= 2
     assert "/api/interrupt" in script
-    assert "dom.send.hidden = Boolean(state.running)" in script
+    assert 'state.running ? "Queue" : "Start work"' in script
+    assert "dom.send.disabled = !state.ready;" in script
 
 
 def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
@@ -809,7 +811,7 @@ def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
 
 def test_the_dashboard_fetches_nothing_from_the_network():
     """Local-first is a property of the page too, not only of inference."""
-    for name in ("index.html", "app.css", "app.js", "inspector.js"):
+    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js"):
         source = (STATIC_ROOT / name).read_text(encoding="utf-8")
         for marker in ("http://", "https://", "//cdn", "fonts.googleapis"):
             assert marker not in source, f"{name} reaches out to {marker}"
@@ -1039,3 +1041,153 @@ def test_the_inspector_has_the_elements_it_is_drawn_into():
     for element in ('id="inspector"', 'id="inspector-tabs"', 'id="inspector-body"', 'id="toggle-inspector"'):
         assert element in page
 
+
+# -- DR-036: the settings page ---------------------------------------------------
+
+
+def test_the_settings_script_is_served_and_loaded_before_the_page_script(served):
+    port = served.server_address[1]
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{port}/settings.js", timeout=5
+    ) as response:
+        assert response.status == 200
+        assert "providerCardMarkup" in response.read().decode("utf-8")
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    assert page.index("/settings.js") < page.index("/app.js")
+
+
+def test_a_key_is_only_ever_typed_into_a_password_field():
+    """DR-036: what is drawn on the settings page is the masked tail, never the key."""
+    script = (STATIC_ROOT / "settings.js").read_text(encoding="utf-8")
+    import re
+
+    assert 'type="password"' in script
+    assert "masked_key" in script
+    # The renderer never reads a raw key field off the payload.
+    assert not re.search(r"\.api_key\b|\[\s*[\"']api_key[\"']\s*\]", script)
+
+
+
+# -- DR-040: any turn's diffs, on demand -----------------------------------------
+
+
+def test_an_earlier_turn_s_diffs_can_be_read_by_its_index(scripted, tmp_path):
+    (tmp_path / "notes.txt").write_text("draft\n")
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(
+                tool_call(
+                    "edit_file",
+                    path="notes.txt",
+                    edits=[{"old_str": "draft", "new_str": "first"}],
+                )
+            ),
+            answer("wrote it"),
+            answer("nothing to write this time"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("write the notes")
+    _drain(subscriber, "turn")
+    bridge.submit("say something")
+    _drain(subscriber, "turn")
+
+    first = bridge.changes(turn=0)
+    assert first["turn"] == 0
+    (change,) = first["changes"]
+    assert change["path"] == "notes.txt"
+    assert "+first" in change["diff"]
+    # The latest turn wrote nothing; asking for it by index says so.
+    assert bridge.changes(turn=1)["changes"] == []
+
+
+def test_a_turn_that_does_not_exist_is_a_404(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    with pytest.raises(BridgeError) as caught:
+        bridge.changes(turn=7)
+    assert caught.value.status == 404
+
+
+def test_a_turn_index_that_is_not_a_number_is_refused_over_http(served):
+    status, _payload = _request(served, "/api/changes?turn=latest")
+    assert status == 400
+
+
+def test_no_page_script_writes_inline_styles():
+    """The CSP is default-src 'self' (DR-029), which drops inline style
+    attributes without a word: a bar drawn with style="height:…" renders as
+    nothing. Sizes go in SVG attributes or classes instead (DR-041)."""
+    for name in ("app.js", "inspector.js", "settings.js"):
+        source = (STATIC_ROOT / name).read_text(encoding="utf-8")
+        assert 'style="' not in source, f"{name} writes an inline style attribute"
+
+
+# -- DR-042: a queue per session ---------------------------------------------------
+
+
+def test_a_queued_prompt_starts_when_the_running_turn_ends(scripted, tmp_path):
+    hold = threading.Event()
+    model = _Gated([answer("the first"), answer("the second")], gate=hold)
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    subscriber = bridge.subscribe()
+
+    session = bridge.submit("first request")["session"]
+    assert model.entered.wait(5.0)
+    queued = bridge.submit("second request", queue=True)
+    assert queued["queued"] is True
+    assert [item["prompt"] for item in bridge.snapshot()["queue"]] == ["second request"]
+
+    hold.set()
+    assert _drain(subscriber, "turn", session=session)["turn"]["answer"] == "the first"
+    assert _drain(subscriber, "turn", session=session)["turn"]["answer"] == "the second"
+    assert bridge.snapshot()["queue"] == []
+
+
+def test_a_turn_that_fails_holds_the_queue_until_resumed(scripted, tmp_path):
+    """DR-042: after a failure — or a stop — the next prompt waits for the user."""
+    from logic.errors import InferenceError
+
+    hold = threading.Event()
+    model = _Gated([InferenceError("the runtime went away"), answer("the second")], gate=hold)
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    subscriber = bridge.subscribe()
+
+    session = bridge.submit("first request")["session"]
+    assert model.entered.wait(5.0)
+    bridge.submit("second request", queue=True)
+    hold.set()
+    _drain(subscriber, "failed", session=session)
+    _drain(subscriber, "busy", session=session)
+
+    state = bridge.snapshot()
+    assert state["queue_held"] is True
+    assert [item["prompt"] for item in state["queue"]] == ["second request"]
+    assert not state["running"]
+
+    bridge.queue_action("resume", session_id=session)
+    assert _drain(subscriber, "turn", session=session)["turn"]["answer"] == "the second"
+
+
+def test_queued_prompts_can_be_reordered_and_removed(scripted, tmp_path):
+    hold = threading.Event()
+    model = _Gated([answer("a"), answer("b"), answer("c")], gate=hold)
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    bridge.submit("running")
+    assert model.entered.wait(5.0)
+    first = bridge.submit("one", queue=True)["id"]
+    second = bridge.submit("two", queue=True)["id"]
+
+    moved = bridge.queue_action("move", item_id=second, to=0)
+    assert [item["prompt"] for item in moved["queue"]] == ["two", "one"]
+    removed = bridge.queue_action("remove", item_id=first)
+    assert [item["prompt"] for item in removed["queue"]] == ["two"]
+    with pytest.raises(BridgeError) as caught:
+        bridge.queue_action("remove", item_id="nope")
+    assert caught.value.status == 404
+    bridge.queue_action("clear")
+    hold.set()

@@ -164,6 +164,7 @@ const overlays = {
   doctor: el("doctor-overlay"),
   tips: el("tips-overlay"),
   context: el("context-overlay"),
+  settings: el("settings-overlay"),
 };
 
 let state = null;
@@ -378,6 +379,21 @@ function handleFrame(frame) {
       renderApproval();
       renderRail();
       break;
+    case "queue": {
+      // DR-042: this session's waiting prompts changed.
+      const entry = openEntry(id);
+      if (entry) {
+        entry.queued = (frame.queue || []).length;
+        entry.queue_held = Boolean(frame.held);
+      }
+      if (state && isFocused(id)) {
+        state.queue = frame.queue || [];
+        state.queue_held = Boolean(frame.held);
+        renderConversation();
+      }
+      renderRail();
+      break;
+    }
     case "event":
       handleEvent(id, frame);
       break;
@@ -432,6 +448,7 @@ function handleEvent(id, frame) {
       });
       run.narration = "";
       run.currentStage = String(data.stage || "");
+      run.stageTimes[run.currentStage] = { start: frame.timestamp || Date.now() / 1000, end: 0 };
       setThinking(run, data.title || humanize(String(data.stage || "")));
       if (data.iteration > 1) {
         pushActivity(run, { icon: "↺", html: `${escapeHtml(data.title || humanize(String(data.stage)))} again, pass ${data.iteration}` });
@@ -445,11 +462,18 @@ function handleEvent(id, frame) {
       pushActivity(run, { kind: "fail", icon: "△", html: `Retrying ${escapeHtml(humanize(String(data.stage || "")))}: ${escapeHtml(frame.message || "")}` });
       break;
     case "stage_finished":
+      if (run.stageTimes[data.stage]) run.stageTimes[data.stage].end = frame.timestamp || Date.now() / 1000;
       run.stages.forEach((stage) => {
         if (stage.name === data.stage) stage.status = "done";
       });
       if (data.content) run.notes[data.artifact || data.stage] = data.content;
-      if (Array.isArray(data.requirements) && data.requirements.length) run.requirements = data.requirements;
+      if (Array.isArray(data.requirements) && data.requirements.length) {
+        run.requirements = data.requirements;
+        run.ledger.push({
+          title: data.title || humanize(String(data.stage || "")),
+          statuses: Object.fromEntries(data.requirements.map((item) => [item.id, item.status])),
+        });
+      }
       pushActivity(run, { icon: "☰", html: `${escapeHtml(data.title || frame.message || humanize(String(data.stage)))} done` });
       break;
     case "validation_verdict":
@@ -463,6 +487,7 @@ function handleEvent(id, frame) {
       });
       break;
     case "loopback":
+      run.loopbacks.push(data);
       pushActivity(run, { icon: "↺", html: `Back to ${escapeHtml(humanize(String(data.target || "")))} (${data.iteration}/${data.cap})` });
       break;
     case "tool_called":
@@ -519,6 +544,13 @@ function handleEvent(id, frame) {
     // DR-033: tokens as they are spent, not only when a stage ends — a long
     // stage otherwise shows zero for minutes and reads as "nothing happening".
     case "round_usage":
+      run.rounds.push({
+        stage: String(data.stage || ""),
+        prompt: data.prompt_tokens || 0,
+        completion: data.completion_tokens || 0,
+        estimated: data.estimated_input_tokens || 0,
+        limit: data.context_limit || 0,
+      });
       run.liveTokens = (run.liveTokens || 0) + (data.prompt_tokens || 0) + (data.completion_tokens || 0);
       if (isFocused(id)) {
         lastPromptTokens = data.prompt_tokens || data.estimated_input_tokens || lastPromptTokens;
@@ -556,6 +588,14 @@ function handleEvent(id, frame) {
     // ends on a verdict with nothing behind it.
     case "tool_call_repeated":
       pushActivity(run, { kind: "fail", icon: "⊘", html: escapeHtml(frame.message || "Refused a repeated call") });
+      break;
+    // DR-039: a retried tool call is visible, not silently absorbed.
+    case "tool_call_malformed":
+      pushActivity(run, {
+        kind: "fail",
+        icon: "△",
+        html: `The model wrote a tool call the runtime could not parse; asked it to write it again (${escapeHtml(String(data.attempt || 1))}/3)`,
+      });
       break;
     case "agent_stalled":
       pushActivity(run, { kind: "fail", icon: "△", html: escapeHtml(frame.message || "Stopped going in circles") });
@@ -699,14 +739,20 @@ function renderHeader() {
   dom.tier.value = chosen;
   dom.tier.disabled = !state.ready || state.running;
 
-  const models = (state.models || []).filter(Boolean);
-  const names = models.map((model) => model.name);
-  if (state.model && !names.includes(state.model)) names.unshift(state.model);
-  dom.model.innerHTML = names
-    .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
-    .join("");
-  dom.model.value = state.model || "";
-  dom.model.disabled = !state.ready || state.running || names.length < 2;
+  // DR-036: every usable provider's models, grouped, once /api/providers has
+  // answered; until then the focused session's own provider's list.
+  const current = { provider: state.provider || "", model: state.model || "" };
+  if (providers) {
+    dom.model.innerHTML = modelPickerMarkup(providers, current);
+  } else {
+    const names = (state.models || []).filter(Boolean).map((model) => model.name);
+    if (state.model && !names.includes(state.model)) names.unshift(state.model);
+    dom.model.innerHTML = names
+      .map((name) => `<option value="${escapeHtml(`${current.provider}|${name}`)}">${escapeHtml(name)}</option>`)
+      .join("");
+  }
+  dom.model.value = `${current.provider}|${current.model}`;
+  dom.model.disabled = !state.ready || state.running || dom.model.options.length < 2;
 
   // DR-031: a session running is no reason not to open another one. The only
   // thing that closes this button is the desk being full.
@@ -740,7 +786,7 @@ function renderStatus() {
     dom.ctxLabel.title = `${formatCount(lastPromptTokens)} of ${formatCount(limit)} tokens last round`;
   } else {
     dom.ctxFill.style.width = "0%";
-    dom.ctxLabel.textContent = limit ? `CTX ${formatCount(limit)}` : "CTX —";
+    dom.ctxLabel.textContent = limit ? `CTX ${formatWindow(limit)}` : "CTX —";
   }
   // DR-034: the mark carries the advice level — calm for a deliberate cap,
   // loud only for a window that will actually hurt.
@@ -801,21 +847,21 @@ function renderStatus() {
   // not have the box taken away from them, and `submitPrompt` refuses a second
   // request itself with a reason. Only an unusable dashboard locks it.
   dom.prompt.disabled = !state.ready;
-  dom.send.disabled = state.running || !state.ready;
-  dom.send.textContent = "Start work";
+  dom.send.disabled = !state.ready;
+  dom.send.textContent = state.running ? "Queue" : "Start work";
   // DR-030: a run has no built-in end, so Stop *takes the primary button's
   // place* while one is going rather than sitting beside a dead "Working…"
   // button — the control is where the hand already is. `stopping` comes from
   // the snapshot, so a reopened tab does not offer a button already pressed.
   const stopping = Boolean(state.stopping || stopRequested);
-  dom.send.hidden = Boolean(state.running);
+  dom.send.hidden = false;
   dom.stop.hidden = !state.running;
   dom.stop.disabled = stopping;
   dom.stop.textContent = stopping ? "Stopping…" : "Stop";
   dom.hint.textContent = state.running
     ? (stopping
       ? "STOPPING AFTER THE CURRENT STEP — WHAT IT PRODUCED IS KEPT"
-      : "STOP ENDS IT AND KEEPS WHAT IT HAS PRODUCED · OR OPEN ANOTHER SESSION AND WORK ON")
+      : "ENTER QUEUES THE NEXT REQUEST · STOP ENDS THIS ONE AND KEEPS WHAT IT PRODUCED")
     : "ENTER ↵ STARTS · SHIFT+ENTER FOR A NEW LINE";
   renderCardStop();
 }
@@ -823,6 +869,7 @@ function renderStatus() {
 /* ---------- the rail ---------- */
 
 function renderRail() {
+  renderSessionTabs();
   const open = (state && state.open) || [];
   const openIds = new Set(open.map((entry) => entry.session_id));
   const rest = stored.filter((record) => !openIds.has(record.id));
@@ -847,6 +894,37 @@ function renderRail() {
 
 function groupHead(label) {
   return `<div class="session-group"><span class="eyebrow">${escapeHtml(label)}</span></div>`;
+}
+
+/* DR-042: the open sessions as tabs above the conversation. Same actions as
+ * the rail's rows — focus and close — through the same handler. */
+function renderSessionTabs() {
+  const open = (state && state.open) || [];
+  const tabs = open
+    .map((entry) => {
+      const active = entry.session_id === focusId();
+      const waiting = Math.max(
+        entry.waiting || 0,
+        approvals.filter((item) => item.session === entry.session_id).length
+      );
+      const status = waiting ? "waiting" : entry.running ? (entry.stopping ? "stopping" : "running") : "open";
+      return (
+        `<div class="session-tab${active ? " active" : ""}">` +
+        `<button type="button" class="session-tab-main" data-focus="${escapeHtml(entry.session_id)}" title="${escapeHtml(entry.title)}">` +
+        `<span class="dot" data-status="${status}"></span>` +
+        `<span class="session-tab-title">${escapeHtml(elideMiddle(entry.title || "New session", 28))}</span>` +
+        (entry.queued ? `<span class="session-tab-badge" title="Queued requests">+${entry.queued}</span>` : "") +
+        (waiting ? `<span class="session-tab-badge alert" title="Waiting for your decision">!</span>` : "") +
+        `</button>` +
+        `<button type="button" class="session-tab-close" data-close="${escapeHtml(entry.session_id)}" title="${entry.running ? "Stop it before closing it" : "Close — it stays on disk"}">×</button>` +
+        `</div>`
+      );
+    })
+    .join("");
+  setHtml(
+    el("session-tabs"),
+    tabs + `<button type="button" class="session-tab-new" data-new-tab="1" title="Open a new session">+</button>`
+  );
 }
 
 function openRowMarkup(entry) {
@@ -908,10 +986,38 @@ function renderConversation() {
   history.forEach((turn) => nodes.push(slipNode(turn.prompt), receiptNode(turn)));
   seat.extras.forEach((node) => nodes.push(node));
   if (seat.run) nodes.push(seat.run.slip, seat.run.node);
+  const queued = queueNode();
+  if (queued) nodes.push(queued);
   dom.messages.replaceChildren(...nodes);
   if (seat.run) renderRun();
   else renderInspector();
   if (pinned) scrollToBottom();
+}
+
+/* DR-042: what waits for the running turn, editable in place. */
+function queueNode() {
+  const queue = (state && state.queue) || [];
+  if (!queue.length) return null;
+  const node = document.createElement("section");
+  node.className = `queue-strip${state.queue_held ? " held" : ""}`;
+  const head = state.queue_held
+    ? `<div class="queue-head"><span class="eyebrow"><span class="tick"></span>Queue held</span>
+        <span>The last task stopped, so the next one waits for you.</span>
+        <button type="button" class="primary-button small" data-queue="resume">Resume</button></div>`
+    : `<div class="queue-head"><span class="eyebrow"><span class="tick"></span>Queued</span>
+        <span>Starts when the current task finishes, in this order.</span></div>`;
+  const items = queue
+    .map(
+      (item, index) =>
+        `<div class="queue-item"><span class="queue-index">${index + 1}</span>` +
+        `<span class="queue-prompt">${escapeHtml(item.prompt)}</span>` +
+        `<button type="button" class="icon-button" data-queue="move" data-id="${escapeHtml(item.id)}" data-to="${index - 1}" ${index === 0 ? "disabled" : ""} title="Move up">↑</button>` +
+        `<button type="button" class="icon-button" data-queue="move" data-id="${escapeHtml(item.id)}" data-to="${index + 1}" ${index === queue.length - 1 ? "disabled" : ""} title="Move down">↓</button>` +
+        `<button type="button" class="icon-button" data-queue="remove" data-id="${escapeHtml(item.id)}" title="Remove from the queue">✕</button></div>`
+    )
+    .join("");
+  node.innerHTML = head + items;
+  return node;
 }
 
 function greetingNode() {
@@ -1077,6 +1183,12 @@ function startRun(id, current) {
     // DR-037: the structured record the inspector draws, one entry per tool
     // call or notable moment, each tagged with the stage that produced it.
     steps: [],
+    // DR-038: the ledger as each stage left it, in order, and every loop-back.
+    ledger: [],
+    loopbacks: [],
+    // DR-041: every model round's usage, and when each stage started and ended.
+    rounds: [],
+    stageTimes: {},
     currentStage: "",
     openSteps: new Set(),
     detailed: false,
@@ -1274,11 +1386,117 @@ function inspectedRun() {
   return seat.run || seat.lastRun || null;
 }
 
+/* DR-038: the requirements view — the run this page watched, with each
+ * stage's statuses; else the latest stored turn, with its final ledger. */
+function requirementsView() {
+  const run = inspectedRun();
+  if (run && run.requirements && run.requirements.length) {
+    return {
+      requirements: run.requirements,
+      journey: run.ledger,
+      verdict: run.verdict,
+      loopbacks: run.loopbacks,
+      live: Boolean(run.running),
+    };
+  }
+  const turn = [...((state && state.history) || [])]
+    .reverse()
+    .find((item) => item.requirements && item.requirements.length);
+  return turn ? { requirements: turn.requirements, journey: [], verdict: null, loopbacks: [], live: false } : null;
+}
+
+/* DR-040: the Changes tab's diffs, per session and turn, fetched on demand. */
+const changeDiffs = new Map();
+const openChanges = new Set();
+
+function changesView() {
+  const session = focusId();
+  const history = (state && state.history) || [];
+  // `undo` reverts the most recent turn that wrote (DR-024); only that turn
+  // offers it, so the button never promises more than undo does.
+  let lastWriting = -1;
+  history.forEach((turn, index) => {
+    if ((turn.changes || []).length) lastWriting = index;
+  });
+  const turns = history
+    .map((turn, index) => {
+      const files = (turn.changes || []).map((change) => ({
+        path: change.path,
+        kind: change.kind,
+        added: change.added || 0,
+        removed: change.removed || 0,
+      }));
+      return {
+        index,
+        prompt: turn.prompt,
+        files,
+        added: files.reduce((sum, file) => sum + file.added, 0),
+        removed: files.reduce((sum, file) => sum + file.removed, 0),
+        undoable: index === lastWriting && !(state && state.running),
+      };
+    })
+    .filter((turn) => turn.files.length)
+    .reverse();
+  const run = focusedRun();
+  const liveEdits = run
+    ? run.steps.filter((step) => step.type === "tool" && ["write_file", "edit_file"].includes(step.tool) && step.status === "done").length
+    : 0;
+  const diffs = new Map();
+  turns.forEach((turn) => {
+    const cached = changeDiffs.get(`${session}:${turn.index}`);
+    if (cached) diffs.set(turn.index, cached);
+  });
+  return { turns, liveEdits, diffs, open: openChanges };
+}
+
+async function toggleChange(key, turnIndex) {
+  if (openChanges.has(key)) {
+    openChanges.delete(key);
+    renderInspector();
+    return;
+  }
+  openChanges.add(key);
+  renderInspector();
+  const cacheKey = `${focusId()}:${turnIndex}`;
+  if (changeDiffs.has(cacheKey)) return;
+  try {
+    const payload = await api(
+      `/api/changes?session=${encodeURIComponent(focusId())}&turn=${encodeURIComponent(turnIndex)}`
+    );
+    changeDiffs.set(cacheKey, payload.changes || []);
+  } catch (error) {
+    openChanges.delete(key);
+    toast(String(error.message || error), "bad");
+  }
+  renderInspector();
+}
+
+/* DR-041: the run this page watched, plus every stored turn's totals. */
+function usageView() {
+  const history = (state && state.history) || [];
+  return {
+    run: inspectedRun(),
+    turns: history.map((turn, index) => ({
+      index,
+      prompt: turn.prompt,
+      total: (turn.usage && turn.usage.total_tokens) || 0,
+    })),
+    session: (state && state.usage) || {},
+  };
+}
+
 function renderInspector() {
   setHtml(el("inspector-tabs"), inspectorTabsMarkup(inspectorTab));
-  if (dom.shell.classList.contains("inspector-open")) {
-    setHtml(el("inspector-body"), activityPanelMarkup(inspectedRun()));
-  }
+  if (!dom.shell.classList.contains("inspector-open")) return;
+  const body =
+    inspectorTab === "requirements"
+      ? requirementsPanelMarkup(requirementsView())
+      : inspectorTab === "changes"
+        ? changesPanelMarkup(changesView())
+        : inspectorTab === "usage"
+          ? usagePanelMarkup(usageView())
+          : activityPanelMarkup(inspectedRun());
+  setHtml(el("inspector-body"), body);
 }
 
 function setInspectorOpen(open) {
@@ -1306,7 +1524,14 @@ function renderCardStop() {
 function finishRun(id, turn) {
   const seat = desk(id);
   if (isFocused(id)) {
-    lastPromptTokens = (turn.usage && turn.usage.prompt_tokens) || lastPromptTokens;
+    // The meter is how full the window was on the last round. A turn's
+    // prompt_tokens is the sum over every round, which overstates it many
+    // times over; it is only a fallback when no round was seen (DR-041).
+    const rounds = seat.run ? seat.run.rounds : [];
+    const last = rounds[rounds.length - 1];
+    lastPromptTokens = last
+      ? last.prompt || last.estimated || lastPromptTokens
+      : (turn.usage && turn.usage.prompt_tokens) || lastPromptTokens;
   }
   const run = seat.run;
   if (!run) return;
@@ -1620,8 +1845,70 @@ async function copyContextRemedy() {
   }
 }
 
+/* ---------- settings: providers and keys (DR-036) ---------- */
+
+let providers = null;
+
+async function loadProviders() {
+  try {
+    providers = await api("/api/providers");
+  } catch (error) {
+    providers = providers || null;
+  }
+  if (state) renderHeader();
+  if (!overlays.settings.hidden) renderSettings();
+}
+
+function renderSettings() {
+  el("settings-body").innerHTML = settingsMarkup(providers, {
+    provider: (state && state.provider) || "",
+    model: (state && state.model) || "",
+  });
+}
+
+async function openSettings() {
+  overlays.settings.hidden = false;
+  renderSettings();
+  await loadProviders();
+}
+
+async function providerAction(button) {
+  const provider = button.dataset.provider;
+  const action = button.dataset.providerAction;
+  const card = button.closest(".provider-card");
+  if (action === "save_key") {
+    const input = card.querySelector("[data-key-input]");
+    const key = input.value.trim();
+    if (!key) {
+      toast("Paste the key first.", "bad");
+      input.focus();
+      return;
+    }
+    const result = await post("/api/providers", { action, provider, api_key: key }, `Key saved for ${providerTitle(provider)}.`);
+    input.value = "";
+    if (result) providers = result;
+  } else if (action === "delete_key") {
+    const result = await post("/api/providers", { action, provider }, `Key removed for ${providerTitle(provider)}.`);
+    if (result) providers = result;
+  } else if (action === "use" || action === "set_default") {
+    const model = card.querySelector("[data-model-input]").value;
+    if (action === "use") {
+      const result = await post("/api/model", { model, provider, session: focusId() }, `This session now uses ${model}.`);
+      if (result) {
+        state = result;
+        adoptState();
+      }
+    } else {
+      const result = await post("/api/providers", { action, provider, model }, `New sessions will start on ${model}.`);
+      if (result) providers = result;
+    }
+  }
+  renderSettings();
+  if (state) renderHeader();
+}
+
 function closeOverlays() {
-  ["diff", "doctor", "tips", "context"].forEach((name) => {
+  ["diff", "doctor", "tips", "context", "settings"].forEach((name) => {
     overlays[name].hidden = true;
   });
 }
@@ -1647,12 +1934,6 @@ function hideTipPopup() {
 /* ---------- actions ---------- */
 
 async function submitPrompt() {
-  if (state && state.running) {
-    // Answered here rather than by a 409 from the server, because the useful
-    // half of the answer is what to do about it (DR-030, DR-031).
-    toast("This session is already working — Stop it, wait, or open another session to work in.");
-    return;
-  }
   const text = dom.prompt.value.trim();
   if (!text) {
     dom.composer.classList.remove("nudge");
@@ -1660,11 +1941,15 @@ async function submitPrompt() {
     dom.prompt.focus();
     return;
   }
+  // DR-042: while the session works, a request is queued for when it ends
+  // rather than refused.
+  const queueing = Boolean(state && state.running);
   dom.send.disabled = true;
   try {
-    await api("/api/prompt", { prompt: text, session: focusId() });
+    await api("/api/prompt", { prompt: text, session: focusId(), queue: queueing });
     dom.prompt.value = "";
     autosize();
+    if (queueing) toast("Queued — it starts when the current task finishes.", "good");
   } catch (error) {
     toast(String(error.message || error), "bad");
   }
@@ -1719,7 +2004,8 @@ dom.tier.addEventListener("change", () => {
 });
 
 dom.model.addEventListener("change", () => {
-  post("/api/model", { model: dom.model.value, session: focusId() });
+  const [provider, ...rest] = dom.model.value.split("|");
+  post("/api/model", { model: rest.join("|"), provider, session: focusId() });
 });
 
 el("toggle-rail").addEventListener("click", () => {
@@ -1739,6 +2025,17 @@ el("clear-history").addEventListener("click", () => {
 
 el("open-diff").addEventListener("click", openDiff);
 el("open-doctor").addEventListener("click", openDoctor);
+el("open-settings").addEventListener("click", openSettings);
+el("open-settings-header").addEventListener("click", openSettings);
+el("settings-close").addEventListener("click", closeOverlays);
+el("settings-refresh").addEventListener("click", loadProviders);
+el("settings-body").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-provider-action]");
+  if (button) providerAction(button);
+});
+// The picker lists every provider's models; fetched once at load, in the
+// background — a slow hosted API must not hold up the first paint.
+loadProviders();
 el("open-tips").addEventListener("click", () => {
   hideTipPopup();
   openTips();
@@ -1766,15 +2063,22 @@ el("doctor-close").addEventListener("click", closeOverlays);
 el("approval-allow").addEventListener("click", () => resolveApproval(true));
 el("approval-deny").addEventListener("click", () => resolveApproval(false));
 
-el("diff-undo").addEventListener("click", async () => {
-  if (!window.confirm("Put these files back as they were before the last turn?")) return;
+/* One undo for the diff popup and the Changes tab: both revert the most
+ * recent turn that wrote, and only that one (DR-024). */
+async function undoChanges() {
+  if (!window.confirm("Put these files back as they were before the last turn that changed them?")) return;
   const payload = await post("/api/undo", { session: focusId() });
   if (!payload) return;
   closeOverlays();
+  changeDiffs.clear();
+  openChanges.clear();
   if ((payload.skipped || []).length) {
     payload.skipped.forEach((item) => toast(`Left ${item.path} alone: ${item.reason}`, "bad"));
   }
-});
+  renderInspector();
+}
+
+el("diff-undo").addEventListener("click", undoChanges);
 
 dom.jump.addEventListener("click", scrollToBottom);
 
@@ -1787,7 +2091,7 @@ dom.messages.addEventListener("click", (event) => {
   // place, so the <details> element survives a paint and the browser keeps its
   // own open state.
   const target = event.target.closest(
-    "[data-starter], [data-expand], [data-open-diff], [data-stop], [data-details]"
+    "[data-starter], [data-expand], [data-open-diff], [data-stop], [data-details], [data-queue]"
   );
   if (!target) return;
   if (target.dataset.starter !== undefined) {
@@ -1803,6 +2107,11 @@ dom.messages.addEventListener("click", (event) => {
     openDiff();
   } else if (target.dataset.stop) {
     requestStop();
+  } else if (target.dataset.queue) {
+    const body = { action: target.dataset.queue, session: focusId() };
+    if (target.dataset.id) body.id = target.dataset.id;
+    if (target.dataset.to !== undefined) body.to = Number(target.dataset.to);
+    post("/api/queue", body);
   } else if (target.dataset.details) {
     const run = focusedRun();
     if (!run) return;
@@ -1823,6 +2132,15 @@ el("inspector-tabs").addEventListener("click", (event) => {
 });
 
 el("inspector-body").addEventListener("click", (event) => {
+  const change = event.target.closest("[data-toggle-change]");
+  if (change) {
+    toggleChange(change.dataset.toggleChange, Number(change.dataset.turn));
+    return;
+  }
+  if (event.target.closest("[data-undo-turn]")) {
+    undoChanges();
+    return;
+  }
   const toggle = event.target.closest("[data-toggle-step]");
   if (!toggle) return;
   const run = inspectedRun();
@@ -1844,6 +2162,22 @@ try {
 /* DR-031: the rail stays live while a turn runs. Switching sessions, opening
  * one and closing one are never gated on whether something is generating —
  * that gating was the reason the window felt frozen. */
+el("session-tabs").addEventListener("click", (event) => {
+  if (event.target.closest("[data-new-tab]")) {
+    dom.newSession.click();
+    return;
+  }
+  const close = event.target.closest("[data-close]");
+  if (close) {
+    post("/api/session", { action: "close", id: close.dataset.close });
+    return;
+  }
+  const switchTo = event.target.closest("[data-focus]");
+  if (switchTo && switchTo.dataset.focus !== focusId()) {
+    post("/api/session", { action: "focus", id: switchTo.dataset.focus });
+  }
+});
+
 dom.sessionList.addEventListener("click", (event) => {
   const remove = event.target.closest("[data-delete]");
   if (remove) {

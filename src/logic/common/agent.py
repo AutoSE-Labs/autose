@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
+from ..errors import MalformedToolCallError
 from ..inference.base import ChatModel
 from ..inference.types import CompletionResult, ToolCall, Usage
 from ..limits import UNLIMITED, count_limit, counted, describe_limit
@@ -77,6 +78,17 @@ _NUDGE_AFTER_TOOLS = (
     "you need — do not call any more tools. Write your complete final response "
     "now, following the required format exactly."
 )
+#: Retries of a round whose tool call the runtime could not parse (DR-039).
+#: A model that writes one malformed call usually writes the next correctly;
+#: one that keeps failing is not going to be talked out of it.
+_MAX_MALFORMED_TOOL_CALLS = 3
+
+_MALFORMED_TOOL_CALL_NUDGE = (
+    "Your last reply contained a tool call the runtime could not parse: "
+    "{error}. Write the tool call again with every parameter given exactly "
+    "once and correctly closed, or answer without a tool call."
+)
+
 _NUDGE_BEFORE_TOOLS = (
     "You produced no response. Start now: use your tools to read whatever you "
     "need from the workspace, then write your complete final response in the "
@@ -425,6 +437,7 @@ class BaseAgent:
         # a different diagnosis, and a different fix.
         evicting_rounds = 0
         last_metrics: ContextMetrics | None = None
+        malformed_calls = 0
 
         for _ in counted(self._max_tool_rounds):
             if self._cancel.requested:
@@ -443,22 +456,41 @@ class BaseAgent:
                 if prepared.metrics.dropped_message_count:
                     evicting_rounds += 1
 
-            if stream:
-                try:
-                    completion = yield from self._stream_round(prepared.messages)
-                except _RoundCancelled:
-                    # The round itself is abandoned, not folded into history:
-                    # `memory` has not seen this round's (incomplete) content,
-                    # so the cancelled result falls back to the last complete
-                    # round instead of a sentence cut off mid-word (DR-030).
-                    holder["result"] = self._cancelled(memory, usage, metrics)
-                    return
-            else:
-                completion = self._model.complete(
-                    prepared.messages,
-                    tools=self._tools_schema,
-                    max_output_tokens=self._budget.max_output_tokens,
+            try:
+                if stream:
+                    try:
+                        completion = yield from self._stream_round(prepared.messages)
+                    except _RoundCancelled:
+                        # The round itself is abandoned, not folded into
+                        # history: `memory` has not seen this round's
+                        # (incomplete) content, so the cancelled result falls
+                        # back to the last complete round instead of a sentence
+                        # cut off mid-word (DR-030).
+                        holder["result"] = self._cancelled(memory, usage, metrics)
+                        return
+                else:
+                    completion = self._model.complete(
+                        prepared.messages,
+                        tools=self._tools_schema,
+                        max_output_tokens=self._budget.max_output_tokens,
+                    )
+            except MalformedToolCallError as exc:
+                # DR-039: one bad generation, not a broken connection. Say what
+                # was wrong and ask again in this call, keeping what the stage
+                # has gathered; only a model that keeps failing ends the stage.
+                if malformed_calls >= _MAX_MALFORMED_TOOL_CALLS:
+                    raise
+                malformed_calls += 1
+                detail = " ".join(str(exc).split())[:240]
+                memory.add_user(_MALFORMED_TOOL_CALL_NUDGE.format(error=detail))
+                self._emit(
+                    "tool_call_malformed",
+                    detail,
+                    stage=self.name,
+                    round=round_number,
+                    attempt=malformed_calls,
                 )
+                continue
             usage = _add_usage(usage, completion.usage)
             # Per-round usage, so an adapter can show tokens and context fill
             # while a stage is still running rather than only when it ends

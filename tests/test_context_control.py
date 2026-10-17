@@ -311,3 +311,19 @@ def test_a_runtime_that_cannot_honour_a_window_refuses_to_pretend(tmp_path, monk
     )
     with pytest.raises(ConfigurationError):
         session.set_context_window(65536)
+
+
+def test_ollama_s_tool_call_parse_error_is_its_own_error(monkeypatch):
+    """DR-039: told apart from a broken connection so the round can be retried."""
+    from logic.errors import MalformedToolCallError
+
+    sent: list = []
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        _capturing(
+            [{"error": "XML syntax error on line 3: element <function> closed by </parameter>"}],
+            sent,
+        ),
+    )
+    with pytest.raises(MalformedToolCallError):
+        list(OllamaChatModel(_settings()).stream([{"role": "user", "content": "x"}]))

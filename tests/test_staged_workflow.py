@@ -518,3 +518,16 @@ def test_changed_files_are_structured_data_not_answer_prose(tmp_path):
     assert outcome.files_changed == ("thing.py",)
     assert "Files changed" not in outcome.answer
     assert "thing.py" not in outcome.answer
+
+
+# -- DR-038: the outcome carries the final ledger ------------------------------
+
+
+def test_the_outcome_carries_the_ledger_as_the_validator_left_it(tmp_path):
+    """DR-038: what a reviewer reads to see why a run counts as done."""
+    request = _request(
+        tmp_path, [plan("R1", "R2"), execute("R1", "R2"), validate("R1", "R2")]
+    )
+    outcome = CraftWorkflow().run(request)
+    assert [item["id"] for item in outcome.requirements] == ["R1", "R2"]
+    assert {item["status"] for item in outcome.requirements} == {"Verified"}

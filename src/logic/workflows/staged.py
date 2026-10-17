@@ -54,6 +54,7 @@ from ..prompt_overrides import resolve_prompt
 from ..requirements import (
     Requirement,
     RequirementsFormatError,
+    as_payload,
     format_requirements,
     parse_requirements,
     require_same_ids,
@@ -283,6 +284,7 @@ class StagedWorkflow:
                 artifacts=memory.artifacts,
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
+                requirements=as_payload(memory.requirements),
             )
         except RunCancelled as exc:
             # DR-030: stopping on purpose is not a failure, and everything the
@@ -299,6 +301,7 @@ class StagedWorkflow:
                 artifacts=memory.artifacts,
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
+                requirements=as_payload(memory.requirements),
             )
         except (IterationBudgetExhausted, TimeBudgetExhausted) as exc:
             # DR-009: a bound being hit is its own outcome, never a success.
@@ -312,6 +315,7 @@ class StagedWorkflow:
                 artifacts=memory.artifacts,
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
+                requirements=as_payload(memory.requirements),
             )
         except StageExecutionError as exc:
             emit.workflow_finished("stage_failed", clock.elapsed, detail=str(exc))
@@ -324,6 +328,7 @@ class StagedWorkflow:
                 artifacts=memory.artifacts,
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
+                requirements=as_payload(memory.requirements),
             )
 
     # -- one stage ----------------------------------------------------------
@@ -715,15 +720,7 @@ class _Emitter:
             stage=stage.name,
             artifact=stage.artifact,
             content=memory.get(stage.artifact) if stage.artifact else "",
-            requirements=[
-                {
-                    "id": item.id,
-                    "status": item.status,
-                    "description": item.description,
-                    "evidence": item.evidence,
-                }
-                for item in memory.requirements
-            ],
+            requirements=list(as_payload(memory.requirements)),
             tokens=result.usage.total_tokens,
         )
 

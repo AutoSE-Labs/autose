@@ -33,6 +33,8 @@ from .common.events import Event, EventSink, NullEventSink
 from .common.memory import SessionMemory
 from .common.workspace import Workspace
 from .config import AutoSEConfig
+from .connections import provider_settings
+from .credentials import CredentialStore
 from .errors import ConfigurationError
 from .inference.base import ChatModel
 from .inference.catalog import ModelInfo
@@ -70,7 +72,13 @@ from .workflows import (
     supports_tier,
 )
 
-__all__ = ["Session", "Turn", "SessionSetup", "setup_from_config"]
+__all__ = [
+    "Session",
+    "Turn",
+    "SessionSetup",
+    "setup_from_config",
+    "setup_for_provider",
+]
 
 #: Tokens allowed for one rolling-summary compression call. Small on purpose:
 #: this runs when history overflows, and it is condensing, not writing.
@@ -102,6 +110,8 @@ class Turn:
     #: (DR-024). Carrying both halves on the turn is what makes the change
     #: reviewable as a diff and revertible after the run has finished.
     changes: tuple[FileChange, ...] = ()
+    #: The requirements ledger as it stood when the turn ended (DR-038).
+    requirements: tuple[dict[str, str], ...] = ()
 
     @property
     def succeeded(self) -> bool:
@@ -240,6 +250,17 @@ def setup_from_config(config: AutoSEConfig, *, discover: bool = True) -> Session
     """
     configured = config.inference
 
+    missing_key = _missing_key_warning(configured)
+    if missing_key:
+        # DR-036: a hosted provider with no key can list nothing and run
+        # nothing. Say so now, rather than open a session that fails its first
+        # request with a 401.
+        return SessionSetup(
+            config=config,
+            inference=configured.with_model(""),
+            warnings=(missing_key,),
+        )
+
     if configured.is_ready:
         # Fully configured. Enumerate anyway when we cheaply can, so the model
         # picker and the real context limit are still available — but never
@@ -294,6 +315,50 @@ def setup_from_config(config: AutoSEConfig, *, discover: bool = True) -> Session
     )
 
 
+def setup_for_provider(
+    config: AutoSEConfig,
+    provider: str,
+    model: str,
+    *,
+    base_url: str | None = None,
+    credentials: CredentialStore | None = None,
+) -> SessionSetup:
+    """Resolve *model* on *provider* as the start of new sessions (DR-036).
+
+    The dashboard's "default for new sessions": the same resolution as an
+    explicitly configured run, for a provider and model chosen at runtime.
+    Refuses, with a :class:`ConfigurationError`, a provider that needs a key
+    and has none.
+    """
+    inference = provider_settings(
+        config.inference,
+        provider,
+        model,
+        base_url=base_url,
+        credentials=credentials,
+    )
+    runtime = _enumerate(inference)
+    info = runtime.model(model) if runtime else None
+    inference, info = adopt_context_window(
+        inference,
+        info,
+        # A configured window is for the configured provider; a different
+        # provider starts from its own (DR-035).
+        explicit=(
+            config.inference.context_limit
+            if inference.provider == config.inference.provider
+            else None
+        ),
+    )
+    return SessionSetup(
+        config=config,
+        runtimes=(runtime,) if runtime else (),
+        inference=inference,
+        model_info=info,
+        warnings=_capability_warnings(info, inference.provider),
+    )
+
+
 class Session:
     """One interactive session: bounded history, a tier ratchet, and dispatch."""
 
@@ -312,8 +377,11 @@ class Session:
         require_edit_approval: bool = False,
         store: SessionStore | None = None,
         session_id: str = "",
+        credentials: CredentialStore | None = None,
     ) -> None:
         self._inference = inference.require_model()
+        #: Where a key for a provider switched to mid-session comes from (DR-036).
+        self._credentials = credentials or CredentialStore()
         self._workspace = workspace
         self._events = events or NullEventSink()
         # DR-012: no gate means refuse, never means run unreviewed.
@@ -375,6 +443,7 @@ class Session:
         auto_classify: bool = True,
         store: SessionStore | None = None,
         resume: SessionRecord | None = None,
+        credentials: CredentialStore | None = None,
     ) -> Session:
         if setup.inference is None or not setup.inference.is_ready:
             raise ConfigurationError(
@@ -398,6 +467,7 @@ class Session:
             require_edit_approval=setup.config.require_edit_approval,
             store=store,
             session_id=resume.id if resume is not None else "",
+            credentials=credentials,
         )
         if resume is not None:
             session.restore(resume)
@@ -509,6 +579,7 @@ class Session:
                     completion_tokens=turn.usage.completion_tokens,
                     files_changed=turn.files_changed,
                     changes=turn.changes,
+                    requirements=turn.requirements,
                 )
                 for turn in self._turns
             ),
@@ -535,6 +606,7 @@ class Session:
                 ),
                 files_changed=item.files_changed,
                 changes=item.changes,
+                requirements=item.requirements,
             )
             for item in record.turns
         ]
@@ -584,8 +656,25 @@ class Session:
 
     # -- mutation ---------------------------------------------------------
 
-    def select_model(self, name: str) -> None:
-        """Switch models mid-session, adopting the new model's context limit."""
+    def select_model(
+        self,
+        name: str,
+        *,
+        provider: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
+        """Switch models mid-session, adopting the new model's context limit.
+
+        With *provider* (and optionally *base_url*) the switch may cross to any
+        registered provider — local or hosted — for this session only (DR-036);
+        see :meth:`use_provider`.
+        """
+        current = self._inference
+        if (provider and provider.strip().lower() != current.provider.lower()) or (
+            base_url and base_url.strip().rstrip("/") != current.base_url
+        ):
+            self.use_provider(provider or current.provider, name, base_url=base_url)
+            return
         info = next(
             (model for model in self.available_models() if model.name == name), None
         )
@@ -594,9 +683,77 @@ class Session:
         )
         self._inference = inference.require_model()
         self._model_info = info
-        self._model = create_chat_model(self._inference)
+        self._rebuild_model()
         self._emit(
-            "model_selected", name, model=name, provider=self._inference.provider
+            "model_selected",
+            name,
+            model=name,
+            provider=self._inference.provider,
+            base_url=self._inference.base_url,
+        )
+
+    def use_provider(
+        self, provider: str, model: str, *, base_url: str | None = None
+    ) -> None:
+        """Run this session's next request on *model* at *provider* (DR-036).
+
+        Rebuilds the inference settings — the address (the given one, else the
+        provider's conventional one), the key from the credentials file or the
+        provider's environment variable — decides the window afresh for the
+        new model (DR-035), and rebuilds the chat model. Other open sessions,
+        and the default for new ones, are untouched.
+
+        Refuses with :class:`ConfigurationError`, changing nothing, when the
+        provider is unknown, has no address, or needs a key and has none.
+        """
+        previous = self._inference
+        settings = provider_settings(
+            previous,
+            provider,
+            model,
+            base_url=base_url,
+            credentials=self._credentials,
+        ).require_model()
+        try:
+            listed = create_model_catalog(settings).list_models()
+        except Exception:  # noqa: BLE001 - a listing is a convenience here too
+            listed = ()
+        info = next((entry for entry in listed if entry.name == model), None)
+        inference, info = adopt_context_window(
+            settings,
+            info,
+            # A window picked on one runtime means nothing to another that only
+            # serves what it was started with (DR-022).
+            explicit=(
+                self._chosen_window
+                if serves_requested_window(settings.provider)
+                else None
+            ),
+        )
+        self._inference = inference
+        self._model_info = info
+        self._rebuild_model()
+        self._emit(
+            "model_selected",
+            model,
+            model=model,
+            provider=inference.provider,
+            base_url=inference.base_url,
+            previous_provider=previous.provider,
+        )
+
+    def _rebuild_model(self) -> None:
+        """A new chat model for the current settings, and a classifier over it.
+
+        The classifier holds the model it was built with, so it is rebuilt too:
+        otherwise tier classification would keep calling the old runtime.
+        """
+        self._model = create_chat_model(self._inference)
+        self._classifier = TaskClassifier(
+            self._model,
+            context_limit=self.context_limit(),
+            tuning=self._tuning.classifier,
+            prompt_overrides=self._prompt_overrides,
         )
 
     def set_context_window(self, tokens: int) -> None:
@@ -627,7 +784,7 @@ class Session:
         self._inference, self._model_info = adopt_context_window(
             self._inference, info, explicit=tokens
         )
-        self._model = create_chat_model(self._inference)
+        self._rebuild_model()
         self._emit(
             "context_window_changed",
             f"{previous or 0} -> {tokens}",
@@ -799,6 +956,7 @@ class Session:
             artifacts=dict(outcome.artifacts),
             files_changed=outcome.files_changed,
             changes=outcome.changes,
+            requirements=outcome.requirements,
         )
         self._record(turn)
         holder["turn"] = turn
@@ -1001,6 +1159,17 @@ def _capability_warnings(
             + _raise_it(advice)
         )
     return tuple(warnings)
+
+
+def _missing_key_warning(settings: InferenceSettings) -> str:
+    registered = available_providers().get((settings.provider or "").strip().lower())
+    if registered is None or not registered.requires_api_key or settings.api_key:
+        return ""
+    return (
+        f"{registered.name} needs an API key. Add one in the dashboard's settings"
+        + (f", or set {registered.api_key_env}" if registered.api_key_env else "")
+        + "."
+    )
 
 
 def _no_runtime_message(runtimes: tuple[DetectedRuntime, ...]) -> str:

@@ -99,6 +99,10 @@ class WorkflowOutcome:
     #: `files_changed` remains the bare path list an Adapter can render
     #: without reasoning about content.
     changes: tuple[FileChange, ...] = ()
+    #: The requirements ledger as it stood when the run ended (DR-005), as
+    #: plain data — what a reviewer reads to see why the run counts as done,
+    #: or what was left unverified (DR-038). Empty for tiers without one.
+    requirements: tuple[dict[str, str], ...] = ()
 
     @property
     def succeeded(self) -> bool:

@@ -806,6 +806,500 @@ select {
   color: var(--slate);
 }
 
+/* ---------- requirements board (DR-038) ---------- */
+
+.tone-good { --tone: var(--go); }
+.tone-bad { --tone: var(--signal-deep); }
+.tone-work { --tone: var(--signal); }
+.tone-idle { --tone: var(--slate); }
+
+.inspector-summary [class^="tone-"] strong {
+  color: var(--tone);
+}
+
+.verdict {
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--card);
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--go);
+}
+
+.verdict.failed {
+  border-left-color: var(--signal-deep);
+}
+
+.verdict-feedback {
+  margin-top: 4px;
+  color: var(--ink-soft);
+}
+
+.req {
+  margin-bottom: 6px;
+  padding: 9px 11px;
+  font-size: 13px;
+  background: var(--card);
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--tone);
+}
+
+.req-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.req-id {
+  font-weight: 600;
+}
+
+.req-status {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--tone);
+}
+
+.req-trail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.req-step {
+  padding: 2px 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--tone);
+  border: 1px solid var(--tone);
+}
+
+.req-arrow {
+  font-size: 11px;
+  color: var(--slate);
+}
+
+.req-evidence {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  word-break: break-word;
+}
+
+/* ---------- settings: providers and keys (DR-036) ---------- */
+
+.provider-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.provider-card {
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--line-soft);
+}
+
+.provider-card.in-use {
+  border-color: var(--ink);
+}
+
+.provider-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.provider-name {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.provider-kind {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.provider-state {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tone);
+}
+
+.provider-desc {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.provider-url {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--slate);
+}
+
+.provider-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--signal-deep);
+}
+
+.provider-key,
+.provider-models {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.provider-key input,
+.provider-models select {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--bone);
+  border: 1px solid var(--line);
+}
+
+.key-chip {
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--go);
+  border: 1px solid var(--go);
+}
+
+.key-chip.missing {
+  color: var(--slate);
+  border-color: var(--line);
+}
+
+.provider-hint {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--slate);
+}
+
+.ghost-button.small,
+.primary-button.small {
+  padding: 6px 11px;
+  font-size: 10.5px;
+}
+
+/* ---------- changes (DR-040) ---------- */
+
+.inspector-summary .added,
+.step-meta .added {
+  color: var(--go);
+}
+
+.inspector-summary .removed,
+.step-meta .removed {
+  color: var(--signal-deep);
+}
+
+.change-turn {
+  margin-bottom: 14px;
+}
+
+.diff-lines.inline {
+  overflow: auto;
+  max-height: 340px;
+  margin: 0 10px 10px;
+  font-size: 11.5px;
+}
+
+.change-undo {
+  margin-top: 4px;
+}
+
+/* ---------- usage (DR-041) ---------- */
+
+.usage-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.usage-tile {
+  padding: 8px 10px;
+  background: var(--card);
+  border: 1px solid var(--line-soft);
+}
+
+.usage-tile span,
+.usage-tile em {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-style: normal;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.usage-tile strong {
+  display: block;
+  font-size: 18px;
+}
+
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  background: var(--card);
+  border: 1px solid var(--line-soft);
+}
+
+.usage-table th,
+.usage-table td {
+  padding: 5px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.usage-table th:first-child,
+.usage-table td:first-child {
+  text-align: left;
+}
+
+.usage-table th {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.ctx-chart {
+  padding: 6px;
+  background: var(--card);
+  border: 1px solid var(--line-soft);
+}
+
+.ctx-bars {
+  display: block;
+  width: 100%;
+  height: 64px;
+}
+
+.ctx-bar {
+  fill: var(--go);
+}
+
+.ctx-bar.warn {
+  fill: var(--signal);
+}
+
+.ctx-bar.hot {
+  fill: var(--signal-deep);
+}
+
+.ctx-chart-note {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--slate);
+}
+
+.usage-turn {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+}
+
+.usage-turn-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-bar {
+  display: block;
+  width: 100%;
+  height: 6px;
+  background: var(--bone);
+  border: 1px solid var(--line-soft);
+}
+
+.usage-bar rect {
+  fill: var(--ink-soft);
+}
+
+.usage-turn-value {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--slate);
+}
+
+/* ---------- session tabs and queue (DR-042) ---------- */
+
+.session-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 8px 14px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+
+.session-tab {
+  display: flex;
+  align-items: center;
+  max-width: 260px;
+  background: var(--bone-2);
+  border: 1px solid var(--line-soft);
+  border-bottom: 0;
+}
+
+.session-tab.active {
+  background: var(--card);
+  border-color: var(--line);
+  margin-bottom: -1px;
+  padding-bottom: 1px;
+}
+
+.session-tab-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 4px 6px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.session-tab.active .session-tab-main {
+  color: var(--ink);
+}
+
+.session-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-tab .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--slate);
+}
+
+.session-tab .dot[data-status="running"],
+.session-tab .dot[data-status="stopping"] {
+  background: var(--signal);
+}
+
+.session-tab .dot[data-status="waiting"] {
+  background: var(--signal-deep);
+}
+
+.session-tab .dot[data-status="open"] {
+  background: var(--go);
+}
+
+.session-tab-badge {
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--slate);
+  border: 1px solid var(--line);
+}
+
+.session-tab-badge.alert {
+  color: var(--signal-deep);
+  border-color: var(--signal-deep);
+}
+
+.session-tab-close,
+.session-tab-new {
+  padding: 4px 8px;
+  font: inherit;
+  color: var(--slate);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.session-tab-close:hover,
+.session-tab-new:hover {
+  color: var(--ink);
+}
+
+.queue-strip {
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px dashed var(--line);
+}
+
+.queue-strip.held {
+  border-color: var(--signal);
+}
+
+.queue-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--slate);
+}
+
+.queue-head .primary-button {
+  margin-left: auto;
+}
+
+.queue-item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: 13.5px;
+}
+
+.queue-index {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate);
+}
+
+.queue-prompt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- compact work card (DR-037) ---------- */
 
 .work-card.compact .thinking {
@@ -1823,13 +2317,25 @@ select {
 }
 
 .composer-hint {
+  flex: 1 1 auto;
+  min-width: 0;
   margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.08em;
   color: var(--slate);
   white-space: nowrap;
   opacity: 0.8;
+}
+
+/* DR-042: Stop and Queue share the footer while a run works; the hint gives
+ * way to them rather than pushing either off the edge. */
+.composer-foot .send-button + .send-button,
+.composer-foot .stop-button + .send-button {
+  margin-left: -6px;
 }
 
 .send-button {
