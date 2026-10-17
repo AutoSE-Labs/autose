@@ -1152,6 +1152,154 @@ select {
   color: var(--slate);
 }
 
+/* ---------- session tabs and queue (DR-042) ---------- */
+
+.session-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 8px 14px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+
+.session-tab {
+  display: flex;
+  align-items: center;
+  max-width: 260px;
+  background: var(--bone-2);
+  border: 1px solid var(--line-soft);
+  border-bottom: 0;
+}
+
+.session-tab.active {
+  background: var(--card);
+  border-color: var(--line);
+  margin-bottom: -1px;
+  padding-bottom: 1px;
+}
+
+.session-tab-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 4px 6px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.session-tab.active .session-tab-main {
+  color: var(--ink);
+}
+
+.session-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-tab .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--slate);
+}
+
+.session-tab .dot[data-status="running"],
+.session-tab .dot[data-status="stopping"] {
+  background: var(--signal);
+}
+
+.session-tab .dot[data-status="waiting"] {
+  background: var(--signal-deep);
+}
+
+.session-tab .dot[data-status="open"] {
+  background: var(--go);
+}
+
+.session-tab-badge {
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--slate);
+  border: 1px solid var(--line);
+}
+
+.session-tab-badge.alert {
+  color: var(--signal-deep);
+  border-color: var(--signal-deep);
+}
+
+.session-tab-close,
+.session-tab-new {
+  padding: 4px 8px;
+  font: inherit;
+  color: var(--slate);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.session-tab-close:hover,
+.session-tab-new:hover {
+  color: var(--ink);
+}
+
+.queue-strip {
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px dashed var(--line);
+}
+
+.queue-strip.held {
+  border-color: var(--signal);
+}
+
+.queue-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--slate);
+}
+
+.queue-head .primary-button {
+  margin-left: auto;
+}
+
+.queue-item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: 13.5px;
+}
+
+.queue-index {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate);
+}
+
+.queue-prompt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- compact work card (DR-037) ---------- */
 
 .work-card.compact .thinking {
@@ -2169,13 +2317,25 @@ select {
 }
 
 .composer-hint {
+  flex: 1 1 auto;
+  min-width: 0;
   margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.08em;
   color: var(--slate);
   white-space: nowrap;
   opacity: 0.8;
+}
+
+/* DR-042: Stop and Queue share the footer while a run works; the hint gives
+ * way to them rather than pushing either off the edge. */
+.composer-foot .send-button + .send-button,
+.composer-foot .stop-button + .send-button {
+  margin-left: -6px;
 }
 
 .send-button {

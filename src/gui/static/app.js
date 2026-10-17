@@ -379,6 +379,21 @@ function handleFrame(frame) {
       renderApproval();
       renderRail();
       break;
+    case "queue": {
+      // DR-042: this session's waiting prompts changed.
+      const entry = openEntry(id);
+      if (entry) {
+        entry.queued = (frame.queue || []).length;
+        entry.queue_held = Boolean(frame.held);
+      }
+      if (state && isFocused(id)) {
+        state.queue = frame.queue || [];
+        state.queue_held = Boolean(frame.held);
+        renderConversation();
+      }
+      renderRail();
+      break;
+    }
     case "event":
       handleEvent(id, frame);
       break;
@@ -832,21 +847,21 @@ function renderStatus() {
   // not have the box taken away from them, and `submitPrompt` refuses a second
   // request itself with a reason. Only an unusable dashboard locks it.
   dom.prompt.disabled = !state.ready;
-  dom.send.disabled = state.running || !state.ready;
-  dom.send.textContent = "Start work";
+  dom.send.disabled = !state.ready;
+  dom.send.textContent = state.running ? "Queue" : "Start work";
   // DR-030: a run has no built-in end, so Stop *takes the primary button's
   // place* while one is going rather than sitting beside a dead "Working…"
   // button — the control is where the hand already is. `stopping` comes from
   // the snapshot, so a reopened tab does not offer a button already pressed.
   const stopping = Boolean(state.stopping || stopRequested);
-  dom.send.hidden = Boolean(state.running);
+  dom.send.hidden = false;
   dom.stop.hidden = !state.running;
   dom.stop.disabled = stopping;
   dom.stop.textContent = stopping ? "Stopping…" : "Stop";
   dom.hint.textContent = state.running
     ? (stopping
       ? "STOPPING AFTER THE CURRENT STEP — WHAT IT PRODUCED IS KEPT"
-      : "STOP ENDS IT AND KEEPS WHAT IT HAS PRODUCED · OR OPEN ANOTHER SESSION AND WORK ON")
+      : "ENTER QUEUES THE NEXT REQUEST · STOP ENDS THIS ONE AND KEEPS WHAT IT PRODUCED")
     : "ENTER ↵ STARTS · SHIFT+ENTER FOR A NEW LINE";
   renderCardStop();
 }
@@ -854,6 +869,7 @@ function renderStatus() {
 /* ---------- the rail ---------- */
 
 function renderRail() {
+  renderSessionTabs();
   const open = (state && state.open) || [];
   const openIds = new Set(open.map((entry) => entry.session_id));
   const rest = stored.filter((record) => !openIds.has(record.id));
@@ -878,6 +894,37 @@ function renderRail() {
 
 function groupHead(label) {
   return `<div class="session-group"><span class="eyebrow">${escapeHtml(label)}</span></div>`;
+}
+
+/* DR-042: the open sessions as tabs above the conversation. Same actions as
+ * the rail's rows — focus and close — through the same handler. */
+function renderSessionTabs() {
+  const open = (state && state.open) || [];
+  const tabs = open
+    .map((entry) => {
+      const active = entry.session_id === focusId();
+      const waiting = Math.max(
+        entry.waiting || 0,
+        approvals.filter((item) => item.session === entry.session_id).length
+      );
+      const status = waiting ? "waiting" : entry.running ? (entry.stopping ? "stopping" : "running") : "open";
+      return (
+        `<div class="session-tab${active ? " active" : ""}">` +
+        `<button type="button" class="session-tab-main" data-focus="${escapeHtml(entry.session_id)}" title="${escapeHtml(entry.title)}">` +
+        `<span class="dot" data-status="${status}"></span>` +
+        `<span class="session-tab-title">${escapeHtml(elideMiddle(entry.title || "New session", 28))}</span>` +
+        (entry.queued ? `<span class="session-tab-badge" title="Queued requests">+${entry.queued}</span>` : "") +
+        (waiting ? `<span class="session-tab-badge alert" title="Waiting for your decision">!</span>` : "") +
+        `</button>` +
+        `<button type="button" class="session-tab-close" data-close="${escapeHtml(entry.session_id)}" title="${entry.running ? "Stop it before closing it" : "Close — it stays on disk"}">×</button>` +
+        `</div>`
+      );
+    })
+    .join("");
+  setHtml(
+    el("session-tabs"),
+    tabs + `<button type="button" class="session-tab-new" data-new-tab="1" title="Open a new session">+</button>`
+  );
 }
 
 function openRowMarkup(entry) {
@@ -939,10 +986,38 @@ function renderConversation() {
   history.forEach((turn) => nodes.push(slipNode(turn.prompt), receiptNode(turn)));
   seat.extras.forEach((node) => nodes.push(node));
   if (seat.run) nodes.push(seat.run.slip, seat.run.node);
+  const queued = queueNode();
+  if (queued) nodes.push(queued);
   dom.messages.replaceChildren(...nodes);
   if (seat.run) renderRun();
   else renderInspector();
   if (pinned) scrollToBottom();
+}
+
+/* DR-042: what waits for the running turn, editable in place. */
+function queueNode() {
+  const queue = (state && state.queue) || [];
+  if (!queue.length) return null;
+  const node = document.createElement("section");
+  node.className = `queue-strip${state.queue_held ? " held" : ""}`;
+  const head = state.queue_held
+    ? `<div class="queue-head"><span class="eyebrow"><span class="tick"></span>Queue held</span>
+        <span>The last task stopped, so the next one waits for you.</span>
+        <button type="button" class="primary-button small" data-queue="resume">Resume</button></div>`
+    : `<div class="queue-head"><span class="eyebrow"><span class="tick"></span>Queued</span>
+        <span>Starts when the current task finishes, in this order.</span></div>`;
+  const items = queue
+    .map(
+      (item, index) =>
+        `<div class="queue-item"><span class="queue-index">${index + 1}</span>` +
+        `<span class="queue-prompt">${escapeHtml(item.prompt)}</span>` +
+        `<button type="button" class="icon-button" data-queue="move" data-id="${escapeHtml(item.id)}" data-to="${index - 1}" ${index === 0 ? "disabled" : ""} title="Move up">↑</button>` +
+        `<button type="button" class="icon-button" data-queue="move" data-id="${escapeHtml(item.id)}" data-to="${index + 1}" ${index === queue.length - 1 ? "disabled" : ""} title="Move down">↓</button>` +
+        `<button type="button" class="icon-button" data-queue="remove" data-id="${escapeHtml(item.id)}" title="Remove from the queue">✕</button></div>`
+    )
+    .join("");
+  node.innerHTML = head + items;
+  return node;
 }
 
 function greetingNode() {
@@ -1859,12 +1934,6 @@ function hideTipPopup() {
 /* ---------- actions ---------- */
 
 async function submitPrompt() {
-  if (state && state.running) {
-    // Answered here rather than by a 409 from the server, because the useful
-    // half of the answer is what to do about it (DR-030, DR-031).
-    toast("This session is already working — Stop it, wait, or open another session to work in.");
-    return;
-  }
   const text = dom.prompt.value.trim();
   if (!text) {
     dom.composer.classList.remove("nudge");
@@ -1872,11 +1941,15 @@ async function submitPrompt() {
     dom.prompt.focus();
     return;
   }
+  // DR-042: while the session works, a request is queued for when it ends
+  // rather than refused.
+  const queueing = Boolean(state && state.running);
   dom.send.disabled = true;
   try {
-    await api("/api/prompt", { prompt: text, session: focusId() });
+    await api("/api/prompt", { prompt: text, session: focusId(), queue: queueing });
     dom.prompt.value = "";
     autosize();
+    if (queueing) toast("Queued — it starts when the current task finishes.", "good");
   } catch (error) {
     toast(String(error.message || error), "bad");
   }
@@ -2018,7 +2091,7 @@ dom.messages.addEventListener("click", (event) => {
   // place, so the <details> element survives a paint and the browser keeps its
   // own open state.
   const target = event.target.closest(
-    "[data-starter], [data-expand], [data-open-diff], [data-stop], [data-details]"
+    "[data-starter], [data-expand], [data-open-diff], [data-stop], [data-details], [data-queue]"
   );
   if (!target) return;
   if (target.dataset.starter !== undefined) {
@@ -2034,6 +2107,11 @@ dom.messages.addEventListener("click", (event) => {
     openDiff();
   } else if (target.dataset.stop) {
     requestStop();
+  } else if (target.dataset.queue) {
+    const body = { action: target.dataset.queue, session: focusId() };
+    if (target.dataset.id) body.id = target.dataset.id;
+    if (target.dataset.to !== undefined) body.to = Number(target.dataset.to);
+    post("/api/queue", body);
   } else if (target.dataset.details) {
     const run = focusedRun();
     if (!run) return;
@@ -2084,6 +2162,22 @@ try {
 /* DR-031: the rail stays live while a turn runs. Switching sessions, opening
  * one and closing one are never gated on whether something is generating —
  * that gating was the reason the window felt frozen. */
+el("session-tabs").addEventListener("click", (event) => {
+  if (event.target.closest("[data-new-tab]")) {
+    dom.newSession.click();
+    return;
+  }
+  const close = event.target.closest("[data-close]");
+  if (close) {
+    post("/api/session", { action: "close", id: close.dataset.close });
+    return;
+  }
+  const switchTo = event.target.closest("[data-focus]");
+  if (switchTo && switchTo.dataset.focus !== focusId()) {
+    post("/api/session", { action: "focus", id: switchTo.dataset.focus });
+  }
+});
+
 dom.sessionList.addEventListener("click", (event) => {
   const remove = event.target.closest("[data-delete]");
   if (remove) {

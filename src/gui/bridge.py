@@ -248,9 +248,17 @@ class _Live:
         self.timeline: list[dict[str, Any]] = []
         self.narration = ""
         self.thinking = ""
+        # DR-042: prompts waiting for this session's running turn to end, in
+        # order. Held — not started — after a turn the user stopped or that
+        # failed, so a stop means "wait", not "skip to the next one".
+        self.queue: list[dict[str, Any]] = []
+        self.queue_held = False
         #: The models of the provider this session switched to (DR-036), for
         #: the picker; ``None`` while it is still on the default provider.
         self.models: tuple[ModelInfo, ...] | None = None
+
+    def queue_payload(self) -> dict[str, Any]:
+        return {"queue": [dict(item) for item in self.queue], "held": self.queue_held}
 
     def reset_turn(self) -> None:
         self.answer = []
@@ -598,6 +606,8 @@ class SessionBridge:
                     "current": None,
                     "answer": "",
                     "pending_approvals": [],
+                    "queue": [],
+                    "queue_held": False,
                     "context_limit": None,
                     "context_advice": None,
                     "model_info": None,
@@ -617,6 +627,7 @@ class SessionBridge:
                 current["timeline"], current["narration"], current["thinking"], _ = turn_view
             answer = turn_view[3] if running else ""
             pending = [item.payload() for item in live.pending.values()]
+            queued = live.queue_payload()
         history = session.history
         state.update(
             {
@@ -630,6 +641,9 @@ class SessionBridge:
                 "current": current,
                 "answer": answer,
                 "pending_approvals": pending,
+                # DR-042: what waits for this session's running turn.
+                "queue": queued["queue"],
+                "queue_held": queued["held"],
                 "context_limit": session.context_limit(),
                 # DR-034: one verdict about the served window, so the page can
                 # tell a deliberate cap from a window that will hurt.
@@ -679,6 +693,8 @@ class SessionBridge:
             "stopping": bool(live.running and session.stop_requested),
             "current": dict(live.current) if live.current else None,
             "waiting": len(live.pending),
+            "queued": len(live.queue),
+            "queue_held": live.queue_held,
             "turns": len(session.history),
             "total_tokens": session.usage.total_tokens,
             "opened_at": live.opened_at,
@@ -738,8 +754,13 @@ class SessionBridge:
         *,
         tier: str | None = None,
         session_id: str | None = None,
+        queue: bool = False,
     ) -> dict[str, Any]:
-        """Start a turn on a worker thread. Returns as soon as it is running."""
+        """Start a turn on a worker thread. Returns as soon as it is running.
+
+        With *queue*, a prompt for a session that is already working waits in
+        that session's queue and starts when the running turn ends (DR-042).
+        """
         text = prompt.strip()
         if not text:
             raise BridgeError("there is nothing to run — describe a request first")
@@ -748,9 +769,21 @@ class SessionBridge:
         with self._lock:
             live = self._target(session_id)
             session = live.session
+            if live.running and queue:
+                item = {
+                    "id": secrets.token_hex(6),
+                    "prompt": text,
+                    "tier": tier or "",
+                    "queued_at": time.time(),
+                }
+                live.queue.append(item)
+                self._publish_for(live, {"kind": "queue", **live.queue_payload()})
+                return {"queued": True, "id": item["id"], "session": live.id}
             if live.running:
                 raise BridgeError(
-                    "a task is already running in this session", status=409
+                    "a task is already running in this session — queue this "
+                    "one to start when it ends",
+                    status=409,
                 )
             live.running = True
             live.reset_turn()
@@ -1076,6 +1109,9 @@ class SessionBridge:
     def _work(self, live: _Live, prompt: str, tier: str | None) -> None:
         """Run one turn to completion on this thread, narrating as it goes."""
         session = live.session
+        # Whether the queue may carry on afterwards: only after a turn that
+        # ran to its end (DR-042).
+        ended_cleanly = False
         try:
             stream = session.stream(prompt, tier=tier)
             for chunk in stream:
@@ -1083,6 +1119,7 @@ class SessionBridge:
                     live.answer.append(chunk)
                     self._publish_for(live, {"kind": "answer", "text": chunk})
             turn = stream.turn
+            ended_cleanly = turn is not None and turn.stop_reason != "cancelled"
             if turn is not None:
                 self._publish_for(
                     live,
@@ -1123,8 +1160,74 @@ class SessionBridge:
             with self._lock:
                 live.running = False
                 live.current = None
+                following = None
+                if live.queue:
+                    if ended_cleanly and not live.queue_held:
+                        following = live.queue.pop(0)
+                    else:
+                        live.queue_held = True
+                    self._publish_for(live, {"kind": "queue", **live.queue_payload()})
             self._publish_for(live, {"kind": "busy", "running": False})
             self._broadcast_state()
+            if following is not None:
+                self._start_queued(live, following)
+
+    def _start_queued(self, live: _Live, item: dict[str, Any]) -> None:
+        """Run the next queued prompt; a refusal holds the queue (DR-042)."""
+        try:
+            self.submit(item["prompt"], tier=item["tier"] or None, session_id=live.id)
+        except BridgeError as exc:
+            with self._lock:
+                live.queue.insert(0, item)
+                live.queue_held = True
+                self._publish_for(live, {"kind": "queue", **live.queue_payload()})
+            self._publish_for(
+                live,
+                {"kind": "failed", "title": "Queue held", "message": str(exc)},
+            )
+
+    def queue_action(
+        self,
+        action: str,
+        *,
+        session_id: str | None = None,
+        item_id: str | None = None,
+        to: int | None = None,
+    ) -> dict[str, Any]:
+        """Change a session's queue: remove or move an item, clear, or resume."""
+        following = None
+        with self._lock:
+            live = self._target(session_id)
+            if action == "remove":
+                before = len(live.queue)
+                live.queue = [item for item in live.queue if item["id"] != item_id]
+                if len(live.queue) == before:
+                    raise BridgeError(f"nothing queued with id '{item_id}'", status=404)
+            elif action == "move":
+                index = next(
+                    (i for i, item in enumerate(live.queue) if item["id"] == item_id), None
+                )
+                if index is None:
+                    raise BridgeError(f"nothing queued with id '{item_id}'", status=404)
+                if to is None:
+                    raise BridgeError("move needs a position")
+                item = live.queue.pop(index)
+                live.queue.insert(max(0, min(to, len(live.queue))), item)
+            elif action == "clear":
+                live.queue = []
+            elif action == "resume":
+                live.queue_held = False
+                if live.queue and not live.running:
+                    following = live.queue.pop(0)
+            else:
+                raise BridgeError(f"'{action}' is not remove, move, clear or resume")
+            if not live.queue:
+                live.queue_held = False
+            payload = live.queue_payload()
+            self._publish_for(live, {"kind": "queue", **payload})
+        if following is not None:
+            self._start_queued(live, following)
+        return {"session": live.id, **payload}
 
     def _ask(self, live: _Live, request: ApprovalRequest) -> ApprovalDecision:
         """Put one call to the browser and block until it answers (DR-012).

@@ -193,6 +193,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         writers = {
             "/api/prompt": self._prompt,
+            "/api/queue": self._queue,
             "/api/interrupt": self._interrupt,
             "/api/approval": self._approval,
             "/api/model": self._model,
@@ -220,6 +221,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             str(body.get("prompt") or ""),
             tier=_optional_str(body.get("tier")),
             session_id=_session_of(body),
+            queue=bool(body.get("queue")),
+        )
+
+    def _queue(self, body: dict[str, Any]) -> dict[str, Any]:
+        to = body.get("to")
+        if to is not None and not isinstance(to, int):
+            raise BridgeError("to must be a whole number")
+        return self._bridge.queue_action(
+            str(body.get("action") or ""),
+            session_id=_session_of(body),
+            item_id=_optional_str(body.get("id")),
+            to=to,
         )
 
     def _interrupt(self, body: dict[str, Any]) -> dict[str, Any]:
