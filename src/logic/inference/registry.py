@@ -20,6 +20,11 @@ from .base import ChatModel
 from .catalog import ModelCatalog, OpenAICompatibleCatalog
 from .ollama import OLLAMA_DEFAULT_BASE_URL, OllamaCatalog
 from .ollama_chat import OllamaChatModel
+from .ollama_cloud import (
+    OLLAMA_CLOUD_BASE_URL,
+    OLLAMA_CLOUD_KEY_ENV,
+    OllamaCloudCatalog,
+)
 from .openai_compatible import OpenAICompatibleChatModel
 from .settings import DEFAULT_PROVIDER, InferenceSettings
 
@@ -54,6 +59,17 @@ class Provider:
     #: When it does, AutoSE chooses the window instead of inheriting whatever
     #: the server was started with, and the dashboard can change it.
     serves_requested_window: bool = False
+    #: Whether nothing can be listed or run without an API key (DR-036). A
+    #: switch to such a provider with no key is refused up front, rather than
+    #: discovered as a 401 halfway through a turn. ``openai-compatible`` is
+    #: deliberately ``False``: plenty of such endpoints are self-hosted and
+    #: keyless, and it accepts a key when one is stored.
+    requires_api_key: bool = False
+    #: The environment variable this provider's own tools read a key from,
+    #: consulted after the credentials file (DR-036). Empty for none — a
+    #: generic name such as ``OPENAI_API_KEY`` is never assumed for an
+    #: arbitrary endpoint, because that would send one service's key to another.
+    api_key_env: str = ""
 
 
 _PROVIDERS: dict[str, Provider] = {}
@@ -121,6 +137,25 @@ register_provider(
         default_base_url=OLLAMA_DEFAULT_BASE_URL,
         description="Ollama — local models, native catalog with context length and capabilities",
         serves_requested_window=True,
+    )
+)
+register_provider(
+    Provider(
+        name="ollama-cloud",
+        # The same native protocol as a local server, hosted (DR-036).
+        chat_model=OllamaChatModel,
+        catalog=OllamaCloudCatalog,
+        is_local=False,
+        default_base_url=OLLAMA_CLOUD_BASE_URL,
+        description=(
+            "Ollama Cloud — hosted models at ollama.com; needs an API key from "
+            "ollama.com/settings/keys"
+        ),
+        # `num_ctx` is sent but whether it is honoured cannot be observed: no
+        # `/api/ps` in the cloud. Claiming it would make the budget a guess.
+        serves_requested_window=False,
+        requires_api_key=True,
+        api_key_env=OLLAMA_CLOUD_KEY_ENV,
     )
 )
 register_provider(

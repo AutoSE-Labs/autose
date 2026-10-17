@@ -175,6 +175,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "/api/sessions": self._bridge.sessions,
             "/api/changes": lambda: self._bridge.changes(target),
             "/api/doctor": self._bridge.doctor,
+            "/api/providers": self._bridge.providers,
         }
         reader = readers.get(path)
         if reader is None:
@@ -198,6 +199,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "/api/clear": self._clear,
             "/api/session": self._session,
             "/api/reload": self._reload,
+            "/api/providers": self._providers,
         }
         writer = writers.get(path)
         if writer is None:
@@ -234,7 +236,39 @@ class DashboardHandler(BaseHTTPRequestHandler):
         name = str(body.get("model") or "").strip()
         if not name:
             raise BridgeError("which model? a name is required")
-        return self._bridge.select_model(name, session_id=_session_of(body))
+        return self._bridge.select_model(
+            name,
+            session_id=_session_of(body),
+            provider=_optional_str(body.get("provider")),
+            base_url=_optional_url(body.get("base_url")),
+        )
+
+    def _providers(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Keys and the default provider (DR-036).
+
+        A key travels in this POST body only — browser to server, over the
+        same token- and origin-checked route as everything else — and never
+        comes back: every answer carries the masked form.
+        """
+        action = str(body.get("action") or "").strip().lower()
+        provider = str(body.get("provider") or "").strip()
+        if action not in ("save_key", "delete_key", "set_default"):
+            raise BridgeError(f"'{action}' is not save_key, delete_key, or set_default")
+        if not provider:
+            raise BridgeError("which provider? a name is required")
+        if action == "save_key":
+            key = body.get("api_key")
+            if not isinstance(key, str) or not key.strip():
+                raise BridgeError("save_key needs an api_key")
+            return self._bridge.save_key(provider, key)
+        if action == "delete_key":
+            return self._bridge.delete_key(provider)
+        model = str(body.get("model") or "").strip()
+        if not model:
+            raise BridgeError("which model? a name is required")
+        return self._bridge.set_default(
+            provider, model, base_url=_optional_url(body.get("base_url"))
+        )
 
     def _context(self, body: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -529,6 +563,17 @@ def _int_or_zero(value: str | None) -> int:
 def _optional_str(value: Any) -> str | None:
     text = str(value or "").strip().lower()
     return text or None
+
+
+def _optional_url(value: Any) -> str | None:
+    """A base URL from a request body: absent, or an http(s) address."""
+    if value is None or value == "":
+        return None
+    text = str(value).strip()
+    parsed = urlparse(text)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise BridgeError("base_url must be an http:// or https:// address")
+    return text
 
 
 def _session_of(body: dict[str, Any]) -> str | None:

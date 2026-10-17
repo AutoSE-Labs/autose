@@ -19,7 +19,9 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from .credentials import CredentialStore
 from .errors import ConfigurationError
+from .inference.registry import available_providers
 from .inference.settings import (
     DEFAULT_DISCOVERY_TIMEOUT,
     DEFAULT_PROVIDER,
@@ -28,6 +30,7 @@ from .inference.settings import (
 )
 from .prompt_overrides import KNOWN_PROMPT_NAMES, PromptOverrides
 from .tuning import Tuning
+from .user_config import user_config_dir
 
 __all__ = [
     "AutoSEConfig",
@@ -103,14 +106,8 @@ def config_search_paths() -> tuple[Path, ...]:
     override = os.environ.get(_ENV_CONFIG)
     if override:
         paths.append(Path(override).expanduser())
-    if os.name == "nt":
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            paths.append(Path(appdata) / "AutoSE" / CONFIG_FILENAME)
-    else:
-        xdg = os.environ.get("XDG_CONFIG_HOME")
-        base = Path(xdg).expanduser() if xdg else Path.home() / ".config"
-        paths.append(base / "autose" / CONFIG_FILENAME)
+    if os.name != "nt" or os.environ.get("APPDATA"):
+        paths.append(user_config_dir() / CONFIG_FILENAME)
     paths.append(Path.cwd() / WORKSPACE_CONFIG_PATH)
     return tuple(paths)
 
@@ -155,7 +152,21 @@ def load_config(
     document = _overlay_workspace_config(document, root=root, already_loaded=resolved)
 
     config = _from_document(document, source=resolved)
-    return _apply_environment(config)
+    return _with_stored_key(_apply_environment(config))
+
+
+def _with_stored_key(config: AutoSEConfig) -> AutoSEConfig:
+    """Give the configured provider its key from the credentials file (DR-036).
+
+    ``AUTOSE_API_KEY`` still wins — it is the explicit, per-shell override — and
+    a legacy ``inference.api_key`` is used only when nothing else supplies one.
+    """
+    if _ENV_API_KEY in os.environ:
+        return config
+    key = CredentialStore().resolve(config.inference.provider)
+    if not key:
+        return config
+    return config.with_inference(replace(config.inference, api_key=key))
 
 
 def _overlay_workspace_config(
@@ -218,11 +229,16 @@ def _from_document(document: Mapping[str, Any], *, source: Path | None) -> AutoS
     approval_section = _section(document, "approval")
 
     defaults = InferenceSettings()
+    provider = str(inference_section.get("provider") or DEFAULT_PROVIDER)
     inference = InferenceSettings(
-        base_url=str(inference_section.get("base_url") or defaults.base_url),
+        base_url=str(
+            inference_section.get("base_url")
+            or _conventional_base_url(provider)
+            or defaults.base_url
+        ),
         model=str(inference_section.get("model") or ""),
         api_key=str(inference_section.get("api_key") or ""),
-        provider=str(inference_section.get("provider") or DEFAULT_PROVIDER),
+        provider=provider,
         context_limit=_optional_int(
             inference_section.get("context_limit"), "inference.context_limit"
         ),
@@ -324,6 +340,16 @@ def _apply_environment(config: AutoSEConfig) -> AutoSEConfig:
     return replace(config, inference=inference, workspace_root=workspace_root)
 
 
+def _conventional_base_url(provider: str) -> str:
+    """Where *provider* usually listens, so naming it is enough (DR-036).
+
+    Without this, ``provider: ollama-cloud`` alone would inherit the local
+    Ollama address and fail to connect.
+    """
+    registered = available_providers().get(provider.strip().lower())
+    return registered.default_base_url if registered is not None else ""
+
+
 def _section(document: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     value = document.get(name)
     if value is None:
@@ -370,13 +396,16 @@ EXAMPLE_CONFIG = """\
 # — see DR-015. Set values here only to override that.
 
 inference:
-  # Registered provider: ollama | lm-studio | vllm | llama-cpp | openai-compatible
+  # Registered provider: ollama | ollama-cloud | lm-studio | vllm | llama-cpp |
+  # openai-compatible
   provider: ollama
   # OpenAI-compatible endpoint. Ollama's is at /v1 on port 11434.
   base_url: http://localhost:11434/v1
   # Leave empty to choose from the models the runtime reports.
   model: ""
-  # Not needed for a local runtime. Required only by hosted endpoints.
+  # Not needed for a local runtime. Prefer storing a hosted provider's key
+  # from the dashboard's settings, which keeps it in an owner-only
+  # credentials.yaml beside this file rather than here (DR-036).
   api_key: ""
   # Leave empty to use the model's real context length where the runtime
   # publishes one, as Ollama does.

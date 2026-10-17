@@ -103,6 +103,7 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-033](docs/DecisionRecords/DR-033-the-live-view-survives-a-reload.md) | The dashboard's live view survives a reload, and shows usage as it is spent |
 | [DR-034](docs/DecisionRecords/DR-034-context-advice-not-a-fixed-warning.md) | A served context window gets a verdict and a computed remedy, not a fixed warning |
 | [DR-035](docs/DecisionRecords/DR-035-autose-chooses-the-context-window.md) | AutoSE chooses the context window where the runtime allows it, and the user can change it |
+| [DR-036](docs/DecisionRecords/DR-036-provider-settings-keys-and-per-session-switching.md) | Providers are chosen per session, keys live in an owner-only credentials file, and Ollama Cloud is a provider |
 | [DR-037](docs/DecisionRecords/DR-037-the-inspector-shows-the-run-in-full.md) | The dashboard has an inspector that shows the run in full; the conversation stays compact |
 | [DR-038](docs/DecisionRecords/DR-038-the-requirements-ledger-is-kept-and-shown.md) | Each turn keeps its final requirements ledger, and the dashboard shows it as a board |
 | [DR-039](docs/DecisionRecords/DR-039-a-malformed-tool-call-is-retried.md) | A tool call the runtime cannot parse is retried, not fatal |
@@ -145,6 +146,8 @@ Worth naming rather than discovering:
 ## Configuration
 
 None is required. To override the defaults, set environment variables (`AUTOSE_BASE_URL`, `AUTOSE_MODEL`, `AUTOSE_API_KEY`, `AUTOSE_PROVIDER`, `AUTOSE_CONTEXT_LIMIT`, `AUTOSE_WORKSPACE`) or write `~/.config/autose/config.yaml`. Environment wins over the file, and the file wins over discovery.
+
+API keys for hosted providers (Ollama Cloud, an OpenAI-compatible service) are best saved from the dashboard's settings, which keep them in an owner-only `~/.config/autose/credentials.yaml` rather than in `config.yaml`, and never send them back to the browser. `OLLAMA_API_KEY` also works for Ollama Cloud. The dashboard can switch any one session to any configured provider, and save the provider and model new sessions start with (DR-036).
 
 Run `/config` inside AutoSE to drop a commented `.autose/config.yaml` into the current workspace. Every setting is written at the value already in effect, so editing one changes behaviour and deleting a key restores the built-in default — including the prompt each stage is sent (DR-021).
 

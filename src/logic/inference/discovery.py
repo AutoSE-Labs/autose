@@ -82,8 +82,13 @@ def probe_runtime(
     *,
     base_url: str = "",
     timeout: float = 1.5,
+    api_key: str = "",
 ) -> DetectedRuntime:
-    """Ask one candidate endpoint what it serves. Never raises."""
+    """Ask one candidate endpoint what it serves. Never raises.
+
+    *api_key* is sent only to this provider's own catalog, for a hosted one
+    that lists nothing without it (DR-036).
+    """
     url = base_url or provider.default_base_url
     if not url:
         return DetectedRuntime(
@@ -94,7 +99,10 @@ def probe_runtime(
             description=provider.description,
         )
     settings = InferenceSettings(
-        base_url=url, provider=provider.name, discovery_timeout=timeout
+        base_url=url,
+        provider=provider.name,
+        api_key=api_key,
+        discovery_timeout=timeout,
     )
     try:
         models = create_model_catalog(settings).list_models()

@@ -31,3 +31,18 @@ def isolated_provider_registry():
     finally:
         registry._PROVIDERS.clear()
         registry._PROVIDERS.update(saved)
+
+
+@pytest.fixture(autouse=True)
+def isolated_user_config(tmp_path_factory, monkeypatch):
+    """Point the per-user config directory at a scratch one (DR-036).
+
+    The dashboard can now *write* there — a stored API key, the default model
+    — and a test must never touch the developer's own files, nor pick up their
+    real keys. Tests that care about the location set these again themselves.
+    """
+    home = tmp_path_factory.mktemp("user-config")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home))
+    monkeypatch.setenv("APPDATA", str(home))
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    return home

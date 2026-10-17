@@ -52,21 +52,28 @@ from logic.common.approval import (
 from logic.common.context import MIN_USABLE_CONTEXT_TOKENS
 from logic.common.events import CallbackEventSink, Event, EventSink
 from logic.config import AutoSEConfig, load_config
+from logic.connections import list_connections
+from logic.credentials import CredentialStore
 from logic.diagnostics import diagnose
 from logic.errors import AutoSEError, ConfigurationError
+from logic.inference.catalog import ModelInfo
 from logic.inference.context_advice import advise_context, window_choices
+from logic.inference.registry import get_provider
 from logic.persistence import SESSIONS_DIRECTORY, FileSessionStore, SessionRecord
 from logic.session import (
     Session,
     SessionSetup,
     serves_requested_window,
+    setup_for_provider,
     setup_from_config,
 )
 from logic.tiers import SPARK, is_tier
+from logic.user_config import save_default_inference
 from logic.workflows import UnavailableTierError
 
 from .payloads import (
     change_payload,
+    connection_payload,
     diagnosis_payload,
     event_payload,
     model_payload,
@@ -241,6 +248,9 @@ class _Live:
         self.timeline: list[dict[str, Any]] = []
         self.narration = ""
         self.thinking = ""
+        #: The models of the provider this session switched to (DR-036), for
+        #: the picker; ``None`` while it is still on the default provider.
+        self.models: tuple[ModelInfo, ...] | None = None
 
     def reset_turn(self) -> None:
         self.answer = []
@@ -285,8 +295,12 @@ class SessionBridge:
         default_tier: str | None = None,
         resume: str | None = None,
         approval_timeout: float = APPROVAL_TIMEOUT_SECONDS,
+        credentials: CredentialStore | None = None,
     ) -> None:
         self._config = config
+        #: API keys (DR-036). Written from the settings page, read when a
+        #: session switches provider; never put into a payload.
+        self._credentials = credentials or CredentialStore()
         self._config_path = config_path
         self._default_tier = default_tier
         self._approval_timeout = approval_timeout
@@ -379,6 +393,7 @@ class SessionBridge:
                 auto_classify=self._default_tier is None,
                 store=self._store,
                 resume=record,
+                credentials=self._credentials,
             )
         except AutoSEError as exc:
             self._problem = str(exc)
@@ -569,6 +584,8 @@ class SessionBridge:
             "provider": inference.provider if inference else "",
             "base_url": inference.base_url if inference else "",
             "model": inference.model if inference else "",
+            # What a new session starts on (DR-036); the focused one may differ.
+            "default": self._default_payload(),
         }
         if live is None or session is None:
             state.update(
@@ -620,7 +637,13 @@ class SessionBridge:
                 "model_info": model_payload(session.model_info),
                 "models": [
                     model_payload(info)
-                    for info in (setup.available_models if setup else ())
+                    for info in (
+                        live.models
+                        if live.models is not None
+                        else setup.available_models
+                        if setup
+                        else ()
+                    )
                 ],
                 "usage": {
                     "prompt_tokens": session.usage.prompt_tokens,
@@ -797,18 +820,188 @@ class SessionBridge:
         return {"resolved": approval_id, "approved": approved}
 
     def select_model(
-        self, name: str, *, session_id: str | None = None
+        self,
+        name: str,
+        *,
+        session_id: str | None = None,
+        provider: str | None = None,
+        base_url: str | None = None,
     ) -> dict[str, Any]:
+        """Switch one session's model, on any provider with *provider* (DR-036).
+
+        A model picked on the default provider without naming one still
+        becomes the default for new sessions, as it always has. Crossing to
+        another provider changes only this session; the settings page's
+        ``set_default`` is how a provider becomes the default.
+        """
         with self._lock:
             live = self._target(session_id)
             self._require_idle(live)
+            session = live.session
+            before = (session.inference.provider, session.inference.base_url)
             try:
-                live.session.select_model(name)
+                session.select_model(name, provider=provider, base_url=base_url)
             except AutoSEError as exc:
                 raise BridgeError(str(exc)) from exc
-            if self._setup is not None:
-                self._setup = self._setup.with_model(name)
+            after = (session.inference.provider, session.inference.base_url)
+            setup = self._setup
+            on_default = (
+                setup is not None
+                and setup.inference is not None
+                and after == (setup.inference.provider, setup.inference.base_url)
+            )
+            if after != before:
+                live.models = None if on_default else session.available_models()
+            elif on_default and live.models is None and setup is not None:
+                self._setup = setup.with_model(name)
         return self._broadcast_state()
+
+    # -- providers and keys (DR-036) ----------------------------------------
+
+    def providers(self) -> dict[str, Any]:
+        """Every registered provider: reachable or not, keyed or not, its models.
+
+        Probed in parallel outside the bridge lock, so a slow hosted API never
+        holds up a running session's frames. Keys appear only masked.
+        """
+        with self._lock:
+            configured = self._config.inference
+            urls = {configured.provider: configured.base_url}
+            # A session using a provider at a non-default address is the
+            # address worth listing for it.
+            for live in self._open.values():
+                inference = live.session.inference
+                urls.setdefault(inference.provider, inference.base_url)
+            keys = {configured.provider: configured.api_key}
+            default = self._default_payload()
+        connections = list_connections(
+            credentials=self._credentials,
+            base_urls=urls,
+            configured_keys=keys,
+            timeout=configured.discovery_timeout,
+        )
+        return {
+            "providers": [connection_payload(one) for one in connections],
+            "default": default,
+            "credentials_file": str(self._credentials.path),
+        }
+
+    def save_key(self, provider: str, api_key: str) -> dict[str, Any]:
+        """Store *provider*'s API key, owner-only, outside config (DR-036)."""
+        name = self._registered(provider)
+        try:
+            self._credentials.save(name, api_key)
+        except ConfigurationError as exc:
+            raise BridgeError(str(exc)) from exc
+        with self._lock:
+            self._adopt_key(name, self._credentials.resolve(name))
+            self._retry_if_idle()
+        self._broadcast_state()
+        return self.providers()
+
+    def delete_key(self, provider: str) -> dict[str, Any]:
+        """Forget *provider*'s stored key. Open sessions keep theirs until switched."""
+        name = self._registered(provider)
+        removed = self._credentials.stored(name)
+        if not self._credentials.delete(name):
+            raise BridgeError(f"no key is stored for {name}", status=404)
+        with self._lock:
+            if self._config.inference.api_key == removed:
+                self._adopt_key(name, self._credentials.resolve(name))
+        self._broadcast_state()
+        return self.providers()
+
+    def set_default(
+        self, provider: str, model: str, *, base_url: str | None = None
+    ) -> dict[str, Any]:
+        """Make *model* on *provider* what new sessions start on, and save it.
+
+        Written to the user's ``config.yaml`` under ``inference:``: provider,
+        address and model, never the key. Open sessions are left on whatever
+        they are using (DR-036).
+        """
+        name = self._registered(provider)
+        if not (model or "").strip():
+            raise BridgeError("which model? a name is required")
+        with self._lock:
+            config = self._config
+        try:
+            setup = setup_for_provider(
+                config,
+                name,
+                model.strip(),
+                base_url=base_url,
+                credentials=self._credentials,
+            )
+            chosen = setup.inference
+            assert chosen is not None
+            saved = save_default_inference(chosen.provider, chosen.model, chosen.base_url)
+        except ConfigurationError as exc:
+            raise BridgeError(str(exc)) from exc
+        except OSError as exc:
+            raise BridgeError(f"could not save the default: {exc}", status=500) from exc
+        with self._lock:
+            self._config = self._config.with_inference(
+                replace(
+                    self._config.inference,
+                    provider=chosen.provider,
+                    base_url=chosen.base_url,
+                    model=chosen.model,
+                    api_key=chosen.api_key,
+                    context_limit=(
+                        self._config.inference.context_limit
+                        if chosen.provider == config.inference.provider
+                        else None
+                    ),
+                )
+            )
+            self._setup = setup
+            if not self._open:
+                self._problem = ""
+                self._open_session(None)
+        self._broadcast_state()
+        return {**self.providers(), "saved_to": str(saved)}
+
+    def _registered(self, provider: str) -> str:
+        name = (provider or "").strip().lower()
+        if not name:
+            raise BridgeError("which provider? a name is required")
+        try:
+            return get_provider(name).name
+        except ConfigurationError as exc:
+            raise BridgeError(str(exc)) from exc
+
+    def _adopt_key(self, provider: str, key: str) -> None:
+        """New sessions on *provider* use *key* from now on. Caller holds the lock."""
+        if self._config.inference.provider == provider:
+            self._config = self._config.with_inference(
+                replace(self._config.inference, api_key=key)
+            )
+        setup = self._setup
+        if (
+            setup is not None
+            and setup.inference is not None
+            and setup.inference.provider == provider
+        ):
+            self._setup = replace(setup, inference=replace(setup.inference, api_key=key))
+
+    def _retry_if_idle(self) -> None:
+        """With nothing open (a hosted default that had no key, say), try again."""
+        if not self._open:
+            self._resolve()
+
+    def _default_payload(self) -> dict[str, Any]:
+        setup = self._setup
+        inference = (
+            setup.inference
+            if setup is not None and setup.inference is not None
+            else self._config.inference
+        )
+        return {
+            "provider": inference.provider,
+            "base_url": inference.base_url,
+            "model": inference.model,
+        }
 
     def set_context_window(
         self, tokens: int, *, session_id: str | None = None
