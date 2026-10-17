@@ -938,3 +938,82 @@ def test_the_snapshot_explains_the_served_context_window(scripted, tmp_path):
     advice = bridge.snapshot()["context_advice"]
     assert advice["level"] in {"ok", "info", "warning", "blocking"}
     assert advice["served"] == 32768
+
+
+# -- DR-035: choosing the context window from the dashboard ---------------------
+
+
+@pytest.fixture
+def adjustable(tmp_path):
+    """A runtime that, like Ollama, serves the window each request asks for."""
+    holder: dict = {}
+    model = ModelInfo(
+        name="qwen3.5:9b",
+        context_length=32768,
+        context_length_measured=True,
+        max_context_length=131072,
+        supports_tools=True,
+    )
+
+    class _Catalog:
+        def __init__(self, settings):
+            pass
+
+        def list_models(self):
+            return (model,)
+
+    register_provider(
+        Provider(
+            name="test-window-dashboard",
+            chat_model=lambda settings: holder.setdefault(
+                "model", ScriptedChatModel([answer("ok")])
+            ),
+            catalog=_Catalog,
+            is_local=True,
+            serves_requested_window=True,
+        ),
+        replace=True,
+    )
+    config = AutoSEConfig(
+        inference=InferenceSettings(
+            base_url="http://test/v1",
+            model=model.name,
+            provider="test-window-dashboard",
+        ),
+        workspace_root=tmp_path,
+    )
+    return SessionBridge(config, default_tier="spark")
+
+
+def test_the_dashboard_offers_windows_where_autose_chooses_them(adjustable):
+    advice = adjustable.snapshot()["context_advice"]
+    assert advice["adjustable"]
+    tokens = [choice["tokens"] for choice in advice["choices"]]
+    assert tokens == [8192, 16384, 32768, 65536, 131072]
+    assert next(choice for choice in advice["choices"] if choice["current"])["tokens"] == 32768
+
+
+def test_choosing_a_window_changes_what_the_session_asks_for(adjustable):
+    state = adjustable.set_context_window(65536)
+    assert state["context_limit"] == 65536
+    assert state["context_advice"]["served"] == 65536
+
+
+def test_a_window_the_model_cannot_serve_is_refused(adjustable):
+    with pytest.raises(BridgeError):
+        adjustable.set_context_window(262144)
+
+
+def test_a_runtime_with_a_fixed_window_offers_no_choices(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    advice = bridge.snapshot()["context_advice"]
+    assert advice["adjustable"] is False
+    assert advice["choices"] == []
+    with pytest.raises(BridgeError):
+        bridge.set_context_window(65536)
+
+
+def test_a_window_that_is_not_a_number_is_refused_over_http(served):
+    status, payload = _request(served, "/api/context", body={"tokens": "lots"})
+    assert status == 400
+    assert "whole number" in json.dumps(payload)

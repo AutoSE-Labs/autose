@@ -391,7 +391,14 @@ function handleEvent(id, frame) {
   const run = desk(id).run;
   if (
     !run &&
-    !["session_save_failed", "model_selected", "history_cleared", "tier_changed", "session_resumed"].includes(frame.event)
+    ![
+      "session_save_failed",
+      "model_selected",
+      "history_cleared",
+      "tier_changed",
+      "session_resumed",
+      "context_window_changed",
+    ].includes(frame.event)
   ) {
     // Events that belong to a turn we are not tracking (another tab started
     // it, or this one reloaded); the next state frame will catch us up.
@@ -490,6 +497,9 @@ function handleEvent(id, frame) {
     case "turn_started":
     case "turn_finished":
     case "workflow_finished":
+      break;
+    case "context_window_changed":
+      toast(`Context window is now ${formatWindow(data.tokens)} tokens.`, "good");
       break;
     case "tier_changed":
       if (!run) toast(`Tier is now ${humanize(String(data.tier || ""))}.`, "good");
@@ -1407,6 +1417,9 @@ function doctorMarkup(report) {
   return blocks.join("");
 }
 
+/* DR-035: the window the dashboard is about to ask for, before Apply. */
+let contextPick = 0;
+
 function openContext() {
   const advice = (state && state.context_advice) || null;
   const titles = {
@@ -1422,18 +1435,80 @@ function openContext() {
     `<div class="context-figure"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
   el("context-figures").innerHTML = advice
     ? [
-        figure("Served", advice.served ? formatCount(advice.served) : "?"),
-        figure("Model max", advice.maximum ? formatCount(advice.maximum) : "?"),
-        figure("Suggested", advice.recommended ? formatCount(advice.recommended) : "keep"),
+        figure("Served", advice.served ? formatWindow(advice.served) : "?"),
+        figure("Model max", advice.maximum ? formatWindow(advice.maximum) : "?"),
+        figure(
+          "On GPU",
+          typeof advice.gpu_fraction === "number" ? `${Math.round(advice.gpu_fraction * 100)}%` : "after next run"
+        ),
       ].join("")
     : "";
+  const choices = (advice && advice.adjustable && advice.choices) || [];
+  el("context-choices").hidden = choices.length === 0;
+  if (choices.length) {
+    const current = choices.find((choice) => choice.current);
+    contextPick = current ? current.tokens : choices[0].tokens;
+    renderContextChoices();
+  }
+  // Where AutoSE chooses the window, the setting is how to keep a choice for
+  // every session; elsewhere it is how to restart the runtime (DR-034).
   const remedy = (advice && advice.remedy) || "";
   el("context-remedy").hidden = !remedy;
-  el("context-remedy-label").textContent =
-    advice && advice.level === "info" ? "Optional — if you want more room" : "To change it";
+  el("context-remedy-label").textContent = advice && advice.adjustable
+    ? "To make this size the default for this workspace, add it to .autose/config.yaml:"
+    : advice && advice.level === "info"
+      ? "Optional — if you want more room"
+      : "To change it";
   el("context-remedy-code").textContent = remedy;
   el("context-copy").hidden = !remedy || !navigator.clipboard;
   overlays.context.hidden = false;
+}
+
+/* Windows are powers of two and people say "32k", not "32.8k". */
+function formatWindow(tokens) {
+  const value = Number(tokens || 0);
+  if (value >= 1024 && value % 1024 === 0) return `${value / 1024}k`;
+  return formatCount(value);
+}
+
+function renderContextChoices() {
+  const advice = (state && state.context_advice) || null;
+  const choices = (advice && advice.choices) || [];
+  el("context-choice-list").innerHTML = choices
+    .map((choice) => {
+      const tags = [
+        choice.current ? `<span class="choice-tag now">in use</span>` : "",
+        choice.recommended && !choice.current ? `<span class="choice-tag">suggested</span>` : "",
+      ].join(" ");
+      return (
+        `<button type="button" role="radio" aria-checked="${choice.tokens === contextPick}" ` +
+        `class="choice${choice.tokens === contextPick ? " picked" : ""}" data-tokens="${choice.tokens}">` +
+        `<span class="choice-size">${escapeHtml(formatWindow(choice.tokens))}</span>` +
+        `<span>${escapeHtml(choice.note)}</span><span>${tags}</span></button>`
+      );
+    })
+    .join("");
+  const picked = choices.find((choice) => choice.tokens === contextPick);
+  const changing = picked && !picked.current;
+  const busy = Boolean(state && state.running);
+  el("context-apply").hidden = !changing;
+  el("context-apply").disabled = busy;
+  el("context-choice-hint").textContent = busy
+    ? "A task is running in this session — the window can change when it finishes."
+    : changing
+      ? "Takes effect on the next request. The model server reloads the model at the new size, which takes a few seconds."
+      : "";
+}
+
+async function applyContextWindow() {
+  if (!contextPick) return;
+  // The `context_window_changed` event announces it; no second toast here.
+  const result = await post("/api/context", { tokens: contextPick, session: focusId() });
+  if (result) {
+    state = result;
+    adoptState();
+    openContext();
+  }
 }
 
 async function copyContextRemedy() {
@@ -1441,7 +1516,12 @@ async function copyContextRemedy() {
   if (!remedy) return;
   try {
     await navigator.clipboard.writeText(remedy);
-    toast("Copied — run it where the model server runs, then restart that server.", "good");
+    toast(
+      state.context_advice.adjustable
+        ? "Copied — paste it into .autose/config.yaml in your project."
+        : "Copied — run it where the model server runs, then restart that server.",
+      "good"
+    );
   } catch (error) {
     toast("Could not copy; select the command instead.", "bad");
   }
@@ -1574,6 +1654,13 @@ el("tips-close").addEventListener("click", closeOverlays);
 el("status-ctx").addEventListener("click", openContext);
 el("context-close").addEventListener("click", closeOverlays);
 el("context-copy").addEventListener("click", copyContextRemedy);
+el("context-apply").addEventListener("click", applyContextWindow);
+el("context-choice-list").addEventListener("click", (event) => {
+  const button = event.target.closest(".choice");
+  if (!button) return;
+  contextPick = Number(button.dataset.tokens);
+  renderContextChoices();
+});
 el("open-tips").addEventListener("mouseenter", showTipPopup);
 el("open-tips").addEventListener("mouseleave", hideTipPopup);
 el("open-tips").addEventListener("focus", showTipPopup);

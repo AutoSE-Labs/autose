@@ -210,8 +210,13 @@ def test_an_unloaded_model_falls_back_to_ollamas_own_default(monkeypatch):
     assert not tiny.is_context_capped
 
 
-def test_a_capped_window_warns_with_the_command_that_raises_it(monkeypatch):
-    """DR-022: the warning has to be actionable, not merely accurate."""
+def test_ollama_is_asked_for_a_usable_window_instead_of_its_default(monkeypatch):
+    """DR-035: Ollama serves the window a request asks for.
+
+    The model is loaded at Ollama's 4,096 default, which DR-022 used to warn
+    about with a command to restart the server. AutoSE now requests its own
+    window, so there is nothing to restart and nothing to warn about.
+    """
     monkeypatch.setattr(
         "urllib.request.urlopen",
         _serving_routes(
@@ -222,9 +227,12 @@ def test_a_capped_window_warns_with_the_command_that_raises_it(monkeypatch):
         ),
     )
     setup = setup_from_config(AutoSEConfig())
+    assert setup.inference.context_limit == 32768
+    assert setup.model_info is not None
+    assert setup.model_info.context_length == 32768
     joined = " ".join(setup.warnings)
-    assert OLLAMA_CONTEXT_ENV in joined
-    assert "4,096" in joined and "262,144" in joined
+    assert OLLAMA_CONTEXT_ENV not in joined
+    assert "4,096" not in joined
 
 
 def test_a_model_without_the_tools_capability_is_reported_as_unable(monkeypatch):
@@ -398,8 +406,13 @@ def test_an_explicit_zero_reservation_is_still_honoured():
     assert ContextBudget(context_limit=4096, reserved_output_tokens=0).reserved_output_tokens == 0
 
 
-def test_the_doctor_advises_how_to_raise_a_capped_window(monkeypatch):
-    """DR-022: `--doctor` is where a user goes to find out what they have."""
+def test_the_doctor_does_not_advise_restarting_ollama_for_a_window(monkeypatch):
+    """DR-035: AutoSE asks Ollama for its own window on every request.
+
+    The 4,096 the server was started with is not the window AutoSE runs in, so
+    `--doctor` advising a restart to raise it would send the user to change
+    something that has no effect.
+    """
     from logic.diagnostics import diagnose
 
     monkeypatch.setattr(
@@ -414,7 +427,6 @@ def test_the_doctor_advises_how_to_raise_a_capped_window(monkeypatch):
     diagnosis = diagnose(AutoSEConfig())
 
     joined = " ".join(diagnosis.advisories)
-    assert OLLAMA_CONTEXT_ENV in joined
-    assert "4,096" in joined and "262,144" in joined
-    # A capped window is a constraint, not a fault: the setup still works.
+    assert OLLAMA_CONTEXT_ENV not in joined
+    assert "4,096" not in joined
     assert diagnosis.healthy

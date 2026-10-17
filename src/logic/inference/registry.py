@@ -19,6 +19,7 @@ from ..errors import ConfigurationError
 from .base import ChatModel
 from .catalog import ModelCatalog, OpenAICompatibleCatalog
 from .ollama import OLLAMA_DEFAULT_BASE_URL, OllamaCatalog
+from .ollama_chat import OllamaChatModel
 from .openai_compatible import OpenAICompatibleChatModel
 from .settings import DEFAULT_PROVIDER, InferenceSettings
 
@@ -49,6 +50,10 @@ class Provider:
     #: Conventional address, used as the default and when probing (DR-015).
     default_base_url: str = ""
     description: str = ""
+    #: Whether the runtime serves the window a request asks for (DR-035).
+    #: When it does, AutoSE chooses the window instead of inheriting whatever
+    #: the server was started with, and the dashboard can change it.
+    serves_requested_window: bool = False
 
 
 _PROVIDERS: dict[str, Provider] = {}
@@ -108,11 +113,14 @@ def create_model_catalog(settings: InferenceSettings) -> ModelCatalog:
 register_provider(
     Provider(
         name="ollama",
-        chat_model=OpenAICompatibleChatModel,
+        # The native endpoint, because only it honours a per-request window
+        # (DR-035); the OpenAI-compatible one ignores `num_ctx`.
+        chat_model=OllamaChatModel,
         catalog=OllamaCatalog,
         is_local=True,
         default_base_url=OLLAMA_DEFAULT_BASE_URL,
         description="Ollama — local models, native catalog with context length and capabilities",
+        serves_requested_window=True,
     )
 )
 register_provider(

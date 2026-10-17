@@ -31,6 +31,7 @@ Four properties are load-bearing rather than incidental:
 
 from __future__ import annotations
 
+import contextlib
 import queue
 import secrets
 import threading
@@ -53,9 +54,14 @@ from logic.common.events import CallbackEventSink, Event, EventSink
 from logic.config import AutoSEConfig, load_config
 from logic.diagnostics import diagnose
 from logic.errors import AutoSEError, ConfigurationError
-from logic.inference.context_advice import advise_context
+from logic.inference.context_advice import advise_context, window_choices
 from logic.persistence import SESSIONS_DIRECTORY, FileSessionStore, SessionRecord
-from logic.session import Session, SessionSetup, setup_from_config
+from logic.session import (
+    Session,
+    SessionSetup,
+    serves_requested_window,
+    setup_from_config,
+)
 from logic.tiers import SPARK, is_tier
 from logic.workflows import UnavailableTierError
 
@@ -610,15 +616,7 @@ class SessionBridge:
                 "context_limit": session.context_limit(),
                 # DR-034: one verdict about the served window, so the page can
                 # tell a deliberate cap from a window that will hurt.
-                "context_advice": (
-                    advise_context(
-                        session.model_info,
-                        provider=session.inference.provider,
-                        min_usable=MIN_USABLE_CONTEXT_TOKENS,
-                    ).to_dict()
-                    if session.model_info is not None
-                    else None
-                ),
+                "context_advice": _context_payload(session),
                 "model_info": model_payload(session.model_info),
                 "models": [
                     model_payload(info)
@@ -812,6 +810,19 @@ class SessionBridge:
                 self._setup = self._setup.with_model(name)
         return self._broadcast_state()
 
+    def set_context_window(
+        self, tokens: int, *, session_id: str | None = None
+    ) -> dict[str, Any]:
+        """Serve *tokens* from the session's next request on (DR-035)."""
+        with self._lock:
+            live = self._target(session_id)
+            self._require_idle(live)
+            try:
+                live.session.set_context_window(tokens)
+            except AutoSEError as exc:
+                raise BridgeError(str(exc)) from exc
+        return self._broadcast_state()
+
     def request_tier(
         self, tier: str, *, session_id: str | None = None
     ) -> dict[str, Any]:
@@ -897,6 +908,11 @@ class SessionBridge:
             )
         finally:
             self._deny_pending(live, "the task ended before this call was answered")
+            # DR-034/DR-035: how much of the model landed on the GPU at the
+            # window it was just loaded with is only knowable afterwards. A
+            # refresh is a convenience and must never fail a turn.
+            with contextlib.suppress(Exception):
+                session.refresh_model_info()
             with self._lock:
                 live.running = False
                 live.current = None
@@ -1040,3 +1056,26 @@ def _apply_overrides(fresh: AutoSEConfig, previous: AutoSEConfig) -> AutoSEConfi
         auto_approve=True,
         auto_approve_authorized_by=previous.auto_approve_authorized_by,
     )
+
+def _context_payload(session: Session) -> dict[str, Any] | None:
+    """DR-034's verdict plus, where AutoSE chooses the window, DR-035's choices."""
+    info = session.model_info
+    if info is None:
+        return None
+    adjustable = serves_requested_window(session.inference.provider)
+    payload = advise_context(
+        info,
+        provider=session.inference.provider,
+        min_usable=MIN_USABLE_CONTEXT_TOKENS,
+        adjustable=adjustable,
+    ).to_dict()
+    payload["choices"] = (
+        [
+            choice.to_dict()
+            for choice in window_choices(info, min_usable=MIN_USABLE_CONTEXT_TOKENS)
+        ]
+        if adjustable
+        else []
+    )
+    payload["gpu_fraction"] = info.gpu_fraction
+    return payload

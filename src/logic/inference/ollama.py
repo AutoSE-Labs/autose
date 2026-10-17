@@ -25,7 +25,6 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 from .catalog import ModelInfo, fetch_json
-from .openai_compatible import OpenAICompatibleChatModel
 from .settings import InferenceSettings
 
 __all__ = ["OllamaCatalog", "OLLAMA_DEFAULT_BASE_URL", "native_root"]
@@ -190,7 +189,3 @@ def _positive_int(value: Any) -> int | None:
         return None
     return number if number > 0 else None
 
-
-def build_chat_model(settings: InferenceSettings) -> OpenAICompatibleChatModel:
-    """Ollama needs no inference-side special-casing (DR-006)."""
-    return OpenAICompatibleChatModel(settings)
