@@ -762,7 +762,7 @@ function renderStatus() {
     dom.ctxLabel.title = `${formatCount(lastPromptTokens)} of ${formatCount(limit)} tokens last round`;
   } else {
     dom.ctxFill.style.width = "0%";
-    dom.ctxLabel.textContent = limit ? `CTX ${formatCount(limit)}` : "CTX —";
+    dom.ctxLabel.textContent = limit ? `CTX ${formatWindow(limit)}` : "CTX —";
   }
   // DR-034: the mark carries the advice level — calm for a deliberate cap,
   // loud only for a window that will actually hurt.
