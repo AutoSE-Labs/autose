@@ -159,7 +159,6 @@ const dom = {
 
 const overlays = {
   setup: el("setup-overlay"),
-  approval: el("approval-overlay"),
   diff: el("diff-overlay"),
   doctor: el("doctor-overlay"),
   tips: el("tips-overlay"),
@@ -415,6 +414,12 @@ function handleFrame(frame) {
       renderRail();
       break;
     }
+    case "allowances":
+      if (state && isFocused(id)) {
+        state.allowed_tools = frame.tools || [];
+        renderNeedsYou();
+      }
+      break;
     case "event":
       handleEvent(id, frame);
       break;
@@ -891,6 +896,7 @@ function renderStatus() {
 
 function renderRail() {
   renderWaitingCount();
+  renderNeedsYou();
   renderSessionTabs();
   const open = (state && state.open) || [];
   const openIds = new Set(open.map((entry) => entry.session_id));
@@ -1052,6 +1058,7 @@ function renderConversation() {
   history.forEach((turn) => nodes.push(slipNode(turn.prompt), receiptNode(turn)));
   seat.extras.forEach((node) => nodes.push(node));
   if (seat.run) nodes.push(seat.run.slip, seat.run.node);
+  approvalNodes().forEach((node) => nodes.push(node));
   const queued = queueNode();
   if (queued) nodes.push(queued);
   dom.messages.replaceChildren(...nodes);
@@ -1646,33 +1653,75 @@ function failRun(id, title, message) {
 
 /* ---------- approvals (DR-012) ---------- */
 
+/* ---------- approvals, inline (DR-044) ---------- */
+
+/* A call waiting for a decision is a card in the conversation of the session
+ * it belongs to, under the run that asked; every waiting call from every
+ * session is also listed under "Needs you" in the rail. Nothing seizes the
+ * screen: a decision is something to answer, not something to be held by. */
 function renderApproval() {
-  // Only the focused session's decision takes the screen. One arriving in a
-  // session the user is not looking at is announced in the rail instead —
-  // seizing the window would undo the whole point of running two things.
-  const request = approvals.find((item) => item.session === focusId());
-  overlays.approval.hidden = !request;
+  renderConversation();
+  renderNeedsYou();
   renderStatus();
-  if (!request) return;
-  const args = request.arguments || {};
+}
+
+/* Cards are kept by id and reused across repaints: the conversation is
+ * rebuilt on many frames, and a fresh card would drop a half-typed reason. */
+const approvalCards = new Map();
+
+function approvalNodes() {
+  const waiting = new Set(approvals.map((item) => item.id));
+  Array.from(approvalCards.keys()).forEach((id) => {
+    if (!waiting.has(id)) approvalCards.delete(id);
+  });
   const mine = approvals.filter((item) => item.session === focusId());
-  el("approval-title").textContent = `Run ${request.tool}?`;
-  el("approval-lede").textContent = approvalLede(request.tool);
-  el("approval-args").textContent = Object.keys(args).length
-    ? Object.entries(args)
-      .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
-      .join("\n")
-    : request.summary;
-  const more = el("approval-more");
-  const elsewhere = approvals.length - mine.length;
-  const notes = [
-    mine.length > 1 ? `${mine.length - 1} more call(s) waiting behind this one` : "",
-    elsewhere ? `${elsewhere} call(s) waiting in other sessions` : "",
-  ].filter(Boolean);
-  more.hidden = !notes.length;
-  more.textContent = notes.join(" · ");
-  el("approval-reason").value = "";
-  el("approval-allow").focus();
+  if (!mine.length) return [];
+  const nodes = mine.map((request) => {
+    if (approvalCards.has(request.id)) return approvalCards.get(request.id);
+    const node = document.createElement("section");
+    node.className = "approval-card";
+    node.dataset.approval = request.id;
+    const args = request.arguments || {};
+    const shown = Object.keys(args).length
+      ? Object.entries(args)
+        .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
+        .join("\n")
+      : request.summary;
+    node.innerHTML =
+      `<div class="approval-head"><span class="eyebrow"><span class="tick"></span>Waiting on you</span>` +
+      `<strong>${escapeHtml(approvalQuestion(request.tool))}</strong></div>` +
+      `<p class="approval-lede">${escapeHtml(approvalLede(request.tool))}</p>` +
+      `<pre class="approval-args"><code>${escapeHtml(shown)}</code></pre>` +
+      `<input type="text" class="approval-reason" placeholder="Refuse with a reason — it goes back to the model (optional)" data-reason-for="${escapeHtml(request.id)}" />` +
+      `<div class="approval-actions">` +
+      `<button type="button" class="ghost-button small" data-decide="deny" data-id="${escapeHtml(request.id)}">Refuse</button>` +
+      `<button type="button" class="ghost-button small" data-decide="session" data-id="${escapeHtml(request.id)}" title="Run this call, and every later ${escapeHtml(request.tool)} call in this session, without asking">Allow ${escapeHtml(humanize(String(request.tool || "")))} for this session</button>` +
+      `<button type="button" class="primary-button small" data-decide="once" data-id="${escapeHtml(request.id)}">Run it once</button>` +
+      `</div>`;
+    approvalCards.set(request.id, node);
+    return node;
+  });
+  if (mine.length > 1) {
+    const bulk = document.createElement("div");
+    bulk.className = "approval-bulk";
+    bulk.innerHTML =
+      `<span>${mine.length} calls are waiting in this session.</span>` +
+      `<button type="button" class="ghost-button small" data-decide-all="deny">Refuse all</button>` +
+      `<button type="button" class="primary-button small" data-decide-all="once">Run all once</button>`;
+    nodes.unshift(bulk);
+  }
+  return nodes;
+}
+
+function approvalQuestion(tool) {
+  const questions = {
+    run_command: "Run this command?",
+    fetch_url: "Fetch this page?",
+    web_search: "Search the web for this?",
+    write_file: "Write this file?",
+    edit_file: "Make this edit?",
+  };
+  return questions[tool] || `Allow ${humanize(String(tool || "this call"))}?`;
 }
 
 function approvalLede(tool) {
@@ -1681,21 +1730,60 @@ function approvalLede(tool) {
   return "This changes a file in your workspace.";
 }
 
-async function resolveApproval(approved) {
-  const request = approvals.find((item) => item.session === focusId());
+async function decide(id, choice) {
+  const request = approvals.find((item) => item.id === id);
   if (!request) return;
-  const reason = el("approval-reason").value.trim();
-  overlays.approval.hidden = true;
+  const input = document.querySelector(`[data-reason-for="${CSS.escape(id)}"]`);
+  const reason = input ? input.value.trim() : "";
+  const approved = choice !== "deny";
+  // Answered optimistically: the card goes now, and comes back only if the
+  // server says the call was no longer waiting.
+  approvals = approvals.filter((item) => item.id !== id);
+  renderApproval();
   try {
-    await api("/api/approval", { id: request.id, approved, reason });
+    await api("/api/approval", { id, approved, reason, scope: choice === "session" ? "session" : "once" });
+    if (choice === "session") toast(`${humanize(String(request.tool))} will run without asking for the rest of this session.`, "good");
   } catch (error) {
-    // The server refuses an approval it is no longer holding — answered in
-    // another tab, or timed out while this one was deciding. Drop it rather
-    // than leaving a decision on screen that nothing is waiting on.
-    approvals = approvals.filter((item) => item.id !== request.id);
     toast(String(error.message || error), "bad");
-    renderApproval();
   }
+}
+
+/* The rail's "Needs you": every waiting call, from every session, plus held
+ * queues; and what this session runs without asking. */
+function renderNeedsYou() {
+  const box = el("needs-you");
+  if (!box) return;
+  const open = (state && state.open) || [];
+  const title = (id) => {
+    const entry = open.find((item) => item.session_id === id);
+    return entry ? entry.title : shortId(id);
+  };
+  const rows = approvals.map(
+    (item) =>
+      `<button type="button" class="needs-row" data-focus="${escapeHtml(item.session)}">` +
+      `<span class="needs-kind">approve</span><span class="needs-text">${escapeHtml(humanize(String(item.tool || "")))}: ${escapeHtml(elideMiddle(String(item.summary || ""), 40))}</span>` +
+      `<small>${escapeHtml(title(item.session))}</small></button>`
+  );
+  open
+    .filter((entry) => entry.queue_held && entry.queued)
+    .forEach((entry) =>
+      rows.push(
+        `<button type="button" class="needs-row" data-focus="${escapeHtml(entry.session_id)}">` +
+        `<span class="needs-kind">queue held</span><span class="needs-text">${entry.queued} request(s) wait to be resumed</span>` +
+        `<small>${escapeHtml(entry.title)}</small></button>`
+      )
+    );
+  const allowed = (state && state.allowed_tools) || [];
+  const allowances = allowed.length
+    ? `<div class="needs-allowed"><span>Runs without asking here:</span>` +
+      allowed
+        .map((tool) => `<button type="button" class="allow-chip" data-revoke="${escapeHtml(tool)}" title="Ask again before every ${escapeHtml(tool)} call">${escapeHtml(humanize(tool))} ×</button>`)
+        .join("") +
+      `</div>`
+    : "";
+  box.hidden = !rows.length && !allowances;
+  box.innerHTML =
+    (rows.length ? `<div class="needs-head">Needs you · ${rows.length}</div>` + rows.join("") : "") + allowances;
 }
 
 /* ---------- overlays ---------- */
@@ -2133,8 +2221,15 @@ el("setup-retry").addEventListener("click", () => post("/api/reload", {}));
 el("doctor-refresh").addEventListener("click", openDoctor);
 el("diff-close").addEventListener("click", closeOverlays);
 el("doctor-close").addEventListener("click", closeOverlays);
-el("approval-allow").addEventListener("click", () => resolveApproval(true));
-el("approval-deny").addEventListener("click", () => resolveApproval(false));
+el("needs-you").addEventListener("click", (event) => {
+  const revoke = event.target.closest("[data-revoke]");
+  if (revoke) {
+    post("/api/allowances", { action: "revoke", tool: revoke.dataset.revoke, session: focusId() }, "It will ask again.");
+    return;
+  }
+  const row = event.target.closest("[data-focus]");
+  if (row && row.dataset.focus !== focusId()) post("/api/session", { action: "focus", id: row.dataset.focus });
+});
 
 /* One undo for the diff popup and the Changes tab: both revert the most
  * recent turn that wrote, and only that one (DR-024). */
@@ -2164,7 +2259,7 @@ dom.messages.addEventListener("click", (event) => {
   // place, so the <details> element survives a paint and the browser keeps its
   // own open state.
   const target = event.target.closest(
-    "[data-starter], [data-expand], [data-open-diff], [data-stop], [data-details], [data-queue]"
+    "[data-starter], [data-expand], [data-open-diff], [data-stop], [data-details], [data-queue], [data-decide], [data-decide-all]"
   );
   if (!target) return;
   if (target.dataset.starter !== undefined) {
@@ -2180,6 +2275,12 @@ dom.messages.addEventListener("click", (event) => {
     openDiff();
   } else if (target.dataset.stop) {
     requestStop();
+  } else if (target.dataset.decide) {
+    decide(target.dataset.id, target.dataset.decide);
+  } else if (target.dataset.decideAll) {
+    approvals
+      .filter((item) => item.session === focusId())
+      .forEach((item) => decide(item.id, target.dataset.decideAll));
   } else if (target.dataset.queue) {
     const body = { action: target.dataset.queue, session: focusId() };
     if (target.dataset.id) body.id = target.dataset.id;
@@ -2287,7 +2388,6 @@ dom.sessionList.addEventListener("click", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  if (!overlays.approval.hidden) return; // an approval is answered, not dismissed
   closeOverlays();
 });
 

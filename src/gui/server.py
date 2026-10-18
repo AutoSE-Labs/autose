@@ -194,6 +194,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         writers = {
             "/api/prompt": self._prompt,
+            "/api/allowances": self._allowances,
             "/api/queue": self._queue,
             "/api/interrupt": self._interrupt,
             "/api/approval": self._approval,
@@ -247,7 +248,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             identifier,
             approved=bool(body.get("approved")),
             reason=str(body.get("reason") or ""),
+            scope=str(body.get("scope") or "once"),
         )
+
+    def _allowances(self, body: dict[str, Any]) -> dict[str, Any]:
+        tool = str(body.get("tool") or "").strip()
+        if not tool:
+            raise BridgeError("which tool? a name is required")
+        if body.get("action") != "revoke":
+            raise BridgeError("the only allowance action is revoke")
+        return self._bridge.revoke_allowance(tool, session_id=_session_of(body))
 
     def _model(self, body: dict[str, Any]) -> dict[str, Any]:
         name = str(body.get("model") or "").strip()
