@@ -118,10 +118,12 @@
   --paper: #11111b;       /* crust */
   --sheet: #1e1e2e;       /* base */
   --sheet-2: #181825;     /* mantle */
-  --grid: rgba(180, 190, 254, 0.035);
-  --grid-2: rgba(180, 190, 254, 0.07);
-  --edge: #313244;        /* surface0 */
-  --edge-2: #45475a;      /* surface1 */
+  --grid: transparent;    /* no drafting grid at night: surfaces do the work */
+  --grid-2: transparent;
+  --edge: transparent;    /* no lines at night: surfaces separate things */
+  --edge-2: transparent;
+  --surface0: #313244;
+  --surface1: #45475a;
   --pencil: #585b70;      /* surface2 */
   --pen: #89b4fa;         /* blue */
   --pen-deep: #b4befe;    /* lavender */
@@ -143,9 +145,10 @@
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 36px -16px rgba(0, 0, 0, 0.85);
   --scrim: rgba(17, 17, 27, 0.66);
   --night: rgba(0, 0, 0, 0.28);
-  --frame: #45475a;       /* surface1 */
-  --frame-rule: rgba(180, 190, 254, 0.12);
-  --stack: #0a0a12;
+  --frame: transparent;
+  --frame-rule: transparent;
+  --stack: transparent;
+  --panel: #181825;       /* mantle: the rails and the request box */
   --cursor-fill: #cdd6f4;
   --cursor-ring: #89b4fa;
   color-scheme: dark;
@@ -2565,11 +2568,12 @@ select {
 }
 
 .req-step {
-  padding: 2px 7px;
+  padding: 2px 8px;
+  border-radius: 999px;
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--tone);
-  border: 1px solid var(--tone);
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
 }
 
 .req-arrow {
@@ -4735,6 +4739,152 @@ select {
   .session-rename {
     opacity: 1;
   }
+}
+
+/* ---------- dark: surfaces, not lines (Catppuccin Mocha) ----------
+ * On paper an inked frame separates a sheet; on a dark page lines read as
+ * noise. At night there are no borders: the page is Crust, the rails and the
+ * request box Mantle, cards and run sheets Base, and controls are filled with
+ * Surface0 instead of outlined. What stays drawn carries meaning: the moving
+ * outline of a question, the verdict stamp, the check balloons, the route. */
+
+:root[data-theme="dark"] .rail,
+:root[data-theme="dark"] .inspector,
+:root[data-theme="dark"] .section-rail,
+:root[data-theme="dark"] .composer {
+  background: var(--panel);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .work-card,
+:root[data-theme="dark"] .queue-strip,
+:root[data-theme="dark"] .plan-card,
+:root[data-theme="dark"] .composer,
+:root[data-theme="dark"] .composer:has(textarea:focus-visible),
+:root[data-theme="dark"] .title-block,
+:root[data-theme="dark"] .needs-you,
+:root[data-theme="dark"] .greeting,
+:root[data-theme="dark"] .tier-badge,
+:root[data-theme="dark"] .req,
+:root[data-theme="dark"] .verdict,
+:root[data-theme="dark"] .allowed-add,
+:root[data-theme="dark"] .inbox-item.plan,
+:root[data-theme="dark"] .inbox-item.queue,
+:root[data-theme="dark"] .overlay-panel {
+  border-color: transparent;
+}
+
+:root[data-theme="dark"] .work-card,
+:root[data-theme="dark"] .queue-strip,
+:root[data-theme="dark"] .plan-card {
+  box-shadow: 0 12px 32px -20px rgba(0, 0, 0, 0.9);
+}
+
+/* The run in progress glows faintly instead of being outlined. */
+:root[data-theme="dark"] .work-card:not(.done):not(.failed):not(.stopped) {
+  box-shadow: 0 0 0 1px rgba(137, 180, 250, 0.18), 0 12px 32px -20px rgba(0, 0, 0, 0.9);
+}
+
+:root[data-theme="dark"] .composer:has(textarea:focus-visible) {
+  box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.35);
+}
+
+:root[data-theme="dark"] .overlay-panel {
+  box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.8);
+}
+
+:root[data-theme="dark"] .title-block,
+:root[data-theme="dark"] .needs-you,
+:root[data-theme="dark"] .greeting,
+:root[data-theme="dark"] .allowed-add {
+  background: var(--panel);
+}
+
+:root[data-theme="dark"] .req,
+:root[data-theme="dark"] .verdict,
+:root[data-theme="dark"] .allowed-row,
+:root[data-theme="dark"] .inbox-item.plan,
+:root[data-theme="dark"] .inbox-item.queue,
+:root[data-theme="dark"] .diff-file,
+:root[data-theme="dark"] .files-editor {
+  background: var(--sheet);
+  border-radius: 10px;
+}
+
+/* Controls are filled, not outlined. */
+:root[data-theme="dark"] .ghost-button,
+:root[data-theme="dark"] .inline-button,
+:root[data-theme="dark"] .card-details,
+:root[data-theme="dark"] .card-stop,
+:root[data-theme="dark"] .allow-chip,
+:root[data-theme="dark"] .starter-chip,
+:root[data-theme="dark"] .tier-switch,
+:root[data-theme="dark"] .presence,
+:root[data-theme="dark"] .diff-top select,
+:root[data-theme="dark"] .diff-files input,
+:root[data-theme="dark"] .allowed-add select,
+:root[data-theme="dark"] .allowed-add input,
+:root[data-theme="dark"] .approval-reason,
+:root[data-theme="dark"] .plan-input,
+:root[data-theme="dark"] .prose code,
+:root[data-theme="dark"] .diff-keys kbd {
+  border-color: transparent;
+  background: var(--surface0);
+}
+
+:root[data-theme="dark"] .ghost-button:hover:not(:disabled),
+:root[data-theme="dark"] .inline-button:hover,
+:root[data-theme="dark"] .card-details:hover,
+:root[data-theme="dark"] .allow-chip:hover,
+:root[data-theme="dark"] .starter-chip:hover {
+  border-color: transparent;
+  background: var(--surface1);
+}
+
+:root[data-theme="dark"] .card-stop:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--red-soft);
+}
+
+:root[data-theme="dark"] .tier-switch button[aria-pressed="true"] {
+  background: var(--surface1);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .stop-button,
+:root[data-theme="dark"] [data-decide="deny"],
+:root[data-theme="dark"] [data-decide-all="deny"] {
+  border-color: transparent;
+  background: var(--red-soft);
+}
+
+:root[data-theme="dark"] .stop-button:hover:not(:disabled),
+:root[data-theme="dark"] [data-decide="deny"]:hover {
+  border-color: transparent;
+  background: #4a2a3b;
+}
+
+:root[data-theme="dark"] .tb-cell,
+:root[data-theme="dark"] .revision-block th,
+:root[data-theme="dark"] .revision-block td {
+  border-color: transparent;
+}
+
+:root[data-theme="dark"] .revision-block tbody tr:nth-child(odd) td {
+  background: rgba(205, 214, 244, 0.03);
+}
+
+:root[data-theme="dark"] .sheet-row:hover {
+  background: var(--sheet);
+}
+
+:root[data-theme="dark"] .sheet-row.active {
+  background: var(--sheet);
+  box-shadow: inset 3px 0 0 var(--pen);
+}
+
+:root[data-theme="dark"] .section-button.on {
+  background: var(--sheet);
 }
 
 /* ---------- life: small signs of what is going on (life.js) ---------- */

@@ -1,0 +1,24 @@
+diff a/src/gui/static/app.js b/src/gui/static/app.js	(rejected hunks)
+@@ -3173,6 +3173,22 @@ document.addEventListener("visibilitychange", () => {
+   if (!document.hidden) refreshState();
+ });
+ 
++/* A click on the dimmed backdrop, outside the panel, closes the window.
++ * Setup is the exception: it has to be finished, not dismissed. A press
++ * that starts inside the panel (selecting text) and ends outside does not
++ * count. */
++let backdropPress = null;
++document.querySelectorAll(".overlay").forEach((overlay) => {
++  if (overlay === overlays.setup) return;
++  overlay.addEventListener("pointerdown", (event) => {
++    backdropPress = event.target === overlay ? overlay : null;
++  });
++  overlay.addEventListener("click", (event) => {
++    if (event.target === overlay && backdropPress === overlay) overlay.hidden = true;
++    backdropPress = null;
++  });
++});
++
+ /* ---------- resizable panels ---------- */
+ 
+ /* The sessions panel and the details panel take the width you drag them to,
