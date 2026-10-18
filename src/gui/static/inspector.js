@@ -11,9 +11,9 @@
  */
 
 const INSPECTOR_TABS = [
-  { id: "activity", label: "Activity" },
-  { id: "requirements", label: "Requirements" },
-  { id: "changes", label: "Changes" },
+  { id: "requirements", label: "Checks" },
+  { id: "activity", label: "Steps" },
+  { id: "changes", label: "Revisions" },
   { id: "usage", label: "Usage" },
 ];
 
@@ -169,7 +169,7 @@ function requirementsPanelMarkup(view) {
 
   const journey = view.journey || [];
   const rows = view.requirements
-    .map((item) => {
+    .map((item, index) => {
       const trail = journey
         .map((step) => {
           const status = step.statuses[item.id];
@@ -180,7 +180,7 @@ function requirementsPanelMarkup(view) {
         .join(`<span class="req-arrow">→</span>`);
       return (
         `<div class="req tone-${requirementTone(item.status)}">` +
-        `<div class="req-head">${reqStampMarkup(item)}` +
+        `<div class="req-head">${reqStampMarkup(item, index)}` +
         `<span class="req-desc">${escapeHtml(item.description)}</span>` +
         `<span class="req-status">${escapeHtml(item.status)}</span></div>` +
         (trail ? `<div class="req-trail">${trail}</div>` : "") +
@@ -193,9 +193,9 @@ function requirementsPanelMarkup(view) {
 }
 
 /* The requirement's stamp, small, in place of its bare ID. */
-function reqStampMarkup(item) {
+function reqStampMarkup(item, index) {
   const known = STAMP_SHAPES[item.status] || { shape: "open", word: String(item.status || "").toLowerCase() };
-  return `<span class="stamp stamp-mini stamp-${known.shape}" title="${escapeHtml(item.id)} ${escapeHtml(known.word)}"><span class="stamp-id">${escapeHtml(item.id)}</span></span>`;
+  return `<span class="balloon ${known.shape}" title="${escapeHtml(item.id)}: ${escapeHtml(known.word)}">${index + 1}</span>`;
 }
 
 /* ---------- changes (DR-040) ---------- */

@@ -11,156 +11,126 @@
 </head>
 
 <body>
-  <div class="blueprint-grid" aria-hidden="true"></div>
+  <!-- The nib: AutoSE's draftsman. One drawing, a few poses. -->
+  <svg width="0" height="0" class="defs" aria-hidden="true">
+    <defs>
+      <symbol id="nib" viewBox="0 0 40 48">
+        <path d="M12 4h16v14l-4 4H16l-4-4z" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+        <path d="M16 22l4 16 4-16" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+        <path d="M20 30v8" stroke="currentColor" stroke-width="1.6" />
+        <circle cx="17" cy="11" r="1.9" fill="currentColor" />
+        <circle cx="23" cy="11" r="1.9" fill="currentColor" />
+        <path d="M17 15.5q3 2 6 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </symbol>
+      <symbol id="nib-sleep" viewBox="0 0 40 48">
+        <rect x="11" y="2" width="18" height="14" rx="3" fill="currentColor" opacity="0.18" stroke="currentColor" stroke-width="2" />
+        <path d="M12 16h16v4l-4 4H16l-4-4z" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+        <path d="M16 20q1.5 1.2 3 0M21 20q1.5 1.2 3 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </symbol>
+    </defs>
+  </svg>
 
   <div class="app-shell rail-open" id="app-shell">
-    <aside class="rail" id="rail" aria-label="Sessions">
-      <div class="rail-head"><span class="eyebrow"><span class="tick"></span>Sessions</span></div>
-      <button id="new-session" class="new-task-button" type="button">+ New session</button>
-      <!-- DR-044: everything waiting on the person, from every session. -->
-      <section class="needs-you" id="needs-you" aria-label="Waiting for you" hidden></section>
-      <div class="session-list" id="session-list"></div>
-      <div class="rail-foot">
-        <button class="rail-link" id="open-settings" type="button">Providers &amp; keys</button>
-        <button class="rail-link" id="open-automation" type="button">Schedules &amp; watchers</button>
-        <button class="rail-link" id="open-doctor" type="button">Machine check</button>
-      </div>
-    </aside>
-
     <header class="app-header">
-      <button id="toggle-rail" class="icon-button" type="button" aria-label="Show or hide the sessions"
-        title="Show or hide the sessions">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
-          stroke-width="1.5">
-          <path d="M2 4.5h12M2 8h12M2 11.5h7" />
-        </svg>
+      <button id="toggle-rail" class="icon-button phone-only" type="button" aria-label="Show or hide the sheets"
+        title="Show or hide the sheets"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h14M3 10h14M3 15h9"/></svg></button>
+      <span class="brand"><svg class="brand-nib" aria-hidden="true"><use href="#nib" /></svg><span class="brand-name">AutoSE</span></span>
+
+      <div class="presence" id="presence" aria-live="polite">
+        <span class="presence-dot"></span><span id="presence-text">Connecting</span>
+      </div>
+
+      <!-- Context as an engineer's scale filling with ink (DR-034). -->
+      <button class="ctx-scale" id="status-ctx" type="button"
+        title="How full the context window was last round. Click for what the window means here">
+        <span class="lbl">Context</span>
+        <span class="ctx-ruler" aria-hidden="true"><span class="ctx-fill" id="ctx-fill"></span><span class="ctx-ticks"></span></span>
+        <em id="ctx-label">—</em>
+        <span class="ctx-mark" id="ctx-mark" aria-hidden="true"></span>
       </button>
-      <span class="brand"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Auto<span
-            class="brand-accent">SE</span></span></span>
 
-      <label class="header-field" title="How much process a request gets: answer directly, or plan, make the change and check it. Auto picks per request.">
-        <span class="eyebrow">Tier</span>
-        <select id="tier-select"></select>
-      </label>
-      <label class="header-field" title="The model AutoSE thinks with">
-        <span class="eyebrow">Model</span>
-        <select id="model-select"></select>
+      <label class="machine" id="status-model" title="The model AutoSE thinks with">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="10" rx="2"/><path d="M7 17h6M10 14v3"/></svg>
+        <span class="sr-only" id="model-label">—</span>
+        <select id="model-select" aria-label="Model"></select>
       </label>
 
-      <button id="toggle-notify" class="icon-button push-right" type="button" aria-pressed="false"
-        aria-label="Desktop notifications" title="Notify me when something waits for me">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
-          stroke-width="1.3">
-          <path d="M4 11V7a4 4 0 0 1 8 0v4l1.2 1.5H2.8z" />
-          <path d="M6.5 13.5a1.6 1.6 0 0 0 3 0" />
+      <span class="local-pill" id="status-stamp" title="Where this runs, and what it will do without asking">Local · no cloud</span>
+
+      <button id="toggle-notify" class="icon-button" type="button" aria-pressed="false" aria-label="Desktop notifications"
+        title="Notify me when something waits for me">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">
+          <path d="M4 11V7a4 4 0 0 1 8 0v4l1.2 1.5H2.8z" /><path d="M6.5 13.5a1.6 1.6 0 0 0 3 0" />
           <path class="notify-off-mark" d="M2.5 2.5l11 11" />
         </svg>
       </button>
-      <button id="open-settings-header" class="icon-button" type="button"
-        aria-label="Settings: providers, keys and models" title="Settings: providers, keys and models">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
-          stroke-width="1.3">
-          <circle cx="8" cy="8" r="2.3" />
-          <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
-        </svg>
-      </button>
-      <button id="toggle-inspector" class="icon-button" type="button"
-        aria-label="Show or hide the inspector" title="Show or hide the inspector (every step, in full)">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
-          stroke-width="1.4">
-          <rect x="1.5" y="2.5" width="13" height="11" />
-          <path d="M10 2.5v11" />
-        </svg>
-      </button>
-      <button id="open-diff" class="icon-button" type="button" aria-label="Review file changes"
-        title="Review what it changed">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
-          stroke-width="1.5">
-          <path d="M4 2.75h5.5L12 5.25v8H4z" />
-          <path d="M5.75 8.5h4.5M8 6.25v4.5" />
-        </svg>
-      </button>
-      <button id="clear-history" class="icon-button" type="button" aria-label="Clear history"
-        title="Clear history (files stay)">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
-          stroke-width="1.5">
-          <path d="M3 5.5h10M6.25 5.5V3.75h3.5V5.5M4.5 5.5l.6 7.75h5.8l.6-7.75" />
-        </svg>
-      </button>
+      <button id="toggle-theme" class="icon-button" type="button" aria-label="Switch between drafting paper and cyanotype"
+        title="Drafting paper or cyanotype"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11.5A6.5 6.5 0 0 1 8.5 4a6.5 6.5 0 1 0 7.5 7.5z"/></svg></button>
+      <button id="toggle-inspector" class="icon-button" type="button" aria-label="Show or hide the details panel"
+        title="Show or hide the details panel"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M12.5 3.5v13"/></svg></button>
     </header>
 
+    <!-- Sections: everything that is not a run. -->
+    <nav class="section-rail" aria-label="Sections">
+      <button class="section-button on" type="button" aria-label="Sheets" title="Sheets"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="12" height="14" rx="1.5"/><path d="M7 7h6M7 10h6M7 13h3"/></svg></button>
+      <button class="section-button" id="open-automation" type="button" aria-label="Schedules and watchers" title="Schedules and watchers"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l3 2"/></svg></button>
+      <button class="section-button" id="open-diff" type="button" aria-label="What it changed" title="What it changed"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h7l3 3v11H5z"/><path d="M8 11h4M10 9v4"/></svg></button>
+      <span class="section-sep" aria-hidden="true"></span>
+      <button class="section-button" id="open-doctor" type="button" aria-label="Machine check" title="Machine check"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h3l2-5 4 10 2-5h3"/></svg></button>
+      <button class="section-button" id="open-settings" type="button" aria-label="Providers and keys" title="Providers and keys"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/></svg></button>
+      <button class="section-button" id="open-settings-header" type="button" aria-label="Settings" title="Settings" hidden><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.5"/></svg></button>
+      <button class="section-button" id="clear-history" type="button" aria-label="Clear history" title="Clear history (files stay)"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4h4v2M6 6l.7 10h6.6L14 6"/></svg></button>
+      <button class="section-button push-down" id="open-tips" type="button" aria-label="Tips" aria-describedby="tip-popup" title="Tips"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5a5 5 0 0 0-2.9 9.1c.6.4.7.9.7 1.3v.9h4.4v-.9c0-.4.1-.9.7-1.3A5 5 0 0 0 10 2.5z"/><path d="M8 16.5h4"/></svg></button>
+    </nav>
+
+    <!-- The sheet set: every session, open and stored. -->
+    <aside class="rail" id="rail" aria-label="Sheets">
+      <div class="rail-head">
+        <h2>Sheets</h2>
+        <button id="new-session" class="new-sheet" type="button">+ Fresh sheet</button>
+      </div>
+      <!-- DR-044: standing orders, what runs without asking here. -->
+      <section class="needs-you" id="needs-you" aria-label="Standing orders" hidden></section>
+      <div class="session-list" id="session-list"></div>
+    </aside>
+
     <div class="main-column">
-      <!-- Pre-flight problems that will break every run until they are fixed
-           (a too-small context window, a model with no tool calling). A toast
-           is the wrong shape for these: they are not events, they are the
-           standing state of the machine, and they outlive any one turn. -->
-      <!-- DR-042: the open sessions as tabs, where the eye already is. -->
-      <nav class="session-tabs" id="session-tabs" aria-label="Open sessions"></nav>
       <div class="setup-warnings" id="setup-warnings" role="status" hidden></div>
       <section class="conversation" id="conversation">
         <div class="conversation-inner" id="messages"></div>
       </section>
 
-      <div class="jump-wrap"><button id="jump-latest" class="jump-latest" type="button" hidden>↓ Jump to the
-          latest</button></div>
+      <div class="jump-wrap"><button id="jump-latest" class="jump-latest" type="button" hidden>↓ Jump to the latest</button></div>
 
       <section class="composer-area" aria-label="New request">
-        <div class="composer cropped" id="composer">
-          <div class="composer-label"><span class="eyebrow"><span class="tick"></span>New request</span></div>
+        <div class="composer" id="composer">
           <textarea id="prompt" rows="2" spellcheck="true" aria-label="Describe your request"
-            placeholder="Describe a change, or ask about this workspace."></textarea>
+            placeholder="Describe a change, and I'll draw up a plan"></textarea>
           <div class="composer-foot">
+            <div class="tier-switch" id="tier-select" role="group" aria-label="Tier"></div>
             <!-- DR-045: stop after the plan, before anything is changed. -->
-            <label class="plan-review-toggle" title="Craft and Forge stop after planning so you can approve, change or edit the plan before any file is touched">
-              <input type="checkbox" id="review-plans" /> Review plan first
+            <label class="switch" title="Craft and Forge stop after planning so you can approve, change or edit the plan before any file is touched">
+              <input type="checkbox" id="review-plans" /><span class="switch-track" aria-hidden="true"></span>Review the plan
             </label>
-            <span class="composer-hint" id="composer-hint">ENTER ↵ STARTS · SHIFT+ENTER FOR A NEW LINE</span>
-            <!-- DR-030: nothing caps a run any more, so stopping it is a
-                   first-class control, not a page reload. -->
+            <span class="composer-hint" id="composer-hint">Enter starts · Shift+Enter for a new line</span>
             <button id="stop-button" class="send-button stop-button" type="button" hidden
               title="Stop after the current step, keeping everything produced so far">Stop</button>
-            <button id="send-button" class="send-button" type="button">Start work</button>
+            <button id="send-button" class="send-button" type="button">Start</button>
           </div>
         </div>
       </section>
     </div>
 
-    <!-- DR-037: the run in full, beside the conversation. -->
-    <aside class="inspector" id="inspector" aria-label="Inspector">
+    <!-- DR-037: the run in full: checks, revisions, steps, usage. -->
+    <aside class="inspector" id="inspector" aria-label="Details">
       <div class="inspector-tabs" id="inspector-tabs" role="tablist"></div>
       <div class="inspector-body" id="inspector-body"></div>
     </aside>
 
-    <footer class="status-bar">
-      <div class="presence status-cell" id="presence" aria-live="polite">
-        <span class="presence-dot"></span>
-        <span id="presence-text">Connecting</span>
-      </div>
-      <span class="status-cell" id="status-model">MODEL <em id="model-label">—</em></span>
-      <span class="status-cell" id="status-dir" title="The workspace AutoSE reads and writes">DIR <em
-          id="dir-label">—</em></span>
-      <span class="status-cell" id="status-session">SESSION <em id="session-label">—</em></span>
-      <span class="status-cell status-right" id="status-tokens"
-        title="Tokens this session, counted as they are spent">
-        TOKENS <em id="tokens-label">0</em>
-      </span>
-      <button class="status-cell ctx-cell" id="status-ctx" type="button"
-        title="How full the context window was last round — click for what the window means here">
-        <span class="ctx-meter" aria-hidden="true"><span class="ctx-fill" id="ctx-fill"></span></span>
-        <em id="ctx-label">CTX —</em>
-        <span class="ctx-mark" id="ctx-mark" aria-hidden="true"></span>
-      </button>
-      <span class="status-cell status-stamp" id="status-stamp"
-        title="Where this runs, and what it will do without asking">LOCAL / NO CLOUD</span>
-      <button id="open-tips" class="tip-button" type="button" aria-label="Tips for using AutoSE"
-        aria-describedby="tip-popup">
-        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor"
-          stroke-width="1.3">
-          <path d="M8 1.5a4 4 0 0 0-2.3 7.27c.45.33.55.7.55 1.03v.7h3.5v-.7c0-.33.1-.7.55-1.03A4 4 0 0 0 8 1.5Z" />
-          <path d="M6.25 12.75h3.5M6.75 14.25h2.5" />
-        </svg>
-      </button>
-    </footer>
+    <!-- Kept for the script; shown in the run's title block instead. -->
+    <div class="sr-only" aria-hidden="true">
+      <span id="dir-label">—</span><span id="session-label">—</span><span id="tokens-label">0</span>
+    </div>
   </div>
 
   <div class="tip-popup" id="tip-popup" role="tooltip" hidden>

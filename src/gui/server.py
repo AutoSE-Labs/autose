@@ -66,6 +66,12 @@ _ASSETS: dict[str, tuple[str, str]] = {
         "fonts/ibm-plex-mono-latin-400-normal.woff2", "font/woff2"),
     "/fonts/allerta-stencil-latin-400-normal.woff2": (
         "fonts/allerta-stencil-latin-400-normal.woff2", "font/woff2"),
+    "/fonts/atkinson-hyperlegible-latin-400-normal.woff2": (
+        "fonts/atkinson-hyperlegible-latin-400-normal.woff2", "font/woff2"),
+    "/fonts/atkinson-hyperlegible-latin-700-normal.woff2": (
+        "fonts/atkinson-hyperlegible-latin-700-normal.woff2", "font/woff2"),
+    "/fonts/architects-daughter-latin-400-normal.woff2": (
+        "fonts/architects-daughter-latin-400-normal.woff2", "font/woff2"),
 }
 
 #: A prompt is prose and an approval is a sentence; nothing this API accepts is

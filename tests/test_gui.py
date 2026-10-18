@@ -793,7 +793,7 @@ def test_the_page_offers_two_ways_to_stop_a_run():
     # request instead (DR-042).
     assert script.count("requestStop()") >= 2
     assert "/api/interrupt" in script
-    assert 'state.running ? "Queue" : "Start work"' in script
+    assert 'state.running ? "Queue" : "Start"' in script
     assert "dom.send.disabled = !state.ready;" in script
 
 

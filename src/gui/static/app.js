@@ -76,7 +76,7 @@ const TIPS = [
   },
   {
     title: "Starter chips fill the box; they do not send",
-    text: "A chip on the first screen fills the request box. Edit it, then press Start work.",
+    text: "A chip on the first screen fills the request box. Edit it, then press Start.",
   },
   {
     title: "Tier and model are per session",
@@ -464,6 +464,11 @@ function handleFrame(frame) {
   }
 }
 
+/* Deltas of a stream: not progress in their own right. */
+const STREAM_EVENTS = new Set(["stage_output_delta", "agent_reasoning_delta", "round_usage"]);
+/* Steps worth a drop of ink on the route. */
+const STEP_EVENTS = new Set(["tool_called", "tool_completed", "stage_started", "stage_finished", "validation_verdict", "approval_resolved"]);
+
 function handleEvent(id, frame) {
   const data = frame.data || {};
   const run = desk(id).run;
@@ -481,6 +486,12 @@ function handleEvent(id, frame) {
     // Events that belong to a turn we are not tracking (another tab started
     // it, or this one reloaded); the next state frame will catch us up.
     return;
+  }
+  if (run && !STREAM_EVENTS.has(frame.event)) {
+    // Anything but a streamed token counts as progress: what "slow" is
+    // measured from, and what drops ink on the current station.
+    run.lastEventAt = Date.now();
+    if (STEP_EVENTS.has(frame.event)) run.inkDrops = (run.inkDrops || 0) + 1;
   }
   switch (frame.event) {
     case "classification_started":
@@ -818,12 +829,20 @@ const TIER_SHORT = {
 function renderHeader() {
   const tiers = state.tiers || [];
   const chosen = state.auto_classify ? "auto" : state.tier;
-  dom.tier.innerHTML = [
-    `<option value="auto">Auto: pick per request</option>`,
-    ...tiers.map((tier) => `<option value="${tier.name}" title="${escapeHtml(tier.summary)}">${escapeHtml(tier.name)}: ${escapeHtml(TIER_SHORT[tier.name] || tier.summary)}</option>`),
-  ].join("");
-  dom.tier.value = chosen;
-  dom.tier.disabled = !state.ready || state.running;
+  // The tier as a switch: Auto, then each tier, with what it does on hover.
+  const locked = !state.ready || state.running;
+  setHtml(
+    dom.tier,
+    [
+      { name: "auto", label: "Auto", title: "Pick a tier for each request" },
+      ...tiers.map((tier) => ({ name: tier.name, label: humanize(tier.name), title: `${tier.name}: ${TIER_SHORT[tier.name] || tier.summary}` })),
+    ]
+      .map(
+        (item) =>
+          `<button type="button" data-tier="${escapeHtml(item.name)}" aria-pressed="${item.name === chosen}" title="${escapeHtml(item.title)}"${locked ? " disabled" : ""}>${escapeHtml(item.label)}</button>`
+      )
+      .join("")
+  );
 
   // DR-036: every usable provider's models, grouped, once /api/providers has
   // answered; until then the focused session's own provider's list.
@@ -850,6 +869,14 @@ function renderHeader() {
   dom.shell.classList.toggle("is-running", Boolean(state.running));
 }
 
+/* The page warms as the context window fills: the paper takes on a little
+ * heat from about half full, so a session running out of room is felt before
+ * it is read. One custom property; the stylesheet does the rest. */
+function setWarmth(percent) {
+  const warmth = Math.max(0, Math.min(1, (percent - 45) / 50));
+  document.documentElement.style.setProperty("--warmth", warmth.toFixed(2));
+}
+
 function renderStatus() {
   if (!state) return;
   const usage = state.usage || {};
@@ -868,11 +895,13 @@ function renderStatus() {
     const percent = Math.min(100, Math.round((lastPromptTokens / limit) * 100));
     dom.ctxFill.style.width = `${percent}%`;
     dom.ctxFill.className = `ctx-fill${percent > 90 ? " hot" : percent > 70 ? " warn" : ""}`;
-    dom.ctxLabel.textContent = `CTX ${percent}%`;
+    dom.ctxLabel.textContent = `${percent}% of ${formatWindow(limit)}`;
+    setWarmth(percent);
     dom.ctxLabel.title = `${formatCount(lastPromptTokens)} of ${formatCount(limit)} tokens last round`;
   } else {
     dom.ctxFill.style.width = "0%";
-    dom.ctxLabel.textContent = limit ? `CTX ${formatWindow(limit)}` : "CTX —";
+    dom.ctxLabel.textContent = limit ? `${formatWindow(limit)} window` : "—";
+    setWarmth(0);
   }
   // DR-034: the mark carries the advice level — calm for a deliberate cap,
   // loud only for a window that will actually hurt.
@@ -911,7 +940,7 @@ function renderStatus() {
     label += ` · ${elsewhere.length} working elsewhere`;
     if (!mood) mood = "aside";
   }
-  dom.presence.className = `presence status-cell ${mood}`.trim();
+  dom.presence.className = `presence ${mood}`.trim();
   dom.presenceText.textContent = label;
   dom.presence.title = connected
     ? ""
@@ -921,7 +950,8 @@ function renderStatus() {
   // terminal that started it. An auto-approved dashboard never interrupts,
   // which is exactly why it has to say so.
   if (state.auto_approve) {
-    dom.stamp.textContent = "AUTO-APPROVE ON";
+    dom.stamp.textContent = "Auto-approve on";
+    dom.stamp.classList.add("auto-approve");
     dom.stamp.title = `Shell and network calls run without asking, authorised by ${state.authorized_by || "whoever started this"}.`;
     toast(
       `Auto-approve is on: shell and network calls run without asking (authorised by ${state.authorized_by || "the operator"}).`,
@@ -929,7 +959,8 @@ function renderStatus() {
       "auto-approve"
     );
   } else {
-    dom.stamp.textContent = "LOCAL / NO CLOUD";
+    dom.stamp.textContent = "Local · no cloud";
+    dom.stamp.classList.remove("auto-approve");
     dom.stamp.title = `These tools always ask first: ${(state.gated_tools || []).join(", ")}.`;
     if (state.require_edit_approval) {
       toast("This workspace asks before every file write.", "", "edit-approval");
@@ -942,7 +973,7 @@ function renderStatus() {
   dom.prompt.disabled = !state.ready;
   dom.send.disabled = !state.ready;
   el("review-plans").checked = Boolean(state.review_plans);
-  dom.send.textContent = state.running ? "Queue" : "Start work";
+  dom.send.textContent = state.running ? "Queue" : "Start";
   // DR-030: a run has no built-in end, so Stop *takes the primary button's
   // place* while one is going rather than sitting beside a dead "Working…"
   // button — the control is where the hand already is. `stopping` comes from
@@ -954,9 +985,9 @@ function renderStatus() {
   dom.stop.textContent = stopping ? "Stopping…" : "Stop";
   dom.hint.textContent = state.running
     ? (stopping
-      ? "STOPPING AFTER THE CURRENT STEP — WHAT IT PRODUCED IS KEPT"
-      : "ENTER QUEUES THE NEXT REQUEST · STOP ENDS THIS ONE AND KEEPS WHAT IT PRODUCED")
-    : "ENTER ↵ STARTS · SHIFT+ENTER FOR A NEW LINE";
+      ? "Stopping after this step; what it produced is kept"
+      : "Enter queues it for after this run")
+    : "Enter starts · Shift+Enter for a new line";
   renderCardStop();
 }
 
@@ -965,31 +996,38 @@ function renderStatus() {
 function renderRail() {
   renderWaitingCount();
   renderNeedsYou();
-  renderSessionTabs();
   const open = (state && state.open) || [];
   const openIds = new Set(open.map((entry) => entry.session_id));
   const rest = stored.filter((record) => !openIds.has(record.id));
   const blocks = storedProblems.map((problem) => `<p class="empty-state">${escapeHtml(problem)}</p>`);
 
-  if (open.length) {
-    blocks.push(groupHead(`Open · ${open.length}`));
-    open.forEach((entry) => blocks.push(openRowMarkup(entry)));
-  }
+  // The set, by what each sheet needs: you first, then what is being drawn,
+  // then what is open and quiet, then what is filed away.
+  const bays = [
+    ["Waiting for you", "you", open.filter(sheetWaits)],
+    ["Drawing", "", open.filter((entry) => !sheetWaits(entry) && entry.running)],
+    ["On the board", "", open.filter((entry) => !sheetWaits(entry) && !entry.running)],
+  ];
+  bays.forEach(([label, kind, entries]) => {
+    if (!entries.length) return;
+    blocks.push(groupHead(label, entries.length, kind));
+    entries.forEach((entry) => blocks.push(openRowMarkup(entry)));
+  });
   if (rest.length) {
-    blocks.push(groupHead(`Stored · ${rest.length}`));
+    blocks.push(groupHead("Filed", rest.length, ""));
     rest.forEach((record) => blocks.push(storedRowMarkup(record)));
   }
   if (!open.length && !rest.length) {
     blocks.push(
-      `<p class="empty-state">No sessions yet. Each one is saved to <span class="mono">.autose/sessions/</span> and can be reopened.</p>`
+      `<p class="empty-state">No sheets yet. Each one is saved to <span class="mono">.autose/sessions/</span> and can be reopened.</p>`
     );
   }
   dom.sessionList.innerHTML = blocks.join("");
   scheduleRailTicks(open.some((entry) => entry.running));
 }
 
-function groupHead(label) {
-  return `<div class="session-group"><span class="eyebrow">${escapeHtml(label)}</span></div>`;
+function groupHead(label, count, kind) {
+  return `<div class="session-group ${kind || ""}"><span class="lbl">${escapeHtml(label)}</span><span class="lbl">${count}</span></div>`;
 }
 
 /* ---------- notifications (DR-043) ---------- */
@@ -1038,115 +1076,71 @@ function renderNotifyButton() {
         : "Notify me when something waits for me";
 }
 
-/* DR-042: the open sessions as tabs above the conversation. Same actions as
- * the rail's rows — focus and close — through the same handler. */
-function renderSessionTabs() {
-  const open = (state && state.open) || [];
-  const tabs = open
-    .map((entry) => {
-      const active = entry.session_id === focusId();
-      const waiting = Math.max(
-        entry.waiting || 0,
-        approvals.filter((item) => item.session === entry.session_id).length
-      );
-      const status = waiting ? "waiting" : entry.running ? (entry.stopping ? "stopping" : "running") : "open";
-      return (
-        `<div class="session-tab${active ? " active" : ""}">` +
-        `<button type="button" class="session-tab-main" data-focus="${escapeHtml(entry.session_id)}" title="${escapeHtml(entry.title)}">` +
-        `<span class="dot" data-status="${status}"></span>` +
-        `<span class="session-tab-title">${escapeHtml(elideMiddle(entry.title || "New session", 28))}</span>` +
-        (entry.queued ? `<span class="session-tab-badge" title="Queued requests">+${entry.queued}</span>` : "") +
-        (waiting ? `<span class="session-tab-badge alert" title="Needs you">!</span>` : "") +
-        `</button>` +
-        `<button type="button" class="session-tab-close" data-close="${escapeHtml(entry.session_id)}" title="${entry.running ? "Stop it before closing it" : "Close — it stays on disk"}">×</button>` +
-        `</div>`
-      );
-    })
-    .join("");
-  setHtml(
-    el("session-tabs"),
-    tabs + `<button type="button" class="session-tab-new" data-new-tab="1" title="Open a new session">+</button>`
-  );
-}
 
-/* A session as a flight strip (DR-042's rail row, redrawn): coloured by
- * tier, its data in blocks, and its last half hour as a thin timeline. A
- * strip that waits for the person is pulled out of the rack. */
-function openRowMarkup(entry) {
-  const active = entry.session_id === focusId();
-  // The count the server sent covers a tab that has only just loaded and never
-  // saw the `approval` frame; what this tab knows covers the other direction.
+/* Whether a sheet is held on the person: a call, a plan, a held queue. */
+function sheetWaits(entry) {
   const waiting = Math.max(
     entry.waiting || 0,
     approvals.filter((item) => item.session === entry.session_id).length
   );
+  return Boolean(waiting || entry.plan_waiting || (entry.queue_held && entry.queued));
+}
+
+/* One sheet in the set: its line figure, number, title, and what it is doing. */
+function openRowMarkup(entry) {
+  const active = entry.session_id === focusId();
   const strip = entry.strip || {};
-  const needsYou = waiting || entry.plan_waiting || (entry.queue_held && entry.queued);
-  const status = needsYou ? "waiting" : entry.running ? (entry.stopping ? "stopping" : "running") : "open";
-  const blocks = [];
-  if (entry.automation) blocks.push(entry.automation.type === "watcher" ? "watcher" : "scheduled");
-  blocks.push(entry.tier || "");
-  if (entry.running) {
-    if (strip.stage) blocks.push(`${strip.stage.number ? `${strip.stage.number} ` : ""}${strip.stage.title}`);
-    blocks.push(formatElapsed(Date.now() - (entry.current && entry.current.started_at ? entry.current.started_at * 1000 : Date.now())));
+  const waiting = Math.max(
+    entry.waiting || 0,
+    approvals.filter((item) => item.session === entry.session_id).length
+  );
+  const needsYou = sheetWaits(entry);
+  let line = "";
+  let tone = "";
+  if (waiting) {
+    line = waiting === 1 ? "Wants to run something" : `${waiting} calls need you`;
+    tone = "you";
+  } else if (entry.plan_waiting) {
+    line = "A plan to look over";
+    tone = "you";
+  } else if (needsYou) {
+    line = `${plural(entry.queued, "request")} waiting to resume`;
+    tone = "you";
+  } else if (entry.running) {
+    const stage = strip.stage ? strip.stage.title : "Starting";
+    const since = entry.current && entry.current.started_at ? formatElapsed(Date.now() - entry.current.started_at * 1000) : "";
+    line = `${stage}${since ? ` · ${since}` : ""}${strip.context_pct ? ` · ctx ${strip.context_pct}%` : ""}`;
+    tone = "working";
   } else {
-    blocks.push(`${entry.turns} ${entry.turns === 1 ? "run" : "runs"}`, `${formatCount(entry.total_tokens)} tok`);
+    line = strip.requirements
+      ? `${strip.requirements.verified} of ${strip.requirements.total} checks hold`
+      : `${plural(entry.turns, "run")} · ${formatCount(entry.total_tokens)} tok`;
+    if (strip.requirements && strip.requirements.failed) tone = "failed";
   }
-  if (strip.requirements) {
-    blocks.push(`R ${strip.requirements.verified}/${strip.requirements.total}${strip.requirements.failed ? ` · ${strip.requirements.failed} failed` : ""}`);
-  }
-  if (entry.running && strip.context_pct !== null && strip.context_pct !== undefined) {
-    blocks.push(`ctx ${strip.context_pct}%`);
-  }
-  const why = waiting
-    ? `${waiting} ${waiting === 1 ? "call needs" : "calls need"} you`
-    : entry.plan_waiting
-      ? "plan needs you"
-      : needsYou
-        ? "queue held"
-        : "";
-  return `<div class="strip tier-${escapeHtml(entry.tier || "spark")}${active ? " active" : ""}${needsYou ? " pulled" : ""}">
-      <button class="strip-main" type="button" data-focus="${escapeHtml(entry.session_id)}" title="${escapeHtml(entry.title)}">
-        <span class="strip-head"><span class="dot" data-status="${status}"></span><span class="strip-title">${escapeHtml(entry.title)}</span></span>
-        <span class="strip-blocks">${blocks.filter(Boolean).map((block) => `<span>${escapeHtml(block)}</span>`).join("")}</span>
-        ${why ? `<span class="strip-why">${escapeHtml(why)}</span>` : ""}
-        ${laneMarkup(strip.lane)}
+  const auto = entry.automation ? (entry.automation.type === "watcher" ? " · watcher" : " · scheduled") : "";
+  return `<div class="sheet-row${active ? " active" : ""}${needsYou ? " waiting" : ""}">
+      ${needsYou ? `<svg class="waitline" aria-hidden="true"><rect x="1" y="1" rx="10" ry="10"></rect></svg>` : ""}
+      <button class="sheet-main" type="button" data-focus="${escapeHtml(entry.session_id)}" title="${escapeHtml(entry.title)}">
+        <svg class="sheet-glyph" viewBox="0 0 32 32" aria-hidden="true"><path d="${sheetGlyphPath(entry.session_id)}"></path></svg>
+        <span class="sheet-no">${escapeHtml(sheetNo(entry.session_id))} · ${escapeHtml(entry.tier || "")}${auto}</span>
+        <span class="sheet-title">${escapeHtml(entry.title)}</span>
+        <span class="sheet-state ${tone}">${escapeHtml(line)}</span>
       </button>
-      <button class="session-close" type="button" data-close="${escapeHtml(entry.session_id)}" title="${entry.running ? "Stop it before closing it" : "Close this session — it stays on disk"}">−</button>
+      <button class="session-close" type="button" data-close="${escapeHtml(entry.session_id)}" title="${entry.running ? "Stop it before closing it" : "Close this sheet; it stays on disk"}">×</button>
     </div>`;
 }
 
-/* The strip's last half hour: one band per state, drawn with attributes
- * only (the page's policy allows no inline styles). */
-const LANE_WINDOW_MS = 30 * 60 * 1000;
-
-function laneMarkup(lane) {
-  if (!lane || !lane.length) return "";
-  const now = Date.now();
-  const start = now - LANE_WINDOW_MS;
-  const bands = lane
-    .map(([at, status], index) => {
-      const from = Math.max(at * 1000, start);
-      const to = index + 1 < lane.length ? lane[index + 1][0] * 1000 : now;
-      if (to <= start || to <= from) return "";
-      const x = ((from - start) / LANE_WINDOW_MS) * 100;
-      const width = ((to - from) / LANE_WINDOW_MS) * 100;
-      return `<rect class="lane-${escapeHtml(status)}" x="${x.toFixed(2)}" y="0" width="${Math.max(width, 0.4).toFixed(2)}" height="3"></rect>`;
-    })
-    .join("");
-  return `<svg class="strip-lane" viewBox="0 0 100 3" preserveAspectRatio="none" aria-hidden="true">${bands}</svg>`;
-}
-
 function storedRowMarkup(record) {
-  const status = record.stop_reason === "completed" ? "done" : record.stop_reason ? "failed" : "stopped";
   const armed = armedDelete === record.id;
-  return `<div class="session-row">
-      <button class="session-item" type="button" data-resume="${escapeHtml(record.id)}" title="${escapeHtml(record.title)}">
-        <span class="dot" data-status="${status}"></span>
-        <span>${escapeHtml(record.title || "(no title)")}</span>
-        <small>${escapeHtml(record.tier || "")} · ${plural(record.turns, "run")} · ${formatCount(record.total_tokens)} tok · ${formatWhen(record.updated_at)}</small>
+  const failed = record.stop_reason && record.stop_reason !== "completed";
+  return `<div class="sheet-row stored">
+      <button class="sheet-main" type="button" data-resume="${escapeHtml(record.id)}" title="${escapeHtml(record.title)}">
+        <svg class="sheet-glyph" viewBox="0 0 32 32" aria-hidden="true"><path d="${sheetGlyphPath(record.id)}"></path></svg>
+        <span class="sheet-no">${escapeHtml(sheetNo(record.id))} · ${escapeHtml(record.tier || "")} · ${formatWhen(record.updated_at)}</span>
+        <span class="sheet-title">${escapeHtml(record.title || "(no title)")}</span>
+        <span class="sheet-state${failed ? " failed" : ""}">${plural(record.turns, "run")} · ${formatCount(record.total_tokens)} tok</span>
       </button>
-      <button class="session-delete${armed ? " armed" : ""}" type="button" data-delete="${escapeHtml(record.id)}" title="${armed ? "Click again to delete" : "Delete this stored session"}">${armed ? "!" : "×"}</button>
+      <button class="session-delete${armed ? " armed" : ""}" type="button" data-delete="${escapeHtml(record.id)}" title="${armed ? "Click again to delete" : "Delete this stored sheet"}">${armed ? "!" : "×"}</button>
     </div>`;
 }
 
@@ -1170,9 +1164,9 @@ function renderConversation() {
   const seat = desk(focusId());
   const nodes = [];
   if (!history.length && !seat.extras.length && !seat.run) nodes.push(greetingNode());
-  history.forEach((turn) => nodes.push(slipNode(turn.prompt), receiptNode(turn)));
+  history.forEach((turn) => nodes.push(receiptNode(turn)));
   seat.extras.forEach((node) => nodes.push(node));
-  if (seat.run) nodes.push(seat.run.slip, seat.run.node);
+  if (seat.run) nodes.push(seat.run.node);
   const planCard = planNode();
   if (planCard) nodes.push(planCard);
   approvalNodes().forEach((node) => nodes.push(node));
@@ -1214,9 +1208,11 @@ function greetingNode() {
   const node = document.createElement("div");
   node.className = "greeting";
   node.innerHTML = `
-    <span class="eyebrow"><span class="tick"></span>Workshop</span>
-    <h1>What should I work on?</h1>
-    <p>I work in <span class="mono">${escapeHtml(shortenPath(state.workspace || ""))}</span>. I ask before running a command or using the network, and every file I change can be undone.</p>
+    <svg class="greeting-nib" aria-hidden="true"><use href="#nib" /></svg>
+    <span class="lbl">Fresh sheet</span>
+    <h1>What should I draw up?</h1>
+    <p>I work in <span class="mono">${escapeHtml(shortenPath(state.workspace || ""))}</span>. I ask before running a command or using the network, and every file I change can be erased.</p>
+    <p class="hand">describe a change and I'll draw up a plan</p>
     <div class="starter-chips">
       ${STARTERS.map((starter, index) => `<button class="starter-chip" type="button" data-starter="${index}">${escapeHtml(starter.label)}</button>`).join("")}
     </div>`;
@@ -1289,12 +1285,8 @@ function receiptMarkup(turn) {
   const usage = turn.usage || {};
   const changes = turn.changes || [];
   const undone = (turn.undone || []).map((change) => ({ ...change, reverted: true }));
-  const cells = [
-    ["Run", String((turn.index >= 0 ? turn.index : 0) + 1)],
-    ["Tier", turn.classification ? `${turn.tier} (${turn.classification.source})` : turn.tier],
-    ["Tokens", formatCount(usage.total_tokens || 0)],
-    ["Files", `${changes.length}${undone.length ? ` + ${undone.length} undone` : ""}`],
-  ];
+  const number = (turn.index >= 0 ? turn.index : 0) + 1;
+  const route = routeFromRecord(turn.route, turn.succeeded);
   const notes = Object.entries(turn.artifacts || {})
     .map(
       ([name, text]) =>
@@ -1302,8 +1294,10 @@ function receiptMarkup(turn) {
     )
     .join("");
 
+  // The stamp says how it ended; a headline is only needed when it did not
+  // simply finish, to say what happened and what to do.
   const headline = turn.succeeded
-    ? "Done"
+    ? ""
     : turn.stop_reason === "empty_answer"
       ? "No answer from the model"
       : turn.stop_reason === "cancelled"
@@ -1311,10 +1305,6 @@ function receiptMarkup(turn) {
         // not as something that went wrong.
         ? "You stopped this run"
         : OUTCOME_HEADLINES[turn.stop_reason] || `Stopped: ${humanize(turn.stop_reason)}`;
-
-  // A run that stopped without writing an answer renders a headline and
-  // nothing else, which is how "Stopped — Stalled" came to be the entire
-  // report. Every unsuccessful outcome says what happened and what to do.
   const why =
     turn.succeeded || turn.answer
       ? ""
@@ -1323,23 +1313,33 @@ function receiptMarkup(turn) {
             "The run ended without producing an answer."
         )}</p>`;
   const [tone, word] = verdictWord(turn);
+  const checked = checkedBy(turn.requirements);
+  const cells = [
+    ["Sheet", `R-${String(number).padStart(2, "0")}`],
+    ["Title", turn.prompt.split("\n")[0]],
+    ["Drawn by", `AutoSE · ${turn.tier}${turn.classification ? ` (${turn.classification.source})` : ""}`],
+    ["Checked by", checked || (turn.succeeded ? "nothing to check" : "not checked"), checked && turn.succeeded ? "signed" : ""],
+    ["Rev", String.fromCharCode(65 + route.loopbacks.length)],
+    ["Ink", `${formatCount(usage.total_tokens || 0)} tok`],
+  ];
+  const files = changes.length + undone.length;
 
-  return `<div class="work-head">
-      <span class="presence-dot"></span>
-      <span class="eyebrow">Report</span>
-      <span class="work-title">${escapeHtml(turn.prompt.split("\n")[0].slice(0, 80))}</span>
+  return `${verdictStampMarkup(tone, word)}
+    <div class="work-head">
+      <span class="lbl sheet-label">Run ${number}</span>
+      <span class="work-request" title="${escapeHtml(turn.prompt)}">${escapeHtml(turn.prompt.split("\n")[0])}</span>
     </div>
-    <div class="traveler-top">${titleBlockMarkup(cells)}${verdictStampMarkup(tone, word)}</div>
-    ${routeMarkup(routeFromRecord(turn.route, turn.succeeded))}
-    ${stampsMarkup(turn.requirements, null)}
+    ${routeMarkup(route)}
+    ${stampsMarkup(turn.requirements)}
     <div class="receipt">
-      <div class="receipt-headline">${escapeHtml(headline)}</div>
+      ${headline ? `<div class="receipt-headline">${escapeHtml(headline)}</div>` : ""}
       ${turn.answer ? `<div class="receipt-summary prose">${renderMarkdown(turn.answer)}</div>` : ""}
       ${why}
-      ${revisionBlockMarkup([...changes, ...undone])}
-      ${changes.length ? `<div class="receipt-actions"><button class="inline-button" type="button" data-open-diff="1">Review the diff</button></div>` : ""}
+      ${files ? revisionBlockMarkup([...changes, ...undone]) : ""}
+      ${changes.length ? `<div class="receipt-actions"><button class="inline-button" type="button" data-open-diff="1">See the diff</button></div>` : ""}
       ${notes}
-    </div>`;
+    </div>
+    ${titleBlockMarkup(cells)}`;
 }
 
 /* ---------- the live card ---------- */
@@ -1441,22 +1441,24 @@ function scheduleRun(run) {
 function tickElapsed(run) {
   if (!run || !run.dom || !isFocused(run.session)) return;
   setText(run.dom.elapsed, formatElapsed(Date.now() - run.startedAt));
+  // A stalled model is visible as it happens: the line under the head counts
+  // the quiet, and the station says "still thinking".
+  if (runSlow(run) || run.node.classList.contains("slow")) scheduleRun(run);
 }
 
 /* The live card's frame, written once. Every part that changes as the run goes
  * is addressed by `data-part` and updated in place. */
 const CARD_SKELETON = `
   <div class="work-head">
-    <span class="presence-dot"></span>
-    <span class="eyebrow" data-part="phase"></span>
-    <span class="work-title" data-part="title"></span>
+    <span class="lbl sheet-label" data-part="phase"></span>
+    <span class="work-request" data-part="title"></span>
     <span class="work-elapsed" data-part="elapsed"></span>
     <button class="card-details" type="button" data-details="1" data-part="details"
       title="Show every step, the stage output and the reasoning here"></button>
     <button class="card-stop" type="button" data-stop="1"
       title="Stop after the current step, keeping everything produced so far">Stop</button>
   </div>
-  <div data-part="titleblock"></div>
+  <div class="work-now" data-part="now"></div>
   <div data-part="stages"></div>
   <div data-part="stamps"></div>
   <div class="activity" data-part="activity"></div>
@@ -1464,7 +1466,8 @@ const CARD_SKELETON = `
   <details class="thinking" data-part="thinking" hidden>
     <summary>Its reasoning, as it streams</summary>
     <div class="thinking-body" data-part="reasoning"></div>
-  </details>`;
+  </details>
+  <div data-part="titleblock"></div>`;
 
 function ensureCard(run) {
   if (run.dom) return;
@@ -1477,6 +1480,7 @@ function ensureCard(run) {
     stop: run.node.querySelector("[data-stop]"),
     details: part("details"),
     titleblock: part("titleblock"),
+    now: part("now"),
     stages: part("stages"),
     stamps: part("stamps"),
     activity: part("activity"),
@@ -1503,43 +1507,86 @@ function setHtml(node, html) {
   return true;
 }
 
-/* The live route: the workflow's stages as numbered operations, how many
- * times each has run, and every time Validate sent the work back. */
+/* Whether this session's run is held on the person right now. */
+function runWaiting(run) {
+  return (
+    approvals.some((item) => item.session === run.session) ||
+    Boolean(state && state.pending_plan && isFocused(run.session))
+  );
+}
+
+/* No new step for this long reads as a stalled model, and says so. */
+const SLOW_MS = 75 * 1000;
+
+function runSlow(run) {
+  return run.running && !runWaiting(run) && Date.now() - (run.lastEventAt || run.startedAt) > SLOW_MS;
+}
+
+/* The live route: the workflow's stages as stations, how long each took,
+ * and every time the check sent the work back. */
 function liveRoute(run) {
+  const waiting = runWaiting(run);
   return {
-    ops: run.stages.map((stage) => ({
-      name: stage.name,
-      title: stage.title,
-      status: stage.status || "pending",
-      passes: (run.passes && run.passes[stage.name]) || 0,
-    })),
+    ops: run.stages.map((stage) => {
+      const status = stage.status === "done" ? "done" : stage.status === "active" ? "active" : "next";
+      const times = run.stageTimes[stage.name];
+      let note = "";
+      if (status === "done" && times && times.end) {
+        note = `done · ${formatElapsed((times.end - times.start) * 1000)}`;
+      } else if (status === "active") {
+        note = waiting ? "waiting for you" : runSlow(run) ? "still thinking" : "working";
+      }
+      return {
+        name: stage.name,
+        title: stage.title,
+        status,
+        passes: (run.passes && run.passes[stage.name]) || 0,
+        note,
+      };
+    }),
     loopbacks: run.loopbacks.map((item) => ({
       to: item.target,
       unmet: (item.unmet || []).join(", "),
       detail: item.feedback || "",
     })),
+    pose: waiting ? "waiting" : runSlow(run) ? "slow" : "working",
+    drops: run.inkDrops || 0,
   };
+}
+
+function runNumber() {
+  return ((state && state.history) || []).length + 1;
+}
+
+function checkedBy(requirements) {
+  if (!requirements || !requirements.length) return "";
+  const held = requirements.filter((item) => item.status === "Verified").length;
+  return `${held} of ${requirements.length} hold`;
 }
 
 function liveTitleCells(run) {
   return [
-    ["Run", String(((state && state.history) || []).length + 1)],
-    ["Tier", run.tier],
-    ["Model", (state && state.model) || ""],
-    ["Started", new Date(run.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })],
+    ["Sheet", `R-${String(runNumber()).padStart(2, "0")}`],
+    ["Title", run.prompt.split("\n")[0]],
+    ["Drawn by", `AutoSE · ${(state && state.model) || "model"}`],
+    ["Checked by", checkedBy(run.requirements) || "you, at the end", checkedBy(run.requirements) ? "" : "pending"],
+    ["Rev", String.fromCharCode(65 + run.loopbacks.length)],
+    ["Scale", run.running ? "1:1 · Esc stops" : "1:1"],
   ];
 }
 
-/* Stamps animate only when their status is new to this card: the first
- * paint, after a reload, shows them as they stand. */
 function liveStamps(run) {
-  const keys = run.requirements.map((item) => `${item.id}:${item.status}`);
-  let fresh = null;
-  if (run.stampsSeen) {
-    fresh = new Set(keys.filter((key) => !run.stampsSeen.has(key)));
+  return stampsMarkup(run.requirements);
+}
+
+/* The line under the head: what the nib is doing, in plain words. */
+function nowMarkup(run) {
+  if (!run.running) return `<strong>Finishing</strong>`;
+  if (runWaiting(run)) return `<strong>Waiting for you</strong> · nothing runs without your say-so`;
+  if (runSlow(run)) {
+    return `<strong>${escapeHtml(run.thinkingLabel)}</strong> · no new step for ${formatElapsed(Date.now() - (run.lastEventAt || run.startedAt))}; a slow model, or a long step`;
   }
-  run.stampsSeen = new Set(keys);
-  return stampsMarkup(run.requirements, fresh);
+  return `<strong>${escapeHtml(run.thinkingLabel)}</strong>${run.tier ? ` · ${escapeHtml(run.tier)}` : ""}`;
 }
 
 function activityMarkup(run) {
@@ -1578,9 +1625,12 @@ function renderRun() {
 
   run.node.classList.toggle("compact", !run.detailed);
   setText(d.details, run.detailed ? "Less" : "Details");
-  setText(d.phase, run.running ? "At work" : "Finishing");
-  setText(d.title, run.thinkingLabel + (run.tier ? ` · ${run.tier}` : ""));
+  setText(d.phase, `Run ${runNumber()}`);
+  setText(d.title, run.prompt.split("\n")[0]);
   setText(d.elapsed, formatElapsed(Date.now() - run.startedAt));
+  run.node.classList.toggle("waiting", runWaiting(run));
+  run.node.classList.toggle("slow", runSlow(run));
+  setHtml(d.now, nowMarkup(run));
   renderCardStop();
 
   setHtml(d.titleblock, titleBlockMarkup(liveTitleCells(run)));
@@ -1607,7 +1657,7 @@ function renderRun() {
 
 /* ---------- inspector (DR-037) ---------- */
 
-let inspectorTab = "activity";
+let inspectorTab = "requirements";
 
 /* The run the inspector describes: the one in progress, else the last one this
  * tab watched. A turn finished before the page loaded has no step record, so
@@ -1906,31 +1956,38 @@ function approvalNodes() {
     node.className = "approval-card";
     node.dataset.approval = request.id;
     const args = request.arguments || {};
-    const shown = Object.keys(args).length
+    const keys = Object.keys(args);
+    const single = keys.length === 1 && typeof args[keys[0]] === "string" ? args[keys[0]] : "";
+    const shown = single
+      ? single
+      : keys.length
       ? Object.entries(args)
         .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
         .join("\n")
       : request.summary;
     node.innerHTML =
-      `<div class="approval-head"><span class="signal-lamp" aria-hidden="true"></span><span class="eyebrow">Needs you</span>` +
-      `<strong>${escapeHtml(approvalQuestion(request.tool))}</strong>` +
+      // The only loop on screen: this outline marches while it waits.
+      `<svg class="outline" aria-hidden="true"><rect x="1" y="1" rx="13" ry="13"></rect></svg>` +
+      `<span class="approval-stamp" aria-hidden="true"></span>` +
+      `<div class="approval-head"><svg class="approval-nib" aria-hidden="true"><use href="#nib" /></svg>` +
+      `<div><strong>${escapeHtml(approvalQuestion(request.tool))}</strong>` +
+      `<p class="approval-lede">${escapeHtml(approvalLede(request.tool))}</p></div>` +
       // Filled on every paint: after a reload the card exists before the
       // run's stage has been replayed.
       `<span class="plate" data-plate hidden></span>` +
       `</div>` +
-      `<p class="approval-lede">${escapeHtml(approvalLede(request.tool))}</p>` +
       `<pre class="approval-args"><code>${escapeHtml(shown)}</code></pre>` +
-      `<input type="text" class="approval-reason" placeholder="Reason for refusing (optional, sent to the model)" data-reason-for="${escapeHtml(request.id)}" />` +
       (request.allow ? "" : `<p class="approval-once">Only once: ${escapeHtml(request.allow_note)}.</p>`) +
       `<div class="approval-actions">` +
-      `<button type="button" class="ghost-button small" data-decide="deny" data-id="${escapeHtml(request.id)}">Refuse</button>` +
+      `<button type="button" class="primary-button" data-decide="once" data-id="${escapeHtml(request.id)}">Run it</button>` +
       // DR-048: the standing yes covers calls like this one (the same command
       // words, the same host), never the whole shell; some calls get none.
       (request.allow
-        ? `<button type="button" class="ghost-button small" data-decide="session" data-id="${escapeHtml(request.id)}" title="Run this call, and later ${escapeHtml(request.allow.label)} in this session, without asking">${allowButtonMarkup(request.allow)}</button>`
+        ? `<button type="button" class="ghost-button" data-decide="session" data-id="${escapeHtml(request.id)}" title="Run this call, and later ${escapeHtml(request.allow.label)} in this session, without asking">${allowButtonMarkup(request.allow)}</button>`
         : "") +
-      `<button type="button" class="primary-button small" data-decide="once" data-id="${escapeHtml(request.id)}">Run once</button>` +
-      `</div>`;
+      `<button type="button" class="ghost-button" data-decide="deny" data-id="${escapeHtml(request.id)}">Don't run</button>` +
+      `</div>` +
+      `<input type="text" class="approval-reason" placeholder="Optional: tell me why, and I'll try another way" data-reason-for="${escapeHtml(request.id)}" />`;
     approvalCards.set(request.id, node);
     return withPlate(node, request);
   });
@@ -1950,9 +2007,9 @@ function approvalNodes() {
  * are what the next command has to start with. */
 function allowButtonMarkup(allow) {
   if (allow.tool === "run_command") {
-    return `Allow <code>${escapeHtml(allow.pattern)} …</code> for this session`;
+    return `Always allow <code>${escapeHtml(allow.pattern)} …</code> here`;
   }
-  return `Allow ${escapeHtml(allow.label)} for this session`;
+  return `Always allow ${escapeHtml(allow.label)} here`;
 }
 
 function withPlate(node, request) {
@@ -1960,7 +2017,7 @@ function withPlate(node, request) {
   const held = heldAt(request.session);
   if (plate) {
     plate.hidden = !held;
-    plate.textContent = held ? `Held at ${held}` : "";
+    plate.textContent = held ? `held at ${held}` : "";
   }
   return node;
 }
@@ -1971,24 +2028,24 @@ function heldAt(sessionId) {
   if (!run || !run.currentStage) return "";
   const index = run.stages.findIndex((stage) => stage.name === run.currentStage);
   const stage = run.stages[index];
-  return `${index >= 0 ? `${(index + 1) * 10} ` : ""}${stage ? stage.title : humanize(run.currentStage)}`;
+  return `${index >= 0 ? `WP-${index + 1} ` : ""}${stage ? stage.title : humanize(run.currentStage)}`;
 }
 
 function approvalQuestion(tool) {
   const questions = {
-    run_command: "Run this command?",
-    fetch_url: "Fetch this page?",
-    web_search: "Search the web for this?",
-    write_file: "Write this file?",
-    edit_file: "Make this edit?",
+    run_command: "I'd like to run a command",
+    fetch_url: "I'd like to fetch a page",
+    web_search: "I'd like to search the web",
+    write_file: "I'd like to write a file",
+    edit_file: "I'd like to make an edit",
   };
-  return questions[tool] || `Allow ${humanize(String(tool || "this call"))}?`;
+  return questions[tool] || `I'd like to use ${humanize(String(tool || "a tool"))}`;
 }
 
 function approvalLede(tool) {
-  if (tool === "run_command") return "This runs in your shell, in the workspace, exactly as written below.";
-  if (tool === "fetch_url" || tool === "web_search") return "This reaches the network and brings back content AutoSE did not write.";
-  return "This changes a file in your workspace.";
+  if (tool === "run_command") return "In your shell, in this workspace, exactly as written. Nothing runs without your say-so.";
+  if (tool === "fetch_url" || tool === "web_search") return "This reaches the internet and brings back what I did not write. Nothing runs without your say-so.";
+  return "This changes a file in your workspace. You can erase it later.";
 }
 
 async function decide(id, choice) {
@@ -1997,13 +2054,23 @@ async function decide(id, choice) {
   const input = document.querySelector(`[data-reason-for="${CSS.escape(id)}"]`);
   const reason = input ? input.value.trim() : "";
   const approved = choice !== "deny";
-  // Answered optimistically: the card goes now, and comes back only if the
-  // server says the call was no longer waiting.
-  approvals = approvals.filter((item) => item.id !== id);
-  renderApproval();
+  // The answer is stamped on the card, which then goes; it comes back only
+  // if the server says the call was no longer waiting.
+  const card = approvalCards.get(id);
+  if (card) {
+    card.classList.add("answered", approved ? "approved" : "refused");
+    card.querySelector(".approval-stamp").textContent =
+      choice === "deny" ? "Not run" : choice === "session" ? "Standing approval" : "Approved";
+  }
+  window.setTimeout(() => {
+    approvals = approvals.filter((item) => item.id !== id);
+    renderApproval();
+  }, card && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 520 : 0);
   try {
     await api("/api/approval", { id, approved, reason, scope: choice === "session" ? "session" : "once" });
-    if (choice === "session") toast(`${humanize(String(request.tool))} will run without asking for the rest of this session.`, "good");
+    if (choice === "session") {
+      toast(`${request.allow ? request.allow.label : humanize(String(request.tool))} will run without asking for the rest of this session.`, "good");
+    }
   } catch (error) {
     toast(String(error.message || error), "bad");
   }
@@ -2014,50 +2081,17 @@ async function decide(id, choice) {
 function renderNeedsYou() {
   const box = el("needs-you");
   if (!box) return;
-  const open = (state && state.open) || [];
-  const title = (id) => {
-    const entry = open.find((item) => item.session_id === id);
-    return entry ? entry.title : shortId(id);
-  };
-  const tierOf = (id) => {
-    const entry = open.find((item) => item.session_id === id);
-    return escapeHtml((entry && entry.tier) || "spark");
-  };
-  const rows = approvals.map(
-    (item) =>
-      `<button type="button" class="needs-row tier-${tierOf(item.session)}" data-focus="${escapeHtml(item.session)}">` +
-      `<span class="needs-kind">approve</span><span class="needs-text">${escapeHtml(humanize(String(item.tool || "")))}: ${escapeHtml(elideMiddle(String(item.summary || ""), 40))}</span>` +
-      `<small>${escapeHtml(title(item.session))}</small></button>`
-  );
-  open
-    .filter((entry) => entry.plan_waiting)
-    .forEach((entry) =>
-      rows.push(
-        `<button type="button" class="needs-row tier-${tierOf(entry.session_id)}" data-focus="${escapeHtml(entry.session_id)}">` +
-        `<span class="needs-kind">review plan</span><span class="needs-text">A plan waits before any change</span>` +
-        `<small>${escapeHtml(entry.title)}</small></button>`
-      )
-    );
-  open
-    .filter((entry) => entry.queue_held && entry.queued)
-    .forEach((entry) =>
-      rows.push(
-        `<button type="button" class="needs-row tier-${tierOf(entry.session_id)}" data-focus="${escapeHtml(entry.session_id)}">` +
-        `<span class="needs-kind">queue held</span><span class="needs-text">${plural(entry.queued, "request")} waiting to resume</span>` +
-        `<small>${escapeHtml(entry.title)}</small></button>`
-      )
-    );
+  // What is waiting lives in the set itself ("Waiting for you"); this box is
+  // the standing orders: what runs without asking in this session.
   const allowed = (state && state.allowances) || [];
-  const allowances = allowed.length
-    ? `<div class="needs-allowed"><span>Runs without asking here:</span>` +
+  box.hidden = !allowed.length;
+  box.innerHTML = allowed.length
+    ? `<div class="needs-allowed"><span>Standing orders</span>` +
       allowed
         .map((item) => `<button type="button" class="allow-chip" data-revoke="${escapeHtml(item.id)}" title="Ask again before ${escapeHtml(item.label)}">${escapeHtml(item.label)} ×</button>`)
         .join("") +
       `</div>`
     : "";
-  box.hidden = !rows.length && !allowances;
-  box.innerHTML =
-    (rows.length ? `<div class="needs-head">Needs you · ${rows.length}</div>` + rows.join("") : "") + allowances;
 }
 
 /* ---------- overlays ---------- */
@@ -2525,8 +2559,10 @@ dom.prompt.addEventListener("keydown", (event) => {
 
 dom.prompt.addEventListener("input", autosize);
 
-dom.tier.addEventListener("change", () => {
-  post("/api/tier", { tier: dom.tier.value, session: focusId() });
+dom.tier.addEventListener("click", (event) => {
+  const choice = event.target.closest("[data-tier]");
+  if (!choice || choice.disabled) return;
+  post("/api/tier", { tier: choice.dataset.tier, session: focusId() });
 });
 
 dom.model.addEventListener("change", () => {
@@ -2718,27 +2754,37 @@ try {
 } catch (error) {
   setInspectorOpen(window.innerWidth >= 1240);
 }
+/* Drafting paper or cyanotype: the person's choice, else the system's. */
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const button = el("toggle-theme");
+  button.setAttribute("aria-pressed", String(theme === "dark"));
+  button.title = theme === "dark" ? "Switch to drafting paper" : "Switch to cyanotype";
+}
+
+try {
+  const saved = localStorage.getItem("autose.theme");
+  applyTheme(saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+} catch (error) {
+  applyTheme(matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+}
+
+el("toggle-theme").addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(next);
+  try {
+    localStorage.setItem("autose.theme", next);
+  } catch (error) {
+    // Unavailable storage: the switch still works for this page.
+  }
+});
+
 // Below this the rail is a drawer over the conversation: start with it shut.
 if (window.innerWidth < 980) dom.shell.classList.remove("rail-open");
 
 /* DR-031: the rail stays live while a turn runs. Switching sessions, opening
  * one and closing one are never gated on whether something is generating —
  * that gating was the reason the window felt frozen. */
-el("session-tabs").addEventListener("click", (event) => {
-  if (event.target.closest("[data-new-tab]")) {
-    dom.newSession.click();
-    return;
-  }
-  const close = event.target.closest("[data-close]");
-  if (close) {
-    post("/api/session", { action: "close", id: close.dataset.close });
-    return;
-  }
-  const switchTo = event.target.closest("[data-focus]");
-  if (switchTo && switchTo.dataset.focus !== focusId()) {
-    post("/api/session", { action: "focus", id: switchTo.dataset.focus });
-  }
-});
 
 dom.sessionList.addEventListener("click", (event) => {
   const remove = event.target.closest("[data-delete]");
@@ -2846,6 +2892,12 @@ function humanize(value) {
 
 function shortId(value) {
   return String(value || "").slice(0, 8) || "—";
+}
+
+/* A sheet's number: the distinctive tail of its session id, "S-069E". */
+function sheetNo(value) {
+  const tail = String(value || "").split("-").pop().slice(0, 4).toUpperCase();
+  return tail ? `S-${tail}` : "—";
 }
 
 function shortenPath(path) {
