@@ -1392,19 +1392,21 @@ function queueNode() {
   const node = document.createElement("section");
   node.className = `queue-strip${state.queue_held ? " held" : ""}`;
   const head = state.queue_held
-    ? `<div class="queue-head"><span class="eyebrow"><span class="tick"></span>Queue held</span>
-        <span>The last run stopped, so the next one waits for you.</span>
+    ? `<div class="queue-head"><span class="queue-title">Paused: ${plural(queue.length, "request")} up next</span>
+        <span class="queue-note">The last run stopped, so these wait for you.</span>
         <button type="button" class="primary-button small" data-queue="resume">Resume</button></div>`
-    : `<div class="queue-head"><span class="eyebrow"><span class="tick"></span>Queued</span>
-        <span>They start after the current run, in this order.</span></div>`;
+    : `<div class="queue-head"><span class="queue-title">Up next</span>
+        <span class="queue-note">They start one after another when this run ends.</span></div>`;
   const items = queue
     .map(
       (item, index) =>
         `<div class="queue-item"><span class="queue-index">${index + 1}</span>` +
-        `<span class="queue-prompt">${escapeHtml(item.prompt)}</span>` +
-        `<button type="button" class="icon-button" data-queue="move" data-id="${escapeHtml(item.id)}" data-to="${index - 1}" ${index === 0 ? "disabled" : ""} title="Move up">↑</button>` +
-        `<button type="button" class="icon-button" data-queue="move" data-id="${escapeHtml(item.id)}" data-to="${index + 1}" ${index === queue.length - 1 ? "disabled" : ""} title="Move down">↓</button>` +
-        `<button type="button" class="icon-button" data-queue="remove" data-id="${escapeHtml(item.id)}" title="Remove from the queue">✕</button></div>`
+        `<span class="queue-prompt" title="${escapeHtml(item.prompt)}">${escapeHtml(item.prompt)}</span>` +
+        `<span class="queue-tools">` +
+        `<button type="button" class="icon-button" data-queue="move" data-id="${escapeHtml(item.id)}" data-to="${index - 1}" ${index === 0 ? "disabled" : ""} title="Move up" aria-label="Move up">↑</button>` +
+        `<button type="button" class="icon-button" data-queue="move" data-id="${escapeHtml(item.id)}" data-to="${index + 1}" ${index === queue.length - 1 ? "disabled" : ""} title="Move down" aria-label="Move down">↓</button>` +
+        `<button type="button" class="icon-button danger" data-queue="remove" data-id="${escapeHtml(item.id)}" title="Remove from the queue" aria-label="Remove">✕</button>` +
+        `</span></div>`
     )
     .join("");
   node.innerHTML = head + items;
@@ -2078,6 +2080,15 @@ function failRun(id, title, message) {
 
 const planCards = new Map();
 
+/* The plan as written, with each requirement's number drawn as a balloon:
+ * the same numbers the checks will carry. */
+function planBodyMarkup(plan) {
+  return renderMarkdown(plan).replace(
+    /(<li>|<p>)\s*(?:<strong>)?R(\d+)(?:<\/strong>)?\s*(?:\[[^\]]*\]\s*)?[:.)\u2014-]?\s*/g,
+    (match, tag, number) => `${tag}<span class="balloon open plan-ball">${number}</span> `
+  );
+}
+
 function planNode() {
   const review = state && state.pending_plan;
   if (!review) return null;
@@ -2085,19 +2096,21 @@ function planNode() {
   const node = document.createElement("section");
   node.className = "plan-card";
   node.innerHTML =
-    `<div class="approval-head"><span class="signal-lamp" aria-hidden="true"></span><span class="eyebrow">Needs you</span>` +
-    `<strong>Plan${review.pass_number > 1 ? ` v${review.pass_number}` : ""} ready for review</strong>` +
-    `<span class="plate">No files changed yet</span></div>` +
+    // Like a question, a plan waits for you: the same moving outline.
+    `<svg class="outline" aria-hidden="true"><rect x="1" y="1" rx="13" ry="13"></rect></svg>` +
+    `<div class="approval-head"><svg class="approval-nib" aria-hidden="true"><use href="#nib" /></svg>` +
+    `<div><strong>Here is my plan${review.pass_number > 1 ? `, draft ${review.pass_number}` : ""}</strong>` +
+    `<p class="approval-lede">Nothing has changed yet. Approve it to start, ask for changes, or edit it yourself.</p></div>` +
+    `<span class="plate">no files changed</span></div>` +
     (review.problem ? `<p class="plan-problem">Your edit could not be used: ${escapeHtml(review.problem)}</p>` : "") +
-    `<div class="plan-body prose">${renderMarkdown(review.plan || "")}</div>` +
-    `<textarea class="plan-input" data-plan-feedback rows="2" placeholder="What should change? (for Ask for changes)"></textarea>` +
+    `<div class="plan-body prose">${planBodyMarkup(review.plan || "")}</div>` +
     `<textarea class="plan-input plan-editor" data-plan-editor rows="14" hidden></textarea>` +
     `<div class="approval-actions">` +
-    `<button type="button" class="ghost-button small" data-plan-action="stop">Stop</button>` +
-    `<button type="button" class="ghost-button small" data-plan-action="edit-open">Edit plan</button>` +
-    `<button type="button" class="ghost-button small" data-plan-action="revise">Ask for changes</button>` +
-    `<button type="button" class="primary-button small" data-plan-action="approve">Approve</button>` +
-    `</div>`;
+    `<button type="button" class="primary-button" data-plan-action="approve">Approve and start</button>` +
+    `<button type="button" class="ghost-button" data-plan-action="edit-open">Edit the plan</button>` +
+    `<button type="button" class="ghost-button" data-plan-action="stop">Stop</button>` +
+    `</div>` +
+    `<input type="text" class="approval-reason plan-feedback" data-plan-feedback placeholder="Or say what should change, and press Enter" />`;
   node.querySelector("[data-plan-editor]").value = review.plan || "";
   planCards.set(review.id, node);
   return node;
@@ -2111,7 +2124,7 @@ async function planAction(button) {
   if (action === "edit-open") {
     const editor = card.querySelector("[data-plan-editor]");
     editor.hidden = !editor.hidden;
-    button.textContent = editor.hidden ? "Edit plan" : "Approve my edit";
+    button.textContent = editor.hidden ? "Edit the plan" : "Approve my edit";
     button.dataset.planAction = editor.hidden ? "edit-open" : "edit";
     if (!editor.hidden) editor.focus();
     return;
@@ -3131,11 +3144,24 @@ document.querySelectorAll(".overlay").forEach((overlay) => {
   });
 });
 
+/* Enter in a plan's feedback box asks for those changes. */
+dom.messages.addEventListener("keydown", (event) => {
+  const input = event.target.closest && event.target.closest("[data-plan-feedback]");
+  if (!input || event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  if (!input.value.trim()) return;
+  const card = input.closest(".plan-card");
+  const button = document.createElement("button");
+  button.dataset.planAction = "revise";
+  card.appendChild(button);
+  planAction(button).finally(() => button.remove());
+});
+
 /* Enter in the reason box answers "Don't run" with what was typed: a
  * suggestion is a refusal that says what to do instead. An empty box does
  * nothing, so a stray Enter refuses nothing. */
 dom.messages.addEventListener("keydown", (event) => {
-  const input = event.target.closest && event.target.closest(".approval-reason");
+  const input = event.target.closest && event.target.closest(".approval-reason[data-reason-for]");
   if (!input || event.key !== "Enter" || event.shiftKey || event.isComposing) return;
   event.preventDefault();
   if (!input.value.trim()) return;

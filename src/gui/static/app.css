@@ -1540,20 +1540,35 @@ select {
 }
 
 .rev-sym {
-  width: 3em;
+  width: 36px;
 }
 
-.rev-sym span {
-  display: inline-grid;
-  place-items: end center;
-  width: 22px;
-  height: 19px;
-  padding-bottom: 1px;
-  background: var(--pen);
-  color: var(--on-pen);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+.change-badge {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+
+.change-badge.new {
+  background: var(--go-soft);
+  color: var(--go-text);
+}
+
+.change-badge.edited {
+  background: var(--pen-soft);
+  color: var(--pen-deep);
+}
+
+.change-badge.deleted {
+  background: var(--red-soft);
+  color: var(--red-text);
+}
+
+.change-badge.undone {
+  background: var(--sheet-2);
+  color: var(--text-2);
 }
 
 .rev-file {
@@ -1589,11 +1604,6 @@ select {
 .rev-undone .rev-lines span {
   text-decoration: line-through;
   color: var(--text-2);
-}
-
-.rev-undone .rev-sym span {
-  background: var(--pencil);
-  color: var(--text);
 }
 
 .receipt-actions {
@@ -5141,6 +5151,637 @@ select {
 body.yolo .app-shell {
   height: calc(100vh - 46px);
   box-shadow: inset 0 0 0 3px var(--red);
+}
+
+/* ---------- Steps as a timeline, in the route's shape ---------- */
+
+.steps {
+  position: relative;
+  padding-left: 2px;
+}
+
+/* The line every step hangs on. */
+.steps::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 13px;
+  border-left: 2px solid var(--pencil);
+}
+
+.steps .step-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 6px;
+  letter-spacing: normal;
+  text-transform: none;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.steps .step-group:first-child {
+  margin-top: 2px;
+}
+
+.sg-dot {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--pen);
+  color: var(--on-pen);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.sg-title .lbl {
+  margin-right: 4px;
+}
+
+.steps .step {
+  position: relative;
+  margin: 0 0 2px 0;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+}
+
+.steps .step-head {
+  grid-template-columns: 24px 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px 5px 2px;
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.steps .step-head:hover {
+  background: var(--sheet-2);
+}
+
+.step-dot {
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--sheet);
+  box-shadow: 0 0 0 2px var(--go);
+}
+
+.steps .act-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--sheet-2);
+  color: var(--pen-deep);
+  font-size: 12px;
+}
+
+.steps .step.status-running .step-dot {
+  background: var(--pen);
+  box-shadow: 0 0 0 2px var(--pen);
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+.steps .step.status-failed .step-dot {
+  background: var(--red);
+  box-shadow: 0 0 0 2px var(--red);
+}
+
+.steps .step.status-failed .step-meta {
+  color: var(--red-text);
+}
+
+.steps .step.status-refused .step-dot {
+  box-shadow: 0 0 0 2px var(--pencil);
+}
+
+.steps .step-meta {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.steps .step.open .step-head {
+  background: var(--sheet-2);
+}
+
+.steps .step-body {
+  margin: 4px 0 8px 32px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--sheet-2);
+}
+
+.steps .step-args {
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.steps .step-output {
+  border: 0;
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--code-text);
+}
+
+/* A note: a quiet line on the timeline, not a box. */
+.steps .step.note {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px 3px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.steps .step.note .step-dot {
+  width: 6px;
+  height: 6px;
+  align-self: center;
+  background: var(--pencil);
+  box-shadow: none;
+}
+
+.steps .step.note.kind-fail {
+  color: var(--red-text);
+}
+
+.steps .step.note.kind-fail .step-dot {
+  background: var(--red);
+}
+
+.steps .step.note.kind-pass .step-dot {
+  background: var(--go);
+}
+
+.steps .since-mark {
+  position: relative;
+  z-index: 1;
+  margin: 8px 0 8px 30px;
+}
+
+/* ---------- the plan card and the queue ---------- */
+
+.plan-card {
+  position: relative;
+  margin: 0;
+  padding: 20px 22px 18px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--sheet);
+}
+
+.plan-card .outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.plan-card .outline rect {
+  width: calc(100% - 2px);
+  height: calc(100% - 2px);
+  fill: none;
+  stroke: var(--pen);
+  stroke-width: 2;
+  stroke-dasharray: 8 6;
+  animation: march 1.4s linear infinite;
+}
+
+.plan-card .plan-body {
+  max-height: 460px;
+  overflow-y: auto;
+  margin: 14px 0;
+  padding: 14px 18px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--sheet-2);
+}
+
+.plan-card .plan-body li {
+  margin: 4px 0;
+}
+
+.plan-ball {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  font-size: 11px;
+  vertical-align: -3px;
+}
+
+.plan-card .plan-editor {
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--pen);
+  border-radius: 10px;
+  background: var(--sheet);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.plan-card .plan-editor[hidden] {
+  display: none;
+}
+
+.plan-card .plan-feedback {
+  margin-top: 12px;
+}
+
+.queue-strip {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--sheet);
+}
+
+.queue-strip.held {
+  border: 1.5px dashed var(--red);
+}
+
+.queue-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.queue-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.queue-strip.held .queue-title {
+  color: var(--red-text);
+}
+
+.queue-note {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.queue-head .primary-button {
+  margin-left: auto;
+}
+
+.queue-item {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 4px 8px;
+  border: 0;
+  border-radius: 9px;
+  font-size: 13.5px;
+}
+
+.queue-item + .queue-item {
+  margin-top: 2px;
+}
+
+.queue-item:hover {
+  background: var(--sheet-2);
+}
+
+.queue-index {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--pencil);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.queue-tools {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.queue-tools .icon-button {
+  width: 28px;
+  height: 28px;
+  color: var(--text-2);
+}
+
+.queue-tools .icon-button:disabled {
+  visibility: hidden;
+}
+
+.queue-tools .icon-button.danger:hover {
+  color: var(--red-text);
+}
+
+:root[data-theme="dark"] .queue-strip {
+  border-color: transparent;
+  background: var(--sheet);
+}
+
+/* ---------- windows: one look for settings, schedules, knowledge, context ---------- */
+
+.overlay-panel input[type="text"],
+.overlay-panel input[type="password"],
+.overlay-panel input[type="search"],
+.overlay-panel input[type="number"],
+.overlay-panel select,
+.overlay-panel textarea {
+  padding: 7px 10px;
+  border: 1px solid var(--edge-2);
+  border-radius: 8px;
+  background: var(--sheet);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.overlay-panel input:focus-visible,
+.overlay-panel select:focus-visible,
+.overlay-panel textarea:focus-visible {
+  outline: 2px solid var(--pen);
+  outline-offset: 1px;
+}
+
+:root[data-theme="dark"] .overlay-panel input[type="text"],
+:root[data-theme="dark"] .overlay-panel input[type="password"],
+:root[data-theme="dark"] .overlay-panel input[type="search"],
+:root[data-theme="dark"] .overlay-panel input[type="number"],
+:root[data-theme="dark"] .overlay-panel select,
+:root[data-theme="dark"] .overlay-panel textarea {
+  background: var(--surface0);
+}
+
+.provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.provider-card {
+  padding: 14px 16px;
+  border: 1px solid var(--edge-2);
+  border-radius: 12px;
+  background: var(--sheet);
+}
+
+.provider-card.in-use {
+  border-color: var(--pen);
+  box-shadow: inset 4px 0 0 var(--pen);
+}
+
+.provider-models {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.provider-key {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.provider-key .provider-hint {
+  grid-column: 1 / -1;
+}
+
+.key-chip {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--go-soft);
+  color: var(--go-text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.key-chip.missing {
+  background: var(--sheet-2);
+  color: var(--text-2);
+}
+
+.provider-off-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.provider-off-list .lbl {
+  margin: 0 0 4px 2px;
+}
+
+.provider-off {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  background: var(--sheet-2);
+  font-size: 13px;
+}
+
+.provider-off .provider-name {
+  font-weight: 700;
+}
+
+.provider-off .provider-url {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.provider-off .provider-state {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+/* A note that matters: a soft panel with a marker, not a red box. */
+.callout {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.callout::before {
+  content: "!";
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 11.5px;
+}
+
+.callout.bad {
+  background: var(--red-soft);
+  color: var(--red-text);
+}
+
+.callout.bad::before {
+  background: var(--red);
+  color: var(--on-pen);
+}
+
+.callout.warn {
+  background: var(--pen-soft);
+  color: var(--pen-deep);
+}
+
+.callout.warn::before {
+  background: var(--pen);
+  color: var(--on-pen);
+}
+
+.empty-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1.5px dashed var(--pencil);
+  border-radius: 12px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.empty-box p {
+  flex: 1;
+  margin: 0;
+}
+
+.auto-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auto-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.auto-section-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.auto-card {
+  padding: 12px 14px;
+  border: 1px solid var(--edge-2);
+  border-radius: 12px;
+  background: var(--sheet);
+}
+
+.panel-foot {
+  font-size: 12px;
+}
+
+/* Knowledge: the filters as one pill switch, like the tier switch. */
+.filter-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--sheet-2);
+}
+
+.filter-chip {
+  padding: 4px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+}
+
+.filter-chip.on {
+  background: var(--sheet);
+  color: var(--pen-deep);
+  font-weight: 700;
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="dark"] .filter-row {
+  border-color: transparent;
+  background: var(--surface0);
+}
+
+:root[data-theme="dark"] .filter-chip.on {
+  background: var(--surface1);
+  box-shadow: none;
+}
+
+.knowledge-panel .inspector-empty,
+#knowledge-body .inspector-empty {
+  padding: 16px;
+  border: 1.5px dashed var(--pencil);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.fact-card,
+.doc-row {
+  border: 1px solid var(--edge-2);
+  border-radius: 12px;
+  background: var(--sheet);
+}
+
+:root[data-theme="dark"] .provider-card,
+:root[data-theme="dark"] .auto-card,
+:root[data-theme="dark"] .fact-card,
+:root[data-theme="dark"] .doc-row {
+  border-color: transparent;
+  background: var(--panel);
+}
+
+:root[data-theme="dark"] .provider-card.in-use {
+  box-shadow: inset 4px 0 0 var(--pen);
+}
+
+:root[data-theme="dark"] .empty-box,
+:root[data-theme="dark"] .knowledge-panel .inspector-empty {
+  border-color: var(--surface1);
 }
 
 /* ---------- life: small signs of what is going on (life.js) ---------- */

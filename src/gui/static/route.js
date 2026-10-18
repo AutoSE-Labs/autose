@@ -218,22 +218,41 @@ function verdictStampMarkup(tone, word) {
 }
 
 /* Every file a run changed, as a revision schedule. */
+/* What happened to a file, as a word and as a small badge: plus for new, a
+ * pen for edited, minus for deleted, a turning arrow for undone. */
+const CHANGE_ICONS = {
+  new: '<path d="M10 5v10M5 10h10"/>',
+  edited: '<path d="M12.5 4.5l3 3L7 16H4v-3z"/>',
+  deleted: '<path d="M5 10h10"/>',
+  undone: '<path d="M6.5 7.5H12a4 4 0 0 1 0 8H8"/><path d="M8.5 4.5l-3 3 3 3"/>',
+};
+
+function changeWord(change) {
+  if (change.reverted) return "undone";
+  return { created: "new", deleted: "deleted" }[change.kind] || "edited";
+}
+
+function changeBadgeMarkup(change) {
+  const word = changeWord(change);
+  return `<span class="change-badge ${word}" title="${escapeHtml(word)}"><svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${CHANGE_ICONS[word]}</svg></span>`;
+}
+
 function revisionBlockMarkup(changes, turn) {
   if (!changes || !changes.length) return "";
   const rows = changes
     .map(
-      (change, index) =>
+      (change) =>
         `<tr${change.reverted ? ` class="rev-undone" title="Undone: put back as it was"` : ""}>` +
-        `<td class="rev-sym"><span>${String.fromCharCode(65 + (index % 26))}</span></td>` +
+        `<td class="rev-sym">${changeBadgeMarkup(change)}</td>` +
         `<td class="rev-file">${change.reverted || turn === undefined ? escapeHtml(change.path) : `<button type="button" class="rev-link" data-open-diff="1" data-turn="${turn}" data-path="${escapeHtml(change.path)}" title="Open this file's diff">${escapeHtml(change.path)}</button>`}</td>` +
-        `<td class="rev-kind">${escapeHtml(change.reverted ? "undone" : { created: "new", deleted: "deleted" }[change.kind] || "edit")}</td>` +
+        `<td class="rev-kind">${escapeHtml(changeWord(change))}</td>` +
         `<td class="rev-lines"><span class="added">+${change.added}</span> / <span class="removed">−${change.removed}</span></td>` +
         `</tr>`
     )
     .join("");
   return (
     `<table class="revision-block"><caption>Files changed</caption>` +
-    `<thead><tr><th scope="col">#</th><th scope="col">File</th><th scope="col">Kind</th><th scope="col">Lines</th></tr></thead>` +
+    `<thead><tr><th scope="col"><span class="visually-hidden">Change</span></th><th scope="col">File</th><th scope="col">Kind</th><th scope="col">Lines</th></tr></thead>` +
     `<tbody>${rows}</tbody></table>`
   );
 }
