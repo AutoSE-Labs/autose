@@ -217,6 +217,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         writers = {
             "/api/prompt": self._prompt,
             "/api/allowances": self._allowances,
+            "/api/yolo": lambda body: self._bridge.set_yolo(bool(body.get("enabled"))),
             "/api/plan": self._plan,
             "/api/plan-review": self._plan_review,
             "/api/queue": self._queue,

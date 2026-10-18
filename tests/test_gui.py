@@ -1465,3 +1465,45 @@ def test_a_session_can_be_renamed_open_or_stored(scripted, tmp_path):
     assert open_row["title"] == "say hello" and not open_row["named"]
     with pytest.raises(BridgeError):
         bridge.rename_session("no-such-session", "x")
+
+
+# -- DR-053: YOLO mode -------------------------------------------------------------
+
+
+def test_yolo_mode_answers_what_waits_and_asks_nothing_after(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(tool_call("run_command", command="echo one")),
+            calls(tool_call("run_command", command="rm -rf build")),
+            answer("ran both"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    assert bridge.snapshot()["yolo"] is False
+    bridge.submit("run two commands")
+    _drain(subscriber, "approval")
+    assert bridge.set_yolo(True)["yolo"] is True
+    assert _drain(subscriber, "turn")["turn"]["answer"] == "ran both"
+    asked = [
+        frame
+        for _, frame in bridge.subscribe(since=0).frames.queue
+        if frame.get("kind") == "approval"
+    ]
+    assert len(asked) == 1  # only the call that was already waiting
+
+
+def test_turning_yolo_off_asks_again(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command="echo one")), answer("done")],
+    )
+    subscriber = bridge.subscribe()
+    bridge.set_yolo(True)
+    bridge.set_yolo(False)
+    bridge.submit("run it")
+    request = _drain(subscriber, "approval")["request"]
+    bridge.resolve_approval(request["id"], approved=True)
+    assert _drain(subscriber, "turn")["turn"]["answer"] == "done"

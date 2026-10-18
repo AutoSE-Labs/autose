@@ -5027,6 +5027,122 @@ select {
   }
 }
 
+/* ---------- YOLO mode (DR-053): loud on purpose ---------- */
+
+.yolo-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1.5px dashed var(--red);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--red-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.yolo-toggle:hover {
+  background: var(--red-soft);
+}
+
+.yolo-toggle[aria-pressed="true"] {
+  border-style: solid;
+  background: var(--red);
+  color: #ffffff;
+  animation: yolo-pulse 1.6s ease-in-out infinite;
+}
+
+:root[data-theme="dark"] .yolo-toggle[aria-pressed="true"] {
+  color: #11111b;
+}
+
+@keyframes yolo-pulse {
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--red) 30%, transparent);
+  }
+}
+
+.yolo-banner {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 46px;
+  padding: 0 14px 0 64px;
+  background: var(--red);
+  color: #ffffff;
+  font-size: 14px;
+}
+
+:root[data-theme="dark"] .yolo-banner {
+  color: #11111b;
+}
+
+/* Hazard tape at the start of the bar. */
+.yolo-banner::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 50px;
+  background: repeating-linear-gradient(-45deg, #f9e2af 0 9px, #11111b 9px 18px);
+}
+
+.yolo-banner[hidden] {
+  display: none;
+}
+
+.yolo-mark {
+  display: grid;
+  place-items: center;
+}
+
+.yolo-banner strong {
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.yolo-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yolo-off {
+  margin-left: auto;
+  flex: none;
+  padding: 7px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--red);
+  font: inherit;
+  font-weight: 800;
+  font-size: 14px;
+}
+
+:root[data-theme="dark"] .yolo-off {
+  background: #11111b;
+  color: var(--red);
+}
+
+.yolo-off:hover {
+  filter: brightness(0.95);
+}
+
+/* The whole window is framed in red while nothing asks. */
+body.yolo .app-shell {
+  height: calc(100vh - 46px);
+  box-shadow: inset 0 0 0 3px var(--red);
+}
+
 /* ---------- life: small signs of what is going on (life.js) ---------- */
 
 /* The run scrolls under soft edges instead of being cut by a ruler line. */

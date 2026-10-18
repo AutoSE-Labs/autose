@@ -968,7 +968,20 @@ function renderStatus() {
   // DR-012: the posture this run is in belongs on screen, not only in the
   // terminal that started it. An auto-approved dashboard never interrupts,
   // which is exactly why it has to say so.
-  if (state.auto_approve) {
+  // DR-053: YOLO mode takes over the whole page while it is on.
+  const yolo = Boolean(state.yolo);
+  document.body.classList.toggle("yolo", yolo);
+  el("yolo-banner").hidden = !yolo;
+  el("toggle-yolo").setAttribute("aria-pressed", String(yolo));
+  el("yolo-word").textContent = yolo ? "YOLO on" : "YOLO";
+  el("toggle-yolo").title = yolo
+    ? "YOLO mode is on: nothing asks. Click to turn it off and ask again."
+    : "YOLO mode: let every command, file change, web call and plan run without asking";
+  if (yolo) {
+    dom.stamp.textContent = "Nothing asks";
+    dom.stamp.classList.add("auto-approve");
+    dom.stamp.title = "YOLO mode: every call and plan in every open session runs without asking.";
+  } else if (state.auto_approve) {
     dom.stamp.textContent = "Auto-approve on";
     dom.stamp.classList.add("auto-approve");
     dom.stamp.title = `Shell and network calls run without asking, authorised by ${state.authorized_by || "whoever started this"}.`;
@@ -3128,6 +3141,23 @@ dom.messages.addEventListener("keydown", (event) => {
   if (!input.value.trim()) return;
   decide(input.dataset.reasonFor, "deny");
 });
+
+/* ---------- YOLO mode (DR-053) ---------- */
+
+async function setYolo(on) {
+  if (on && !window.confirm(
+    "Turn on YOLO mode?\n\nEvery shell command, file change, web call and plan, in every open session, will run without asking you. Anything waiting now runs at once.\n\nIt stays on until you turn it off or the dashboard restarts."
+  )) return;
+  const result = await post("/api/yolo", { enabled: on });
+  if (result) {
+    state = result;
+    adoptState();
+    toast(on ? "YOLO mode is on: nothing will ask." : "YOLO mode is off: risky calls ask again.", on ? "bad" : "good");
+  }
+}
+
+el("toggle-yolo").addEventListener("click", () => setYolo(!(state && state.yolo)));
+el("yolo-off").addEventListener("click", () => setYolo(false));
 
 /* ---------- resizable panels ---------- */
 

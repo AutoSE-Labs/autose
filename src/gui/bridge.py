@@ -445,6 +445,9 @@ class SessionBridge:
         self._credentials = credentials or CredentialStore()
         self._config_path = config_path
         self._default_tier = default_tier
+        #: DR-053: YOLO mode. Every call and plan review on the desk is
+        #: answered yes at once. Off at every start; never saved.
+        self._yolo = False
         self._approval_timeout = approval_timeout
         self._lock = threading.RLock()
         self._bus = _Bus()
@@ -744,6 +747,7 @@ class SessionBridge:
             "running_elsewhere": running_elsewhere,
             "tiers": tier_payloads(),
             "auto_approve": self._config.auto_approve,
+            "yolo": self._yolo,
             "authorized_by": self._config.auto_approve_authorized_by,
             "require_edit_approval": self._config.require_edit_approval,
             "gated_tools": sorted(
@@ -1175,12 +1179,41 @@ class SessionBridge:
         pending.answered.set()
         return {"resolved": plan_id, "action": action}
 
+    def set_yolo(self, enabled: bool) -> dict[str, Any]:
+        """Turn YOLO mode on or off for every session on the desk (DR-053).
+
+        Turning it on answers what is already waiting, as it would have been
+        answered a moment later. Scheduled and watched runs keep DR-047's
+        rule: nobody is there to have chosen this for them.
+        """
+        with self._lock:
+            self._yolo = bool(enabled)
+            waiting = []
+            plans = []
+            if self._yolo:
+                for live in self._open.values():
+                    if live.unattended:
+                        continue
+                    waiting.extend(item for item in live.pending.values() if item.decision is None)
+                    if live.plan_pending is not None and live.plan_pending.decision is None:
+                        plans.append(live.plan_pending)
+        for item in waiting:
+            item.decision = ApprovalDecision.allow("YOLO mode: the user lets every call run without asking")
+            item.answered.set()
+        for plan in plans:
+            plan.decision = PlanDecision.approve()
+            plan.answered.set()
+        return self._broadcast_state()
+
     def _review_plan(self, live: _Live, review: PlanReview) -> PlanDecision:
         """Park the plan and wait for the person, or for a stop (DR-045).
 
         No timeout, unlike an approval: nothing has been changed yet, so a plan
         left unanswered costs nothing but waiting, and a stop ends the wait.
         """
+        if self._yolo and not live.unattended:
+            # DR-053: YOLO mode reviews nothing; the plan goes ahead as written.
+            return PlanDecision.approve()
         pending = _PlanPending(review)
         with self._lock:
             live.plan_pending = pending
@@ -1789,6 +1822,10 @@ class SessionBridge:
             return ApprovalDecision.deny(
                 "the user stopped this run before the call was made"
             )
+        if self._yolo and not live.unattended:
+            # DR-053: the person switched asking off. The executor still records
+            # the request and this answer as events, so nothing runs unseen.
+            return ApprovalDecision.allow("YOLO mode: the user lets every call run without asking")
         with self._lock:
             standing = standing_for(request, live.allowances.values())
         if standing is not None:
