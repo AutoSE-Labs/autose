@@ -1102,8 +1102,11 @@ el("sb-rename-input").addEventListener("blur", () => finishBarRename(true));
 
 function renderRail() {
   renderSessionBar();
-  // A name being typed is not repainted away by the rail's clock.
-  if (renamingId && dom.sessionList.contains(document.activeElement)) return;
+  // A name being typed is not repainted away by the rail's clock. Only the
+  // name box counts: a real click first focuses the pencil that opened it,
+  // and that must not stop the box from being drawn.
+  const typing = document.activeElement && document.activeElement.classList.contains("rename-input");
+  if (renamingId && typing) return;
   if (!document.hidden) unseen.delete(focusId());
   renderWaitingCount();
   renderInbox();
