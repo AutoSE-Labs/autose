@@ -251,10 +251,26 @@ function revisionBlockMarkup(changes) {
   );
 }
 
-/* A session's badge: its tier's initial on a rounded tile, so a list of
- * sessions reads like the tier switch it was started from. */
+/* Each tier's icon, used on the tier switch and on every session's badge so
+ * the two read as one: a bolt for a quick spark, a hammer for crafted work, a
+ * flame for the forge; Auto is the two arrows of "it picks for you". */
+const TIER_ICONS = {
+  auto: '<path d="M4.5 9a5.5 5.5 0 0 1 9.6-3.2M15.5 11a5.5 5.5 0 0 1-9.6 3.2"/><path d="M14.5 2.8v3.4h-3.4M5.5 17.2v-3.4h3.4"/>',
+  spark: '<path d="M11.2 2.5 4.8 11h4.6l-1 6.5L15.2 9h-4.6z"/>',
+  craft: '<path d="M11.8 3.2l5 5-2.3 2.3-5-5z"/><path d="M10.6 7.4 3.4 14.6a1.4 1.4 0 0 0 2 2l7.2-7.2"/>',
+  forge: '<path d="M10 2.5c.6 2.8 4.5 4.4 4.5 8.7a4.5 4.5 0 0 1-9 0c0-2.1 1-3.4 2.1-4.3.1 1.6.9 2.6 2.2 2.8-.6-2.4-.5-4.6.2-7.2z"/>',
+};
+
+function tierIconMarkup(tier, size = 16) {
+  const body = TIER_ICONS[tier];
+  return body
+    ? `<svg class="tier-icon" viewBox="0 0 20 20" width="${size}" height="${size}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`
+    : "";
+}
+
+/* A session's badge: its tier's icon on a rounded tile. */
 function tierBadgeMarkup(tier, state) {
   const name = String(tier || "");
-  const letter = name ? name[0].toUpperCase() : "·";
-  return `<span class="tier-badge tier-${escapeHtml(name)}${state ? ` ${state}` : ""}" aria-hidden="true">${escapeHtml(letter)}</span>`;
+  const title = name ? `${name[0].toUpperCase()}${name.slice(1)} tier` : "";
+  return `<span class="tier-badge tier-${escapeHtml(name)}${state ? ` ${state}` : ""}" title="${escapeHtml(title)}">${tierIconMarkup(name, 17) || "·"}</span>`;
 }

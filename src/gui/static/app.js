@@ -854,7 +854,7 @@ function renderHeader() {
     ]
       .map(
         (item) =>
-          `<button type="button" data-tier="${escapeHtml(item.name)}" aria-pressed="${item.name === chosen}" title="${escapeHtml(item.title)}"${locked ? " disabled" : ""}>${escapeHtml(item.label)}</button>`
+          `<button type="button" data-tier="${escapeHtml(item.name)}" aria-pressed="${item.name === chosen}" title="${escapeHtml(item.title)}"${locked ? " disabled" : ""}>${tierIconMarkup(item.name, 15)}${escapeHtml(item.label)}</button>`
       )
       .join("")
   );
