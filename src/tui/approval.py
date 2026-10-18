@@ -14,7 +14,7 @@ instead" redirects the run rather than merely stopping it.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from rich.console import Console
 from rich.prompt import Prompt
@@ -22,6 +22,7 @@ from rich.text import Text
 
 from logic.common.allowances import Allowance, offer_for, standing_for
 from logic.common.approval import ApprovalDecision, ApprovalRequest
+from logic.saved_allowances import AllowanceFile
 
 from .render import approval_panel
 from .theme import THEME
@@ -44,10 +45,20 @@ class TerminalApprovalGate:
     """Prompts the user, and remembers an "always allow" if given (DR-048)."""
 
     def __init__(
-        self, console: Console, *, stop_requested: Callable[[], bool] | None = None
+        self,
+        console: Console,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+        workspace_rules: AllowanceFile | None = None,
     ) -> None:
         self._console = console
         self._always_allow: dict[str, Allowance] = {}
+        #: DR-057: the rules for every session in this workspace, kept in the
+        #: user's config directory and read again at every question, so one
+        #: added from the dashboard applies here at once.
+        self._workspace_rules = workspace_rules
+        #: Where this session's own rules are saved with it, once attached.
+        self._keep: Callable[[tuple[Allowance, ...]], None] | None = None
         #: Whether the run is already stopping (DR-030). Without this, a ctrl-c
         #: pressed while an approval prompt is up looks ignored: the first press
         #: asks the run to stop, but the run is blocked on this prompt and
@@ -59,9 +70,26 @@ class TerminalApprovalGate:
         """What runs unasked, as phrases: "pytest … commands"."""
         return tuple(item.label for item in self._always_allow.values())
 
+    @property
+    def workspace_allowed(self) -> tuple[str, ...]:
+        """What runs unasked in every session in this workspace (DR-057)."""
+        return tuple(item.label for item in self._workspace())
+
     def reset(self) -> None:
         """Forget every standing allowance — used when the session changes."""
         self._always_allow.clear()
+        self._save()
+
+    def adopt(
+        self,
+        allowances: Iterable[Allowance],
+        *,
+        keep: Callable[[tuple[Allowance, ...]], None] | None = None,
+    ) -> None:
+        """Start from a session's saved rules, and hand every change to *keep*
+        so it is saved with the session (DR-057)."""
+        self._always_allow = {item.key: item for item in allowances}
+        self._keep = keep
 
     def watch_for_stop(self, stop_requested: Callable[[], bool]) -> None:
         """Attach the session's stop signal, once the session exists."""
@@ -84,11 +112,14 @@ class TerminalApprovalGate:
                 "the user stopped this run before the call was made"
             )
 
-        standing = standing_for(request, self._always_allow.values())
+        standing = standing_for(request, [*self._always_allow.values(), *self._workspace()])
         if standing is not None:
-            return ApprovalDecision.allow(
-                f"{standing.label} were allowed for the rest of this session"
+            where = (
+                "for the rest of this session"
+                if standing.key in self._always_allow
+                else "for every session in this workspace"
             )
+            return ApprovalDecision.allow(f"{standing.label} were allowed {where}")
 
         self._console.print()
         self._console.print(approval_panel(request))
@@ -128,6 +159,7 @@ class TerminalApprovalGate:
             # DR-052: a chain's yes is a yes for each of its parts.
             for part in offer.every:
                 self._always_allow[part.key] = part
+            self._save()
             self._console.print(
                 Text(
                     f"  {THEME.ok_glyph} {offer.label} will run unasked for the "
@@ -150,6 +182,13 @@ class TerminalApprovalGate:
         return ApprovalDecision.deny(
             f"the user declined this call and said: {reply}"
         )
+
+    def _workspace(self) -> tuple[Allowance, ...]:
+        return self._workspace_rules.rules() if self._workspace_rules is not None else ()
+
+    def _save(self) -> None:
+        if self._keep is not None:
+            self._keep(tuple(self._always_allow.values()))
 
     @staticmethod
     def prompt_hint() -> str:
