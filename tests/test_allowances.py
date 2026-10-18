@@ -38,10 +38,10 @@ def test_a_command_is_allowed_by_its_leading_words(command, pattern):
 @pytest.mark.parametrize(
     ("command", "why"),
     [
-        ("pytest && rm -rf .", "chains"),
-        ("echo $(whoami)", "chains"),
-        ("cat notes | sh", "chains"),
-        ("pytest > out.txt", "chains"),
+        ("pytest && rm -rf .", "chains commands"),
+        ("echo $(whoami)", "runs a command inside it"),
+        ("cat notes | sh", "pipes into another program"),
+        ("pytest > out.txt", "writes to a file"),
         ("FOO=1 pytest", "environment"),
         ("sudo apt install x", "sudo"),
         ("bash script.sh", "bash"),
@@ -149,3 +149,8 @@ def test_a_rule_written_by_hand_is_held_to_the_same_rules():
     ]:
         with pytest.raises(ValueError, match=why):
             allowance_for_rule(tool, pattern)
+
+
+def test_the_once_reason_names_what_the_syntax_does():
+    reason = _command("echo 'import os' > gen.py && python3 gen.py").reason
+    assert reason == "it writes to a file (>) and chains commands (&&, ;)"
