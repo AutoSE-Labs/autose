@@ -813,8 +813,14 @@ def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
 
 def test_the_dashboard_fetches_nothing_from_the_network():
     """Local-first is a property of the page too, not only of inference."""
-    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js"):
-        source = (STATIC_ROOT / name).read_text(encoding="utf-8")
+    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js"):
+        # The SVG namespace inside an inline data: image is a name the SVG
+        # parser requires, never a request, so it is the one URL allowed.
+        source = (
+            (STATIC_ROOT / name)
+            .read_text(encoding="utf-8")
+            .replace("xmlns='http://www.w3.org/2000/svg'", "")
+        )
         for marker in ("http://", "https://", "//cdn", "fonts.googleapis"):
             assert marker not in source, f"{name} reaches out to {marker}"
 
@@ -1121,7 +1127,7 @@ def test_no_page_script_writes_inline_styles():
     """The CSP is default-src 'self' (DR-029), which drops inline style
     attributes without a word: a bar drawn with style="height:…" renders as
     nothing. Sizes go in SVG attributes or classes instead (DR-041)."""
-    for name in ("app.js", "inspector.js", "settings.js", "notify.js", "automation.js"):
+    for name in ("app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js"):
         source = (STATIC_ROOT / name).read_text(encoding="utf-8")
         assert 'style="' not in source, f"{name} writes an inline style attribute"
 
@@ -1361,3 +1367,37 @@ def test_a_revise_without_saying_what_is_refused(scripted, tmp_path):
         bridge.resolve_plan("any", action="revise", feedback="  ")
     with pytest.raises(BridgeError):
         bridge.resolve_plan("any", action="approve-ish")
+
+
+# -- the rail's strips: stage, counts, context and a state timeline ---------------
+
+
+def test_a_strip_records_when_the_session_worked_and_waited(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command="echo one")), answer("done")],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run it")
+    request = _drain(subscriber, "approval")["request"]
+    bridge.resolve_approval(request["id"], approved=True)
+    _drain(subscriber, "turn")
+    _drain(subscriber, "busy")
+    strip = bridge.snapshot()["open"][0]["strip"]
+    states = [status for _, status in strip["lane"]]
+    assert states == ["idle", "working", "waiting", "working", "idle"]
+    times = [at for at, _ in strip["lane"]]
+    assert times == sorted(times)
+
+
+def test_a_strip_lane_keeps_only_the_last_half_hour():
+    from gui.bridge import LANE_SECONDS, _Live
+
+    live = _Live.__new__(_Live)
+    live.lane = [(0.0, "idle")]
+    live.mark("working", at=10.0)
+    live.mark("idle", at=20.0)
+    live.mark("working", at=20.0 + LANE_SECONDS + 5)
+    # The state in force when the window opens is kept; older ones are not.
+    assert [status for _, status in live.lane] == ["idle", "working"]

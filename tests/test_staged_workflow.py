@@ -628,3 +628,40 @@ def test_without_a_reviewer_nothing_waits(tmp_path):
         _request(tmp_path, [plan("R1"), execute("R1"), validate("R1")])
     )
     assert outcome.succeeded
+
+
+def test_the_outcome_records_the_route_with_every_loopback(tmp_path):
+    """A finished run's card draws this: which stages ran, and each send-back."""
+    model = ScriptedChatModel(
+        [
+            _answer(t)
+            for t in (
+                plan("R1"),
+                execute("R1"),
+                validate("R1", status="Failed", verdict="VERDICT: FAIL execute — R1 is untested"),
+                execute("R1"),
+                validate("R1"),
+            )
+        ]
+    )
+    outcome = CraftWorkflow().run(
+        WorkflowRequest(
+            prompt="p",
+            workspace=Workspace.at(tmp_path),
+            model=model,
+            events=RecordingEventSink(),
+            approval_gate=RecordingApprovalGate(default=True),
+        )
+    )
+    steps = [(item["kind"], item["stage"]) for item in outcome.route]
+    assert steps == [
+        ("stage", "plan"),
+        ("stage", "execute"),
+        ("stage", "validate"),
+        ("loopback", "execute"),
+        ("stage", "execute"),
+        ("stage", "validate"),
+    ]
+    loopback = outcome.route[3]
+    assert "untested" in loopback["detail"]
+    assert loopback["unmet"] == "R1"

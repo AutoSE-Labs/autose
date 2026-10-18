@@ -107,6 +107,12 @@ class WorkflowOutcome:
     #: plain data — what a reviewer reads to see why the run counts as done,
     #: or what was left unverified (DR-038). Empty for tiers without one.
     requirements: tuple[dict[str, str], ...] = ()
+    #: The way the run went, in order: one ``{"kind": "stage", "stage",
+    #: "title"}`` per stage pass and one ``{"kind": "loopback", "stage",
+    #: "detail", "unmet"}`` per time Validate sent the work back. What a
+    #: finished run's card draws ("Execute ×2, sent back once"). Empty for
+    #: tiers without stages.
+    route: tuple[dict[str, str], ...] = ()
 
     @property
     def succeeded(self) -> bool:

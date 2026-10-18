@@ -113,6 +113,13 @@ class Turn:
     changes: tuple[FileChange, ...] = ()
     #: The requirements ledger as it stood when the turn ended (DR-038).
     requirements: tuple[dict[str, str], ...] = ()
+    #: The stages it went through and every loop-back (see
+    #: ``WorkflowOutcome.route``).
+    route: tuple[dict[str, str], ...] = ()
+    #: Changes an undo put back. Kept, not dropped, so the record still shows
+    #: what the run wrote and that it was reverted; ``changes`` holds only
+    #: what is still in the workspace, which is what the next undo reverts.
+    undone: tuple[FileChange, ...] = ()
 
     @property
     def succeeded(self) -> bool:
@@ -583,6 +590,8 @@ class Session:
                     files_changed=turn.files_changed,
                     changes=turn.changes,
                     requirements=turn.requirements,
+                    route=turn.route,
+                    undone=turn.undone,
                 )
                 for turn in self._turns
             ),
@@ -610,6 +619,8 @@ class Session:
                 files_changed=item.files_changed,
                 changes=item.changes,
                 requirements=item.requirements,
+                route=item.route,
+                undone=item.undone,
             )
             for item in record.turns
         ]
@@ -859,10 +870,12 @@ class Session:
         # The turn's record is replaced by what survives, so a second undo
         # retries only what the first one could not restore rather than
         # re-reverting files already put back.
-        remaining = tuple(
-            change for change in turn.changes if change.path not in set(report.restored)
+        restored = set(report.restored)
+        remaining = tuple(change for change in turn.changes if change.path not in restored)
+        reverted = tuple(change for change in turn.changes if change.path in restored)
+        self._turns[self._turns.index(turn)] = replace(
+            turn, changes=remaining, undone=turn.undone + reverted
         )
-        self._turns[self._turns.index(turn)] = replace(turn, changes=remaining)
         self._emit(
             "changes_reverted",
             f"restored {len(report.restored)} file(s)",
@@ -973,6 +986,7 @@ class Session:
             files_changed=outcome.files_changed,
             changes=outcome.changes,
             requirements=outcome.requirements,
+            route=outcome.route,
         )
         self._record(turn)
         holder["turn"] = turn

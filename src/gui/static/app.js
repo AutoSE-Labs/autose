@@ -32,83 +32,79 @@ const STARTERS = [
 const TIPS = [
   {
     title: "Pick the tier the request actually needs",
-    text: "Spark is a single direct pass for a question or a near-trivial edit. Craft plans, executes, and independently validates against a requirements ledger, for anything that needs a plan. A trivial question in Craft just burns time it doesn't need.",
+    text: "Spark answers or makes one small edit. Craft plans, makes the change and checks it against numbered requirements, for anything that needs a plan. A small question in Craft takes longer for nothing.",
   },
   {
     title: "Let it plan before it writes",
-    text: "Craft produces a concrete plan with an ID'd requirements ledger before touching files, then Validate checks the result against that same ledger independently. If it's heading the wrong way, redirect it while the plan is still just text.",
+    text: "Craft writes a plan with numbered requirements before changing a file, and Validate checks the result against them. Tick Review plan first to correct it while it is still text.",
   },
   {
-    title: "Approvals are your steering wheel, not just a gate",
-    text: "Anything that writes a file or runs a shell command pauses for your say-so. Refusing with a short reason, not just clicking Refuse, goes back to the model, so it tries something different instead of asking the same thing again.",
+    title: "A refusal with a reason changes what it tries next",
+    text: "Shell commands and network calls wait for your answer. A reason typed before Refuse goes back to the model, so it tries another way instead of asking again.",
   },
   {
     title: "Review what changed before you trust it",
-    text: "\"Review what it changed\" shows a real diff of every file touched this session, and one click undoes all of it if the run went sideways.",
+    text: "The Changes tab shows a diff of every file this session changed. Undo puts the last run's files back, and the record keeps them, struck through.",
   },
   {
-    title: "Stop keeps the work, a reload doesn't",
-    text: "A run with nothing capping its length can be stopped after the current step, keeping everything produced so far, reloading the page instead throws that away.",
+    title: "Stop keeps what it produced. Reloading loses it",
+    text: "Stop ends a run after the current step and keeps everything it produced so far.",
   },
   {
     title: "Run several things at once",
-    text: "The worklog rail holds more than one session, and switching away from one that's generating doesn't pause it, come back and it's further along, not stuck.",
+    text: "The rail holds several sessions. Switching away from one that is working does not pause it.",
   },
   {
     title: "Forgetting history doesn't touch your files",
-    text: "\"Forget this conversation\" clears what gets sent back to the model as context. Whatever it already wrote to disk is untouched, use Undo for that instead.",
+    text: "Clear history removes what is sent back to the model as context. Files it wrote stay as they are; Undo is what puts them back.",
   },
   {
-    title: "Watch the context meter, not just the token count",
-    text: "The status bar tracks how full the context window was last round. A model running consistently near full starts losing earlier turns, that's when a fresh session helps more than a longer prompt.",
+    title: "When the context meter runs near full, start a new session",
+    text: "CTX in the status bar is how full the context window was on the last round. Near full, the model starts losing earlier runs, and a new session helps more than a longer request.",
   },
   {
     title: "No model responding? Run Machine check",
-    text: "It looks for a runtime already on this machine (Ollama, LM Studio, vLLM, llama.cpp) and reports what's reachable, what's serving, and whether it supports tool calls. Nothing is bundled or proxied.",
-  },
-  {
-    title: "Learned facts stay inert until you approve them",
-    text: "A stage can propose a fact it verified while working, but nothing is remembered across sessions until it's approved in Learned facts, and that approval is recorded against your name.",
+    text: "It looks for Ollama, LM Studio, vLLM and llama.cpp on this machine and says which answer, what they serve, and whether the model can call tools.",
   },
   {
     title: "Everything here runs local, by default",
     text: "No cloud call is made unless you point it at one. Set AUTOSE_BASE_URL and AUTOSE_MODEL to use any OpenAI-compatible endpoint instead of what was autodetected.",
   },
   {
-    title: "Shift+Enter for a real prompt, Enter to send",
-    text: "Enter starts the run immediately. Use Shift+Enter first if you want to lay out a longer request across a few lines before sending it.",
+    title: "Enter starts, Shift+Enter adds a line",
+    text: "Enter starts the run. Shift+Enter adds a new line for a longer request.",
   },
   {
-    title: "Starter chips are a draft, not a send",
-    text: "Clicking one on the greeting screen only fills the composer with a starting prompt. Edit it to fit what you actually need, then press Start work when it's ready.",
+    title: "Starter chips fill the box; they do not send",
+    text: "A chip on the first screen fills the request box. Edit it, then press Start work.",
   },
   {
     title: "Tier and model are per session",
-    text: "Switching either dropdown only changes the session you're currently looking at. Open a second session to compare a different tier or model side by side instead of switching back and forth.",
+    text: "Changing either one changes only the session on screen. Open a second session to compare tiers or models side by side.",
   },
   {
     title: "Deleting a stored session asks twice",
-    text: "The × next to a session turns into a ! on the first click. Only a second click, on that same button, actually deletes it, so a stray click can't lose one.",
+    text: "The × beside a stored session becomes ! on the first click. Only a second click on it deletes the session.",
   },
   {
     title: "Jump to the latest instead of fighting the scroll",
-    text: "Scrolling up to reread earlier output doesn't lose your place. A ↓ button appears the moment you're no longer pinned to the bottom, so getting back is one click.",
+    text: "Scrolling up to reread does not lose your place. A ↓ button appears when you leave the bottom.",
   },
   {
     title: "Network calls are approved like writes are",
-    text: "web_search and fetch_url pause for your approval too, since they bring back content AutoSE didn't write. The prompt tells you which kind of risk it is: a file write, a shell command, or a network fetch.",
+    text: "Web searches and page fetches wait for your answer too, because they bring back content from outside this machine. A fetch can be allowed for one site for the session.",
   },
   {
     title: "The workspace path in the status bar is the boundary",
-    text: "DIR names the one directory AutoSE can read and write. Nothing outside it is touched, no matter what a prompt asks for.",
+    text: "DIR names the one folder AutoSE reads and writes. Commands that reach outside it are refused.",
   },
   {
-    title: "A failed verdict is worth more than confident prose",
-    text: "Validate issues a fail-closed verdict: if a requirement can't be independently confirmed, the stage is reported as failed rather than assumed fine. Trust that pass/fail over how convincing the writeup around it sounds.",
+    title: "Trust the pass or fail over the write-up",
+    text: "Validate fails a requirement it cannot confirm. A square stamp means it was checked with evidence; a circle means it was only implemented.",
   },
   {
     title: "Closing a session isn't deleting it",
-    text: "Closing just removes it from the rail for now; a generating session keeps running either way. Delete (the double-click ×) is the only action that actually discards a stored session.",
+    text: "Closing takes a session off the rail; it stays on disk and reopens from Stored. Only Delete removes it.",
   },
 ];
 
@@ -116,13 +112,13 @@ const TIPS = [
  * logic/common/tools; anything unknown falls through to a readable default. */
 const TOOL_LABELS = {
   read_file: { icon: "◉", verb: "Reading", key: "path" },
-  list_files: { icon: "▤", verb: "Looking around", key: "directory" },
-  find_files: { icon: "⌕", verb: "Hunting for", key: "name_pattern" },
+  list_files: { icon: "▤", verb: "Listing", key: "directory" },
+  find_files: { icon: "⌕", verb: "Finding", key: "name_pattern" },
   search_files: { icon: "⌕", verb: "Searching the code for", key: "text" },
   write_file: { icon: "✎", verb: "Writing", key: "path" },
   edit_file: { icon: "✎", verb: "Editing", key: "path" },
   run_command: { icon: "▸", verb: "Running", key: "command" },
-  git_status: { icon: "⎇", verb: "Checking what git says", key: "" },
+  git_status: { icon: "⎇", verb: "git status", key: "" },
   git_diff: { icon: "⎇", verb: "Reading the git diff", key: "" },
   git_log: { icon: "⎇", verb: "Reading the git log", key: "" },
   web_search: { icon: "⌖", verb: "Searching the web for", key: "query" },
@@ -298,7 +294,7 @@ function handleFrame(frame) {
       // DR-031: two runs share one workspace, and their change journals are
       // separate — so an undo in one cannot see what the other wrote.
       toast(
-        `${frame.sessions.length} sessions are working in this workspace at once. Their file changes are journalled separately, so Undo only covers the session you run it from.`,
+        `${frame.sessions.length} sessions are working in this workspace at once. Each records its own file changes, so Undo covers only the session you run it from.`,
         "",
         "concurrent-runs"
       );
@@ -363,20 +359,20 @@ function handleFrame(frame) {
     case "turn":
       finishRun(id, frame.turn);
       notifyAbout(id, {
-        title: frame.turn.succeeded ? "Task finished" : "Task ended without finishing",
-        body: `${frame.turn.prompt || ""}${(frame.turn.files_changed || []).length ? ` — ${frame.turn.files_changed.length} file(s) changed` : ""}`,
+        title: frame.turn.succeeded ? "Run finished" : "Run did not finish",
+        body: `${frame.turn.prompt || ""}${(frame.turn.files_changed || []).length ? ` · ${plural(frame.turn.files_changed.length, "file")} changed` : ""}`,
         tag: `turn-${id}`,
       });
       break;
     case "failed":
       failRun(id, frame.title || "Stopped", frame.message || "");
-      notifyAbout(id, { title: `Task stopped: ${frame.title || "failed"}`, body: frame.message || "", tag: `turn-${id}` });
+      notifyAbout(id, { title: `Run stopped: ${frame.title || "failed"}`, body: frame.message || "", tag: `turn-${id}` });
       break;
     case "approval":
       approvals.push({ ...frame.request, session: id });
       // DR-043: the one thing that cannot proceed without the person.
       notifyAbout(id, {
-        title: "AutoSE is waiting for your decision",
+        title: "Needs you",
         body: `${humanize(String(frame.request.tool || "a call"))}: ${frame.request.summary || ""}`,
         tag: `ask-${frame.request.id}`,
         urgent: true,
@@ -402,8 +398,8 @@ function handleFrame(frame) {
       }
       if (frame.held && (frame.queue || []).length) {
         notifyAbout(id, {
-          title: "Queue held",
-          body: `${frame.queue.length} request(s) wait for you to resume them.`,
+          title: `Queue held: ${plural(frame.queue.length, "request")}`,
+          body: "Resume them when you are ready.",
           tag: `queue-${id}`,
         });
       }
@@ -425,7 +421,7 @@ function handleFrame(frame) {
         if (entry) entry.plan_waiting = true;
       }
       notifyAbout(id, {
-        title: "A plan is waiting for your review",
+        title: "Plan ready for review",
         body: "Nothing has been changed yet. Approve it, ask for changes, or edit it.",
         tag: `plan-${frame.review.id}`,
         urgent: true,
@@ -488,7 +484,7 @@ function handleEvent(id, frame) {
   }
   switch (frame.event) {
     case "classification_started":
-      setThinking(run, "Reading the request");
+      setThinking(run, "Choosing a tier");
       break;
     case "classification_finished":
       run.tier = data.effective_tier || data.tier || run.tier;
@@ -513,6 +509,8 @@ function handleEvent(id, frame) {
         }
       });
       run.narration = "";
+      run.passes = run.passes || {};
+      run.passes[data.stage] = (run.passes[data.stage] || 0) + 1;
       run.currentStage = String(data.stage || "");
       run.stageTimes[run.currentStage] = { start: frame.timestamp || Date.now() / 1000, end: 0 };
       setThinking(run, data.title || humanize(String(data.stage || "")));
@@ -552,10 +550,17 @@ function handleEvent(id, frame) {
           : `Checked the work: ${escapeHtml(String((data.unmet || []).join(", ") || "gaps remain"))}`,
       });
       break;
-    case "loopback":
-      run.loopbacks.push(data);
-      pushActivity(run, { icon: "↺", html: `Back to ${escapeHtml(humanize(String(data.target || "")))} (${data.iteration}/${data.cap})` });
+    case "loopback": {
+      // The verdict just before it names the requirements that sent it back.
+      const unmet = (run.verdict && run.verdict.unmet) || [];
+      run.loopbacks.push({ ...data, unmet });
+      pushActivity(run, {
+        kind: "fail",
+        icon: "↩",
+        html: `Sent back to ${escapeHtml(humanize(String(data.target || "")))}${unmet.length ? `: ${escapeHtml(unmet.join(", "))} unmet` : ""}`,
+      });
       break;
+    }
     case "tool_called":
       pushActivity(run, { ...describeTool(String(data.tool || ""), data.arguments || {}), stepless: true });
       run.steps.push({
@@ -593,13 +598,20 @@ function handleEvent(id, frame) {
       break;
     }
     case "approval_requested":
-      setThinking(run, "Waiting for you");
+      setThinking(run, "Needs you");
       break;
     case "approval_resolved": {
-      // Back to the stage it was in: "Waiting for you" is only true until the
+      // Back to the stage it was in: "Needs you" is only true until the
       // answer arrives, and with auto-approve it never was.
       const active = (run.stages || []).find((stage) => stage.name === run.currentStage);
       setThinking(run, active ? active.title : run.currentStage ? humanize(run.currentStage) : "Thinking");
+      if (!data.approved) {
+        // A refused call never ran: its step is struck through, not failed.
+        const refused = [...run.steps]
+          .reverse()
+          .find((item) => item.type === "tool" && item.status === "running" && item.tool === data.tool);
+        if (refused) refused.status = "refused";
+      }
       pushActivity(run, {
         kind: data.approved ? "pass" : "denied",
         icon: data.approved ? "✓" : "⊘",
@@ -637,7 +649,7 @@ function handleEvent(id, frame) {
       if (!run) toast(`Tier is now ${humanize(String(data.tier || ""))}.`, "good");
       break;
     case "session_resumed":
-      toast(`Picked up session ${shortId(String(data.session_id || ""))} — ${data.turns || 0} earlier turn(s).`, "good");
+      toast(`Reopened session ${shortId(String(data.session_id || ""))} (${plural(data.turns || 0, "earlier run")}).`, "good");
       break;
     case "agent_reasoning_delta":
       run.thinking += frame.message || "";
@@ -690,7 +702,7 @@ function handleEvent(id, frame) {
       toast("The runtime silently trimmed the request — raise its context window (see the machine check).", "bad");
       break;
     case "changes_reverted":
-      toast(`Restored ${(data.restored || []).length} file(s).`, "good");
+      toast(`Undid changes to ${plural((data.restored || []).length, "file")}.`, "good");
       break;
     case "model_selected":
       toast(`Model is now ${data.model}.`, "good");
@@ -795,12 +807,20 @@ function mergeApprovals(snapshot) {
 
 /* ---------- header + status ---------- */
 
+/* What each tier does, short enough for the picker; the full summary is its
+ * tooltip. */
+const TIER_SHORT = {
+  spark: "answer, or one small edit",
+  craft: "Plan → Execute → Validate",
+  forge: "Design, then as craft",
+};
+
 function renderHeader() {
   const tiers = state.tiers || [];
   const chosen = state.auto_classify ? "auto" : state.tier;
   dom.tier.innerHTML = [
-    `<option value="auto">Auto — classify each request</option>`,
-    ...tiers.map((tier) => `<option value="${tier.name}">${escapeHtml(tier.name)} — ${escapeHtml(tier.summary)}</option>`),
+    `<option value="auto">Auto: pick per request</option>`,
+    ...tiers.map((tier) => `<option value="${tier.name}" title="${escapeHtml(tier.summary)}">${escapeHtml(tier.name)}: ${escapeHtml(TIER_SHORT[tier.name] || tier.summary)}</option>`),
   ].join("");
   dom.tier.value = chosen;
   dom.tier.disabled = !state.ready || state.running;
@@ -868,11 +888,15 @@ function renderStatus() {
   const waitingHere = approvals.some((item) => item.session === focusId());
   let label = "Ready";
   let mood = "";
+  // Fail-safe, as a signal box's diagram is: with the stream down nothing
+  // drawn here can be trusted to be current, so every session shows unknown
+  // rather than its last known state.
+  document.body.classList.toggle("link-lost", !connected);
   if (!connected) {
-    label = "Reconnecting to AutoSE";
+    label = "Disconnected";
     mood = "offline";
   } else if (waitingHere) {
-    label = "Waiting for your decision";
+    label = "Needs you";
     mood = "attention";
   } else if (state.running) {
     label = (run && run.thinkingLabel) || "Working";
@@ -889,15 +913,18 @@ function renderStatus() {
   }
   dom.presence.className = `presence status-cell ${mood}`.trim();
   dom.presenceText.textContent = label;
+  dom.presence.title = connected
+    ? ""
+    : "The page lost its connection to AutoSE and is reconnecting. Until it does, what it shows may be out of date.";
 
   // DR-012: the posture this run is in belongs on screen, not only in the
   // terminal that started it. An auto-approved dashboard never interrupts,
   // which is exactly why it has to say so.
   if (state.auto_approve) {
     dom.stamp.textContent = "AUTO-APPROVE ON";
-    dom.stamp.title = `Shell and network calls run without asking, authorized by ${state.authorized_by || "whoever started this"}.`;
+    dom.stamp.title = `Shell and network calls run without asking, authorised by ${state.authorized_by || "whoever started this"}.`;
     toast(
-      `Auto-approve is on: shell and network calls run without asking (authorized by ${state.authorized_by || "the operator"}).`,
+      `Auto-approve is on: shell and network calls run without asking (authorised by ${state.authorized_by || "the operator"}).`,
       "bad",
       "auto-approve"
     );
@@ -954,7 +981,7 @@ function renderRail() {
   }
   if (!open.length && !rest.length) {
     blocks.push(
-      `<p class="empty-state">Nothing stored yet. Every turn is written to <span class="mono">.autose/sessions/</span>, so you can pick this up later.</p>`
+      `<p class="empty-state">No sessions yet. Each one is saved to <span class="mono">.autose/sessions/</span> and can be reopened.</p>`
     );
   }
   dom.sessionList.innerHTML = blocks.join("");
@@ -1029,7 +1056,7 @@ function renderSessionTabs() {
         `<span class="dot" data-status="${status}"></span>` +
         `<span class="session-tab-title">${escapeHtml(elideMiddle(entry.title || "New session", 28))}</span>` +
         (entry.queued ? `<span class="session-tab-badge" title="Queued requests">+${entry.queued}</span>` : "") +
-        (waiting ? `<span class="session-tab-badge alert" title="Waiting for your decision">!</span>` : "") +
+        (waiting ? `<span class="session-tab-badge alert" title="Needs you">!</span>` : "") +
         `</button>` +
         `<button type="button" class="session-tab-close" data-close="${escapeHtml(entry.session_id)}" title="${entry.running ? "Stop it before closing it" : "Close — it stays on disk"}">×</button>` +
         `</div>`
@@ -1042,6 +1069,9 @@ function renderSessionTabs() {
   );
 }
 
+/* A session as a flight strip (DR-042's rail row, redrawn): coloured by
+ * tier, its data in blocks, and its last half hour as a thin timeline. A
+ * strip that waits for the person is pulled out of the rack. */
 function openRowMarkup(entry) {
   const active = entry.session_id === focusId();
   // The count the server sent covers a tab that has only just loaded and never
@@ -1050,19 +1080,61 @@ function openRowMarkup(entry) {
     entry.waiting || 0,
     approvals.filter((item) => item.session === entry.session_id).length
   );
-  const detail = entry.running
-    ? `${entry.stopping ? "stopping" : "working"} · ${formatElapsed(Date.now() - (entry.current && entry.current.started_at ? entry.current.started_at * 1000 : Date.now()))}`
-    : `${entry.turns} turn(s) · ${formatCount(entry.total_tokens)} tok`;
-  const status = entry.running ? (entry.stopping ? "stopping" : "running") : "open";
-  return `<div class="session-row open${active ? " active" : ""}">
-      <button class="session-item" type="button" data-focus="${escapeHtml(entry.session_id)}" title="${escapeHtml(entry.title)}">
-        <span class="dot" data-status="${status}"></span>
-        <span>${escapeHtml(entry.title)}</span>
-        <small>${entry.automation ? `${entry.automation.type === "watcher" ? "watcher" : "scheduled"} · ` : ""}${escapeHtml(entry.tier || "")} · ${escapeHtml(detail)}</small>
+  const strip = entry.strip || {};
+  const needsYou = waiting || entry.plan_waiting || (entry.queue_held && entry.queued);
+  const status = needsYou ? "waiting" : entry.running ? (entry.stopping ? "stopping" : "running") : "open";
+  const blocks = [];
+  if (entry.automation) blocks.push(entry.automation.type === "watcher" ? "watcher" : "scheduled");
+  blocks.push(entry.tier || "");
+  if (entry.running) {
+    if (strip.stage) blocks.push(`${strip.stage.number ? `${strip.stage.number} ` : ""}${strip.stage.title}`);
+    blocks.push(formatElapsed(Date.now() - (entry.current && entry.current.started_at ? entry.current.started_at * 1000 : Date.now())));
+  } else {
+    blocks.push(`${entry.turns} ${entry.turns === 1 ? "run" : "runs"}`, `${formatCount(entry.total_tokens)} tok`);
+  }
+  if (strip.requirements) {
+    blocks.push(`R ${strip.requirements.verified}/${strip.requirements.total}${strip.requirements.failed ? ` · ${strip.requirements.failed} failed` : ""}`);
+  }
+  if (entry.running && strip.context_pct !== null && strip.context_pct !== undefined) {
+    blocks.push(`ctx ${strip.context_pct}%`);
+  }
+  const why = waiting
+    ? `${waiting} ${waiting === 1 ? "call needs" : "calls need"} you`
+    : entry.plan_waiting
+      ? "plan needs you"
+      : needsYou
+        ? "queue held"
+        : "";
+  return `<div class="strip tier-${escapeHtml(entry.tier || "spark")}${active ? " active" : ""}${needsYou ? " pulled" : ""}">
+      <button class="strip-main" type="button" data-focus="${escapeHtml(entry.session_id)}" title="${escapeHtml(entry.title)}">
+        <span class="strip-head"><span class="dot" data-status="${status}"></span><span class="strip-title">${escapeHtml(entry.title)}</span></span>
+        <span class="strip-blocks">${blocks.filter(Boolean).map((block) => `<span>${escapeHtml(block)}</span>`).join("")}</span>
+        ${why ? `<span class="strip-why">${escapeHtml(why)}</span>` : ""}
+        ${laneMarkup(strip.lane)}
       </button>
-      ${waiting ? `<span class="session-badge" title="This session is waiting for a decision">!</span>` : ""}
       <button class="session-close" type="button" data-close="${escapeHtml(entry.session_id)}" title="${entry.running ? "Stop it before closing it" : "Close this session — it stays on disk"}">−</button>
     </div>`;
+}
+
+/* The strip's last half hour: one band per state, drawn with attributes
+ * only (the page's policy allows no inline styles). */
+const LANE_WINDOW_MS = 30 * 60 * 1000;
+
+function laneMarkup(lane) {
+  if (!lane || !lane.length) return "";
+  const now = Date.now();
+  const start = now - LANE_WINDOW_MS;
+  const bands = lane
+    .map(([at, status], index) => {
+      const from = Math.max(at * 1000, start);
+      const to = index + 1 < lane.length ? lane[index + 1][0] * 1000 : now;
+      if (to <= start || to <= from) return "";
+      const x = ((from - start) / LANE_WINDOW_MS) * 100;
+      const width = ((to - from) / LANE_WINDOW_MS) * 100;
+      return `<rect class="lane-${escapeHtml(status)}" x="${x.toFixed(2)}" y="0" width="${Math.max(width, 0.4).toFixed(2)}" height="3"></rect>`;
+    })
+    .join("");
+  return `<svg class="strip-lane" viewBox="0 0 100 3" preserveAspectRatio="none" aria-hidden="true">${bands}</svg>`;
 }
 
 function storedRowMarkup(record) {
@@ -1072,7 +1144,7 @@ function storedRowMarkup(record) {
       <button class="session-item" type="button" data-resume="${escapeHtml(record.id)}" title="${escapeHtml(record.title)}">
         <span class="dot" data-status="${status}"></span>
         <span>${escapeHtml(record.title || "(no title)")}</span>
-        <small>${escapeHtml(record.tier || "")} · ${record.turns} turn(s) · ${formatCount(record.total_tokens)} tok · ${formatWhen(record.updated_at)}</small>
+        <small>${escapeHtml(record.tier || "")} · ${plural(record.turns, "run")} · ${formatCount(record.total_tokens)} tok · ${formatWhen(record.updated_at)}</small>
       </button>
       <button class="session-delete${armed ? " armed" : ""}" type="button" data-delete="${escapeHtml(record.id)}" title="${armed ? "Click again to delete" : "Delete this stored session"}">${armed ? "!" : "×"}</button>
     </div>`;
@@ -1120,10 +1192,10 @@ function queueNode() {
   node.className = `queue-strip${state.queue_held ? " held" : ""}`;
   const head = state.queue_held
     ? `<div class="queue-head"><span class="eyebrow"><span class="tick"></span>Queue held</span>
-        <span>The last task stopped, so the next one waits for you.</span>
+        <span>The last run stopped, so the next one waits for you.</span>
         <button type="button" class="primary-button small" data-queue="resume">Resume</button></div>`
     : `<div class="queue-head"><span class="eyebrow"><span class="tick"></span>Queued</span>
-        <span>Starts when the current task finishes, in this order.</span></div>`;
+        <span>They start after the current run, in this order.</span></div>`;
   const items = queue
     .map(
       (item, index) =>
@@ -1143,8 +1215,8 @@ function greetingNode() {
   node.className = "greeting";
   node.innerHTML = `
     <span class="eyebrow"><span class="tick"></span>Workshop</span>
-    <h1>Describe the work.<br /><span class="ink-underline">AutoSE does it here, on this machine.</span></h1>
-    <p>It reads and writes files in <span class="mono">${escapeHtml(shortenPath(state.workspace || ""))}</span>, asks before it touches your shell or the network, and journals every change so you can review or undo it.</p>
+    <h1>What should I work on?</h1>
+    <p>I work in <span class="mono">${escapeHtml(shortenPath(state.workspace || ""))}</span>. I ask before running a command or using the network, and every file I change can be undone.</p>
     <div class="starter-chips">
       ${STARTERS.map((starter, index) => `<button class="starter-chip" type="button" data-starter="${index}">${escapeHtml(starter.label)}</button>`).join("")}
     </div>`;
@@ -1162,56 +1234,67 @@ function slipNode(prompt) {
 /* Titles and explanations for a run that did not finish. Kept beside each
  * other so a new stop reason cannot get one without the other. */
 const OUTCOME_HEADLINES = {
-  stalled: "Stopped — it went in circles",
-  context_thrashing: "Stopped — the context window is too small",
-  round_cap: "Stopped — hit the round limit",
-  no_result: "Stopped — nothing was produced",
+  stalled: "Stopped: going in circles",
+  context_thrashing: "Stopped: the context window is too small",
+  round_cap: "Stopped: round limit reached",
+  no_result: "Stopped: nothing was produced",
 };
 
 const OUTCOME_REASONS = {
   stalled:
     "It kept re-reading what it had already been given instead of answering, so it was " +
-    "stopped. This usually means the model is too small for the request — try a larger " +
-    "one, or ask something narrower.",
+    "stopped. The model is usually too small for the request: try a larger one, or ask " +
+    "something narrower.",
   context_thrashing:
-    "Every round had to discard the evidence the round before it gathered, to fit the " +
-    "served context window — so the model kept re-reading what it could no longer see. " +
-    "The window is the problem, not the model: raise it and run this again.",
+    "Every round had to drop what the round before it gathered to fit the context " +
+    "window, so the model kept re-reading what it could no longer see. Raise the window " +
+    "under CTX and run this again.",
   round_cap: "The round limit was reached before an answer was written.",
-  empty_answer: "The model returned nothing at all.",
+  empty_answer: "Its reply was empty. A full context window is the usual cause: raise it under CTX and run again.",
   no_result: "The run ended without producing a result.",
   cancelled: "Stopped before there was anything to show.",
 };
 
+/* Finished cards are kept and reused: the conversation is redrawn on many
+ * frames, and rebuilding a card would replay its stamp landing each time. */
+const receiptCache = new Map();
+
 function receiptNode(turn) {
+  const key = `${focusId()}:${turn.index}:${turn.stop_reason}:${(turn.changes || []).length}:${(turn.undone || []).length}`;
+  const cached = receiptCache.get(key);
+  if (cached) return cached;
   const node = document.createElement("article");
-  node.className = `work-card ${turn.succeeded ? "done" : "failed"}`;
+  node.className = `work-card ${receiptTone(turn)}`;
   node.innerHTML = receiptMarkup(turn);
+  receiptCache.set(key, node);
   return node;
+}
+
+function receiptTone(turn) {
+  if (turn.succeeded) return "done";
+  return turn.stop_reason === "cancelled" ? "stopped" : "failed";
+}
+
+/* The verdict stamp's word. A run with requirements passed or failed them;
+ * one without (spark) is simply done. */
+function verdictWord(turn) {
+  if (turn.stop_reason === "cancelled") return ["stop", "Stopped"];
+  if (!turn.succeeded) return ["fail", "Not done"];
+  const requirements = turn.requirements || [];
+  if (!requirements.length) return ["pass", "Done"];
+  return requirements.every((item) => item.status === "Verified") ? ["pass", "Passed"] : ["fail", "Failed"];
 }
 
 function receiptMarkup(turn) {
   const usage = turn.usage || {};
-  const facts = [
-    fact(turn.tier, "good"),
-    fact(`${formatCount(usage.total_tokens || 0)} tokens`),
-    turn.files_changed.length ? fact(`${turn.files_changed.length} file(s) changed`) : "",
-    turn.succeeded ? "" : fact(humanize(turn.stop_reason), "warn"),
-    turn.classification ? fact(`classified by ${turn.classification.source}`) : "",
-  ]
-    .filter(Boolean)
-    .join("");
-
-  const changes = (turn.changes || []).length
-    ? section(
-      "Files it wrote",
-      turn.changes.map(
-        (change) =>
-          `<li><span class="li-mark">✎</span><span class="file">${escapeHtml(change.path)}</span><span class="stat">+${change.added} −${change.removed}</span></li>`
-      )
-    )
-    : "";
-
+  const changes = turn.changes || [];
+  const undone = (turn.undone || []).map((change) => ({ ...change, reverted: true }));
+  const cells = [
+    ["Run", String((turn.index >= 0 ? turn.index : 0) + 1)],
+    ["Tier", turn.classification ? `${turn.tier} (${turn.classification.source})` : turn.tier],
+    ["Tokens", formatCount(usage.total_tokens || 0)],
+    ["Files", `${changes.length}${undone.length ? ` + ${undone.length} undone` : ""}`],
+  ];
   const notes = Object.entries(turn.artifacts || {})
     .map(
       ([name, text]) =>
@@ -1222,12 +1305,12 @@ function receiptMarkup(turn) {
   const headline = turn.succeeded
     ? "Done"
     : turn.stop_reason === "empty_answer"
-      ? "It ran out of room to answer"
+      ? "No answer from the model"
       : turn.stop_reason === "cancelled"
         // DR-030: a run the user ended on purpose is reported as their choice,
         // not as something that went wrong.
         ? "You stopped this run"
-        : OUTCOME_HEADLINES[turn.stop_reason] || `Stopped — ${humanize(turn.stop_reason)}`;
+        : OUTCOME_HEADLINES[turn.stop_reason] || `Stopped: ${humanize(turn.stop_reason)}`;
 
   // A run that stopped without writing an answer renders a headline and
   // nothing else, which is how "Stopped — Stalled" came to be the entire
@@ -1239,30 +1322,24 @@ function receiptMarkup(turn) {
           OUTCOME_REASONS[turn.stop_reason] ||
             "The run ended without producing an answer."
         )}</p>`;
+  const [tone, word] = verdictWord(turn);
 
   return `<div class="work-head">
       <span class="presence-dot"></span>
       <span class="eyebrow">Report</span>
       <span class="work-title">${escapeHtml(turn.prompt.split("\n")[0].slice(0, 80))}</span>
     </div>
+    <div class="traveler-top">${titleBlockMarkup(cells)}${verdictStampMarkup(tone, word)}</div>
+    ${routeMarkup(routeFromRecord(turn.route, turn.succeeded))}
+    ${stampsMarkup(turn.requirements, null)}
     <div class="receipt">
       <div class="receipt-headline">${escapeHtml(headline)}</div>
       ${turn.answer ? `<div class="receipt-summary prose">${renderMarkdown(turn.answer)}</div>` : ""}
       ${why}
-      <div class="receipt-facts">${facts}</div>
-      ${changes}
-      ${(turn.changes || []).length ? `<div class="receipt-actions"><button class="inline-button" type="button" data-open-diff="1">Review the diff</button></div>` : ""}
+      ${revisionBlockMarkup([...changes, ...undone])}
+      ${changes.length ? `<div class="receipt-actions"><button class="inline-button" type="button" data-open-diff="1">Review the diff</button></div>` : ""}
       ${notes}
     </div>`;
-}
-
-function fact(label, tone = "") {
-  return `<span class="fact ${tone}"><span class="dot"></span>${escapeHtml(String(label || ""))}</span>`;
-}
-
-function section(title, items) {
-  if (!items.length) return "";
-  return `<div class="receipt-section"><h4 class="eyebrow">${escapeHtml(title)}</h4><ul>${items.join("")}</ul></div>`;
 }
 
 /* ---------- the live card ---------- */
@@ -1296,7 +1373,7 @@ function startRun(id, current) {
     notes: {},
     requirements: [],
     verdict: null,
-    thinkingLabel: "Thinking",
+    thinkingLabel: "Starting",
     running: true,
     // DR-037: the structured record the inspector draws, one entry per tool
     // call or notable moment, each tagged with the stage that produced it.
@@ -1379,7 +1456,9 @@ const CARD_SKELETON = `
     <button class="card-stop" type="button" data-stop="1"
       title="Stop after the current step, keeping everything produced so far">Stop</button>
   </div>
-  <div class="stages" data-part="stages"></div>
+  <div data-part="titleblock"></div>
+  <div data-part="stages"></div>
+  <div data-part="stamps"></div>
   <div class="activity" data-part="activity"></div>
   <div class="narration prose" data-part="narration" hidden></div>
   <details class="thinking" data-part="thinking" hidden>
@@ -1397,7 +1476,9 @@ function ensureCard(run) {
     elapsed: part("elapsed"),
     stop: run.node.querySelector("[data-stop]"),
     details: part("details"),
+    titleblock: part("titleblock"),
     stages: part("stages"),
+    stamps: part("stamps"),
     activity: part("activity"),
     narration: part("narration"),
     thinking: part("thinking"),
@@ -1422,13 +1503,43 @@ function setHtml(node, html) {
   return true;
 }
 
-function stagesMarkup(run) {
-  return run.stages
-    .map(
-      (stage, index) =>
-        `<div class="stage ${stage.status}"><span class="stage-id">${String(index + 1).padStart(2, "0")}</span><span class="stage-name">${escapeHtml(stage.title)}</span></div>`
-    )
-    .join("");
+/* The live route: the workflow's stages as numbered operations, how many
+ * times each has run, and every time Validate sent the work back. */
+function liveRoute(run) {
+  return {
+    ops: run.stages.map((stage) => ({
+      name: stage.name,
+      title: stage.title,
+      status: stage.status || "pending",
+      passes: (run.passes && run.passes[stage.name]) || 0,
+    })),
+    loopbacks: run.loopbacks.map((item) => ({
+      to: item.target,
+      unmet: (item.unmet || []).join(", "),
+      detail: item.feedback || "",
+    })),
+  };
+}
+
+function liveTitleCells(run) {
+  return [
+    ["Run", String(((state && state.history) || []).length + 1)],
+    ["Tier", run.tier],
+    ["Model", (state && state.model) || ""],
+    ["Started", new Date(run.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })],
+  ];
+}
+
+/* Stamps animate only when their status is new to this card: the first
+ * paint, after a reload, shows them as they stand. */
+function liveStamps(run) {
+  const keys = run.requirements.map((item) => `${item.id}:${item.status}`);
+  let fresh = null;
+  if (run.stampsSeen) {
+    fresh = new Set(keys.filter((key) => !run.stampsSeen.has(key)));
+  }
+  run.stampsSeen = new Set(keys);
+  return stampsMarkup(run.requirements, fresh);
 }
 
 function activityMarkup(run) {
@@ -1472,7 +1583,9 @@ function renderRun() {
   setText(d.elapsed, formatElapsed(Date.now() - run.startedAt));
   renderCardStop();
 
-  let grew = setHtml(d.stages, stagesMarkup(run));
+  setHtml(d.titleblock, titleBlockMarkup(liveTitleCells(run)));
+  let grew = setHtml(d.stages, routeMarkup(liveRoute(run)));
+  grew = setHtml(d.stamps, liveStamps(run)) || grew;
   grew = setHtml(d.activity, activityMarkup(run)) || grew;
 
   const prose = run.narration || run.answer;
@@ -1538,18 +1651,23 @@ function changesView() {
   });
   const turns = history
     .map((turn, index) => {
-      const files = (turn.changes || []).map((change) => ({
+      const files = [
+        ...(turn.changes || []).map((change) => ({ ...change, undone: false })),
+        // Reverted by an undo: kept in the list, struck through.
+        ...(turn.undone || []).map((change) => ({ ...change, undone: true })),
+      ].map((change) => ({
         path: change.path,
         kind: change.kind,
         added: change.added || 0,
         removed: change.removed || 0,
+        undone: change.undone,
       }));
       return {
         index,
         prompt: turn.prompt,
         files,
-        added: files.reduce((sum, file) => sum + file.added, 0),
-        removed: files.reduce((sum, file) => sum + file.removed, 0),
+        added: files.filter((file) => !file.undone).reduce((sum, file) => sum + file.added, 0),
+        removed: files.filter((file) => !file.undone).reduce((sum, file) => sum + file.removed, 0),
         undoable: index === lastWriting && !(state && state.running),
       };
     })
@@ -1661,8 +1779,14 @@ function finishRun(id, turn) {
   // dropped rather than drawn twice.
   seat.run = null;
   if (isFocused(id)) {
-    run.node.className = `work-card ${turn.succeeded ? "done" : "failed"}`;
+    // The card that was live becomes the finished one, and lands its verdict
+    // stamp once; the cache keeps this node, so later repaints do not replay it.
+    run.node.className = `work-card ${receiptTone(turn)} just-finished`;
     run.node.innerHTML = receiptMarkup(turn);
+    receiptCache.set(
+      `${id}:${turn.index}:${turn.stop_reason}:${(turn.changes || []).length}:${(turn.undone || []).length}`,
+      run.node
+    );
     scrollToBottom();
   }
 }
@@ -1709,8 +1833,9 @@ function planNode() {
   const node = document.createElement("section");
   node.className = "plan-card";
   node.innerHTML =
-    `<div class="approval-head"><span class="eyebrow"><span class="tick"></span>Plan ready for review</span>` +
-    `<strong>Nothing has been changed yet${review.pass_number > 1 ? ` · version ${review.pass_number}` : ""}</strong></div>` +
+    `<div class="approval-head"><span class="signal-lamp" aria-hidden="true"></span><span class="eyebrow">Needs you</span>` +
+    `<strong>Plan${review.pass_number > 1 ? ` v${review.pass_number}` : ""} ready for review</strong>` +
+    `<span class="plate">No files changed yet</span></div>` +
     (review.problem ? `<p class="plan-problem">Your edit could not be used: ${escapeHtml(review.problem)}</p>` : "") +
     `<div class="plan-body prose">${renderMarkdown(review.plan || "")}</div>` +
     `<textarea class="plan-input" data-plan-feedback rows="2" placeholder="What should change? (for Ask for changes)"></textarea>` +
@@ -1719,7 +1844,7 @@ function planNode() {
     `<button type="button" class="ghost-button small" data-plan-action="stop">Stop</button>` +
     `<button type="button" class="ghost-button small" data-plan-action="edit-open">Edit plan</button>` +
     `<button type="button" class="ghost-button small" data-plan-action="revise">Ask for changes</button>` +
-    `<button type="button" class="primary-button small" data-plan-action="approve">Approve and continue</button>` +
+    `<button type="button" class="primary-button small" data-plan-action="approve">Approve</button>` +
     `</div>`;
   node.querySelector("[data-plan-editor]").value = review.plan || "";
   planCards.set(review.id, node);
@@ -1734,7 +1859,7 @@ async function planAction(button) {
   if (action === "edit-open") {
     const editor = card.querySelector("[data-plan-editor]");
     editor.hidden = !editor.hidden;
-    button.textContent = editor.hidden ? "Edit plan" : "Use my edit";
+    button.textContent = editor.hidden ? "Edit plan" : "Approve my edit";
     button.dataset.planAction = editor.hidden ? "edit-open" : "edit";
     if (!editor.hidden) editor.focus();
     return;
@@ -1776,7 +1901,7 @@ function approvalNodes() {
   const mine = approvals.filter((item) => item.session === focusId());
   if (!mine.length) return [];
   const nodes = mine.map((request) => {
-    if (approvalCards.has(request.id)) return approvalCards.get(request.id);
+    if (approvalCards.has(request.id)) return withPlate(approvalCards.get(request.id), request);
     const node = document.createElement("section");
     node.className = "approval-card";
     node.dataset.approval = request.id;
@@ -1787,11 +1912,15 @@ function approvalNodes() {
         .join("\n")
       : request.summary;
     node.innerHTML =
-      `<div class="approval-head"><span class="eyebrow"><span class="tick"></span>Waiting on you</span>` +
-      `<strong>${escapeHtml(approvalQuestion(request.tool))}</strong></div>` +
+      `<div class="approval-head"><span class="signal-lamp" aria-hidden="true"></span><span class="eyebrow">Needs you</span>` +
+      `<strong>${escapeHtml(approvalQuestion(request.tool))}</strong>` +
+      // Filled on every paint: after a reload the card exists before the
+      // run's stage has been replayed.
+      `<span class="plate" data-plate hidden></span>` +
+      `</div>` +
       `<p class="approval-lede">${escapeHtml(approvalLede(request.tool))}</p>` +
       `<pre class="approval-args"><code>${escapeHtml(shown)}</code></pre>` +
-      `<input type="text" class="approval-reason" placeholder="Refuse with a reason — it goes back to the model (optional)" data-reason-for="${escapeHtml(request.id)}" />` +
+      `<input type="text" class="approval-reason" placeholder="Reason for refusing (optional, sent to the model)" data-reason-for="${escapeHtml(request.id)}" />` +
       (request.allow ? "" : `<p class="approval-once">Only once: ${escapeHtml(request.allow_note)}.</p>`) +
       `<div class="approval-actions">` +
       `<button type="button" class="ghost-button small" data-decide="deny" data-id="${escapeHtml(request.id)}">Refuse</button>` +
@@ -1800,10 +1929,10 @@ function approvalNodes() {
       (request.allow
         ? `<button type="button" class="ghost-button small" data-decide="session" data-id="${escapeHtml(request.id)}" title="Run this call, and later ${escapeHtml(request.allow.label)} in this session, without asking">${allowButtonMarkup(request.allow)}</button>`
         : "") +
-      `<button type="button" class="primary-button small" data-decide="once" data-id="${escapeHtml(request.id)}">Run it once</button>` +
+      `<button type="button" class="primary-button small" data-decide="once" data-id="${escapeHtml(request.id)}">Run once</button>` +
       `</div>`;
     approvalCards.set(request.id, node);
-    return node;
+    return withPlate(node, request);
   });
   if (mine.length > 1) {
     const bulk = document.createElement("div");
@@ -1824,6 +1953,25 @@ function allowButtonMarkup(allow) {
     return `Allow <code>${escapeHtml(allow.pattern)} …</code> for this session`;
   }
   return `Allow ${escapeHtml(allow.label)} for this session`;
+}
+
+function withPlate(node, request) {
+  const plate = node.querySelector("[data-plate]");
+  const held = heldAt(request.session);
+  if (plate) {
+    plate.hidden = !held;
+    plate.textContent = held ? `Held at ${held}` : "";
+  }
+  return node;
+}
+
+/* Where a session's run is held, as its operation: "20 Execute". */
+function heldAt(sessionId) {
+  const run = desk(sessionId).run;
+  if (!run || !run.currentStage) return "";
+  const index = run.stages.findIndex((stage) => stage.name === run.currentStage);
+  const stage = run.stages[index];
+  return `${index >= 0 ? `${(index + 1) * 10} ` : ""}${stage ? stage.title : humanize(run.currentStage)}`;
 }
 
 function approvalQuestion(tool) {
@@ -1871,9 +2019,13 @@ function renderNeedsYou() {
     const entry = open.find((item) => item.session_id === id);
     return entry ? entry.title : shortId(id);
   };
+  const tierOf = (id) => {
+    const entry = open.find((item) => item.session_id === id);
+    return escapeHtml((entry && entry.tier) || "spark");
+  };
   const rows = approvals.map(
     (item) =>
-      `<button type="button" class="needs-row" data-focus="${escapeHtml(item.session)}">` +
+      `<button type="button" class="needs-row tier-${tierOf(item.session)}" data-focus="${escapeHtml(item.session)}">` +
       `<span class="needs-kind">approve</span><span class="needs-text">${escapeHtml(humanize(String(item.tool || "")))}: ${escapeHtml(elideMiddle(String(item.summary || ""), 40))}</span>` +
       `<small>${escapeHtml(title(item.session))}</small></button>`
   );
@@ -1881,7 +2033,7 @@ function renderNeedsYou() {
     .filter((entry) => entry.plan_waiting)
     .forEach((entry) =>
       rows.push(
-        `<button type="button" class="needs-row" data-focus="${escapeHtml(entry.session_id)}">` +
+        `<button type="button" class="needs-row tier-${tierOf(entry.session_id)}" data-focus="${escapeHtml(entry.session_id)}">` +
         `<span class="needs-kind">review plan</span><span class="needs-text">A plan waits before any change</span>` +
         `<small>${escapeHtml(entry.title)}</small></button>`
       )
@@ -1890,8 +2042,8 @@ function renderNeedsYou() {
     .filter((entry) => entry.queue_held && entry.queued)
     .forEach((entry) =>
       rows.push(
-        `<button type="button" class="needs-row" data-focus="${escapeHtml(entry.session_id)}">` +
-        `<span class="needs-kind">queue held</span><span class="needs-text">${entry.queued} request(s) wait to be resumed</span>` +
+        `<button type="button" class="needs-row tier-${tierOf(entry.session_id)}" data-focus="${escapeHtml(entry.session_id)}">` +
+        `<span class="needs-kind">queue held</span><span class="needs-text">${plural(entry.queued, "request")} waiting to resume</span>` +
         `<small>${escapeHtml(entry.title)}</small></button>`
       )
     );
@@ -1915,7 +2067,7 @@ async function openDiff() {
     const payload = await api("/api/changes");
     const changes = payload.changes || [];
     el("diff-stat").textContent = changes.length
-      ? `${changes.length} file(s) · +${payload.added} −${payload.removed}`
+      ? `${plural(changes.length, "file")} · +${payload.added} −${payload.removed}`
       : "";
     el("diff-body").innerHTML = changes.length
       ? changes.map(diffMarkup).join("")
@@ -2088,7 +2240,7 @@ function renderContextChoices() {
   el("context-apply").hidden = !changing;
   el("context-apply").disabled = busy;
   el("context-choice-hint").textContent = busy
-    ? "A task is running in this session — the window can change when it finishes."
+    ? "A run is working in this session. The window can change when it finishes."
     : changing
       ? "Takes effect on the next request. The model server reloads the model at the new size, which takes a few seconds."
       : "";
@@ -2323,7 +2475,7 @@ async function submitPrompt() {
     await api("/api/prompt", { prompt: text, session: focusId(), queue: queueing });
     dom.prompt.value = "";
     autosize();
-    if (queueing) toast("Queued — it starts when the current task finishes.", "good");
+    if (queueing) toast("Queued. Starts after the current run.", "good");
   } catch (error) {
     toast(String(error.message || error), "bad");
   }
@@ -2391,7 +2543,7 @@ dom.newSession.addEventListener("click", () => {
 });
 
 el("clear-history").addEventListener("click", () => {
-  if (window.confirm("Forget this conversation? The files it wrote are untouched.")) {
+  if (window.confirm("Clear this session's history? Files stay as they are.")) {
     desk(focusId()).extras = [];
     post("/api/clear", { session: focusId() }, "History cleared.");
   }
@@ -2411,7 +2563,7 @@ el("review-plans").addEventListener("change", (event) => {
 el("open-settings").addEventListener("click", openSettings);
 el("toggle-notify").addEventListener("click", async () => {
   const result = await setNotifications(!notifyActive());
-  if (result === "on") toast("Notifications on: you'll hear about approvals, finished tasks and held queues while you're elsewhere.", "good");
+  if (result === "on") toast("Notifications on. You will hear when something needs you or a run ends while you are elsewhere.", "good");
   else if (result === "denied") toast("The browser blocked notifications for this page — allow them in its site settings, then try again.", "bad");
   renderNotifyButton();
 });
@@ -2566,6 +2718,8 @@ try {
 } catch (error) {
   setInspectorOpen(window.innerWidth >= 1240);
 }
+// Below this the rail is a drawer over the conversation: start with it shut.
+if (window.innerWidth < 980) dom.shell.classList.remove("rail-open");
 
 /* DR-031: the rail stays live while a turn runs. Switching sessions, opening
  * one and closing one are never gated on whether something is generating —
@@ -2673,6 +2827,11 @@ function describeTool(tool, args) {
 function monoSpan(text, full) {
   const title = full !== text ? ` title="${escapeHtml(full)}"` : "";
   return `<span class="mono"${title}>${escapeHtml(text)}</span>`;
+}
+
+/* "1 file", "3 files": counted and pluralised, never "file(s)". */
+function plural(count, noun) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 function elideMiddle(value, max) {

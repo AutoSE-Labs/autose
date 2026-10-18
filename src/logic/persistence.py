@@ -97,6 +97,12 @@ def new_session_id() -> str:
 #: The fields a stored requirement keeps (DR-038).
 _REQUIREMENT_KEYS = ("id", "status", "description", "evidence")
 
+#: The fields a stored route step keeps (see ``WorkflowOutcome.route``): the
+#: shape of the run and which requirements sent it back, not the validator's
+#: feedback text, which is intermediate reasoning DR-004 keeps off disk like
+#: the stage artifacts.
+_ROUTE_KEYS = ("kind", "stage", "title", "unmet")
+
 
 @dataclass(frozen=True)
 class TurnRecord:
@@ -113,6 +119,10 @@ class TurnRecord:
     #: The final requirements ledger (DR-038). Optional on read: a session
     #: written before it existed simply has none, which is not a format change.
     requirements: tuple[dict[str, str], ...] = ()
+    #: The stages and loop-backs, in order. Optional on read, like the ledger.
+    route: tuple[dict[str, str], ...] = ()
+    #: Changes an undo reverted, kept for the record. Optional on read.
+    undone: tuple[FileChange, ...] = ()
 
     @property
     def succeeded(self) -> bool:
@@ -128,7 +138,12 @@ class TurnRecord:
             "completion_tokens": self.completion_tokens,
             "files_changed": list(self.files_changed),
             "changes": [_change_to_dict(change) for change in self.changes],
+            "undone": [_change_to_dict(change) for change in self.undone],
             "requirements": [dict(item) for item in self.requirements],
+            "route": [
+                {key: item[key] for key in _ROUTE_KEYS if key in item}
+                for item in self.route
+            ],
         }
 
     @classmethod
@@ -144,9 +159,17 @@ class TurnRecord:
             changes=tuple(
                 _change_from_dict(item) for item in document.get("changes", ())
             ),
+            undone=tuple(
+                _change_from_dict(item) for item in document.get("undone", ())
+            ),
             requirements=tuple(
                 {key: str(item.get(key, "")) for key in _REQUIREMENT_KEYS}
                 for item in document.get("requirements", ())
+                if isinstance(item, Mapping)
+            ),
+            route=tuple(
+                {key: str(item.get(key, "")) for key in _ROUTE_KEYS if key in item}
+                for item in document.get("route", ())
                 if isinstance(item, Mapping)
             ),
         )

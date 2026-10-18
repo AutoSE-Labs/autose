@@ -136,6 +136,9 @@ _QUEUE_LIMIT = 2_000
 #: calls, approvals and verdicts of even a long run.
 _TIMELINE_LIMIT = 400
 
+#: How far back a session strip's timeline reaches.
+LANE_SECONDS = 30 * 60
+
 #: Characters of streamed stage output and reasoning kept for that same page.
 _STREAM_TAIL = 6_000
 
@@ -291,12 +294,19 @@ class _Live:
         self.events = events
         self.running = False
         self.current: dict[str, Any] | None = None
+        #: The session's state over time, for its strip (see ``mark``).
+        self.lane: list[tuple[float, str]] = [(time.time(), "idle")]
         self.answer: list[str] = []
         self.pending: dict[str, _Pending] = {}
         self.opened_at = time.time()
         # DR-033: what the current turn has done so far, for a page that opens
         # after it started. Reset by every new turn.
         self.timeline: list[dict[str, Any]] = []
+        # What the session's strip shows (see `_note_strip`), per turn.
+        self.stage_names: list[str] = []
+        self.stage: dict[str, Any] | None = None
+        self.requirement_counts: dict[str, int] | None = None
+        self.context_pct: int | None = None
         self.narration = ""
         self.thinking = ""
         # DR-042: prompts waiting for this session's running turn to end, in
@@ -330,6 +340,58 @@ class _Live:
         self.timeline = []
         self.narration = ""
         self.thinking = ""
+        self.stage_names = []
+        self.stage = None
+        self.requirement_counts = None
+        self.context_pct = None
+
+    def mark(self, status: str, at: float | None = None) -> None:
+        """Note what the session is doing now, for its strip's timeline.
+
+        One of ``working``, ``waiting`` (on the person), ``idle`` or
+        ``failed``; only changes are kept, and only the last
+        :data:`LANE_SECONDS` of them, plus the one in force at its start.
+        """
+        now = time.time() if at is None else at
+        if self.lane and self.lane[-1][1] == status:
+            return
+        self.lane.append((now, status))
+        cutoff = now - LANE_SECONDS
+        while len(self.lane) > 1 and self.lane[1][0] <= cutoff:
+            del self.lane[0]
+
+    def strip_payload(self) -> dict[str, Any]:
+        """What the session's strip in the rail shows besides its title."""
+        return {
+            "stage": dict(self.stage) if self.stage else None,
+            "requirements": dict(self.requirement_counts) if self.requirement_counts else None,
+            "context_pct": self.context_pct,
+            "lane": [[round(at, 1), status] for at, status in self.lane],
+        }
+
+    def _note_strip(self, kind: Any, data: dict[str, Any]) -> None:
+        if kind == "workflow_started":
+            self.stage_names = [str(name) for name in data.get("stages") or ()]
+        elif kind == "stage_started":
+            name = str(data.get("stage") or "")
+            index = self.stage_names.index(name) if name in self.stage_names else -1
+            self.stage = {
+                "name": name,
+                "title": str(data.get("title") or name),
+                "number": (index + 1) * 10 if index >= 0 else None,
+            }
+        elif kind == "stage_finished" and data.get("requirements"):
+            statuses = [str(item.get("status", "")) for item in data["requirements"]]
+            self.requirement_counts = {
+                "total": len(statuses),
+                "verified": statuses.count("Verified"),
+                "failed": statuses.count("Failed"),
+            }
+        elif kind == "round_usage":
+            limit = data.get("context_limit")
+            used = data.get("prompt_tokens") or data.get("estimated_input_tokens") or 0
+            if isinstance(limit, int) and limit > 0 and used:
+                self.context_pct = min(100, round(100 * used / limit))
 
     def record(self, payload: dict[str, Any]) -> None:
         """Keep one event of the running turn, bounded (DR-033)."""
@@ -341,6 +403,7 @@ class _Live:
             self.thinking = (self.thinking + message)[-_STREAM_TAIL:]
         elif kind == "agent_reasoning":
             self.thinking = (self.thinking + message + "\n")[-_STREAM_TAIL:]
+        self._note_strip(kind, payload.get("data") or {})
         if kind in _STREAMED_EVENTS:
             return
         if kind == "stage_started":
@@ -802,6 +865,7 @@ class SessionBridge:
             "total_tokens": session.usage.total_tokens,
             "opened_at": live.opened_at,
             "focused": live.id == self._focus,
+            "strip": live.strip_payload(),
         }
 
     def sessions(self) -> dict[str, Any]:
@@ -831,7 +895,7 @@ class SessionBridge:
         else:
             history = session.history
             if not 0 <= turn < len(history):
-                raise BridgeError(f"there is no turn {turn} in this session", status=404)
+                raise BridgeError(f"there is no run {turn} in this session", status=404)
             changes = history[turn].changes
         added = sum(change.stats[0] for change in changes)
         removed = sum(change.stats[1] for change in changes)
@@ -889,13 +953,14 @@ class SessionBridge:
                 return {"queued": True, "id": item["id"], "session": live.id}
             if live.running:
                 raise BridgeError(
-                    "a task is already running in this session — queue this "
-                    "one to start when it ends",
+                    "a run is already working in this session; queue this one to "
+                    "start when it ends",
                     status=409,
                 )
             live.running = True
             live.unattended = unattended
             live.reset_turn()
+            live.mark("working")
             live.current = {
                 "prompt": text,
                 "requested_tier": tier or "",
@@ -1074,6 +1139,7 @@ class SessionBridge:
         pending = _PlanPending(review)
         with self._lock:
             live.plan_pending = pending
+            live.mark("waiting")
             self._publish_for(live, {"kind": "plan_review", "review": pending.payload()})
         while not pending.answered.wait(1.0):
             if live.session.stop_requested:
@@ -1083,6 +1149,8 @@ class SessionBridge:
         with self._lock:
             if live.plan_pending is pending:
                 live.plan_pending = None
+                if not live.pending:
+                    live.mark("working")
             self._publish_for(
                 live, {"kind": "plan_review_closed", "id": pending.id, "action": decision.action}
             )
@@ -1538,7 +1606,7 @@ class SessionBridge:
                 },
             )
         finally:
-            self._deny_pending(live, "the task ended before this call was answered")
+            self._deny_pending(live, "the run ended before this call was answered")
             # DR-034/DR-035: how much of the model landed on the GPU at the
             # window it was just loaded with is only knowable afterwards. A
             # refresh is a convenience and must never fail a turn.
@@ -1547,6 +1615,12 @@ class SessionBridge:
             with self._lock:
                 live.running = False
                 live.current = None
+                last = session.history[-1] if session.history else None
+                live.mark(
+                    "failed"
+                    if last is not None and not last.succeeded and last.stop_reason != "cancelled"
+                    else "idle"
+                )
                 following = None
                 if live.queue:
                     if ended_cleanly and not live.queue_held:
@@ -1652,10 +1726,13 @@ class SessionBridge:
         pending = _Pending(request)
         with self._lock:
             live.pending[pending.id] = pending
+            live.mark("waiting")
         self._publish_for(live, {"kind": "approval", "request": pending.payload()})
         answered = pending.answered.wait(self._approval_timeout)
         with self._lock:
             live.pending.pop(pending.id, None)
+            if not live.pending and live.plan_pending is None:
+                live.mark("working")
         decision = pending.decision
         if not answered or decision is None:
             decision = ApprovalDecision.deny(
@@ -1735,7 +1812,7 @@ class SessionBridge:
     def _require_idle(self, live: _Live) -> None:
         if live.running:
             raise BridgeError(
-                "wait for this session's task to finish first", status=409
+                "wait for this session's run to finish first", status=409
             )
 
     def _require_desk_room(self) -> None:

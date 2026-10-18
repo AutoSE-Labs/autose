@@ -28,8 +28,8 @@ function inspectorTabsMarkup(active) {
 /* One run's steps, grouped under the stage that took them. */
 function activityPanelMarkup(run) {
   if (!run) {
-    return `<div class="inspector-empty">Start a request and every step it takes shows up here —
-      what it read, ran and changed, how long each took, and what came back.</div>`;
+    return `<div class="inspector-empty">Each step of a run appears here with its arguments, its result and
+      how long it took.</div>`;
   }
   const steps = run.steps || [];
   const tools = steps.filter((step) => step.type === "tool");
@@ -44,7 +44,7 @@ function activityPanelMarkup(run) {
     `<span class="inspector-state">${run.running ? "running" : "finished"}</span>` +
     `</div>`;
   if (!steps.length) {
-    return summary + `<div class="inspector-empty">Waiting for the first step…</div>`;
+    return summary + `<div class="inspector-empty">Waiting for the model's first reply. On a laptop GPU, this is the slow part.</div>`;
   }
 
   const titles = new Map((run.stages || []).map((stage) => [stage.name, stage.title]));
@@ -63,7 +63,7 @@ function activityPanelMarkup(run) {
   return summary + `<div class="steps">${parts.join("")}</div>`;
 }
 
-const STEP_STATUS_LABELS = { running: "running", done: "ok", failed: "failed" };
+const STEP_STATUS_LABELS = { running: "running", done: "ok", failed: "failed", refused: "refused" };
 
 function toolStepMarkup(step, run) {
   const spec = TOOL_LABELS[step.tool] || { icon: "·", verb: humanize(step.tool || "tool"), key: "" };
@@ -132,9 +132,9 @@ function requirementTone(status) {
  * loopbacks, live }. */
 function requirementsPanelMarkup(view) {
   if (!view || !view.requirements.length) {
-    return `<div class="inspector-empty">Craft and Forge write down what "done" means before they touch a
-      file — a numbered list of requirements — and Validate checks each one independently. That
-      list appears here as soon as the plan exists. Spark answers directly and has none.</div>`;
+    return `<div class="inspector-empty">Craft and forge list what "done" means before changing a file, as
+      numbered requirements, and Validate checks each one. The list appears here once the plan exists.
+      Spark has none.</div>`;
   }
   const counts = {};
   view.requirements.forEach((item) => {
@@ -148,19 +148,22 @@ function requirementsPanelMarkup(view) {
       .join("") +
     `<span class="inspector-state">${view.live ? "live" : "final"}</span></div>`;
 
+  const verified = view.requirements.filter((item) => item.status === "Verified").length;
+  const unmet = (view.verdict && view.verdict.unmet) || [];
   const verdict = view.verdict
     ? `<div class="verdict ${view.verdict.passed ? "passed" : "failed"}">` +
-      `<strong>${view.verdict.passed ? "Validate: it holds" : "Validate: not yet"}</strong>` +
-      (view.verdict.unmet && view.verdict.unmet.length
-        ? `<div>Unmet: ${view.verdict.unmet.map((id) => `<span class="mono">${escapeHtml(id)}</span>`).join(", ")}</div>`
-        : "") +
+      `<strong>${
+        view.verdict.passed
+          ? `Validate passed · ${verified} of ${view.requirements.length} verified`
+          : `Validate failed · ${unmet.length ? `${escapeHtml(unmet.join(", "))} unmet` : "see below"}`
+      }</strong>` +
       (view.verdict.feedback ? `<div class="verdict-feedback">${escapeHtml(view.verdict.feedback)}</div>` : "") +
       `</div>`
     : "";
   const loops = (view.loopbacks || [])
     .map(
       (loop) =>
-        `<div class="step note kind-fail"><span class="act-icon">↺</span><span>Sent back to ${escapeHtml(humanize(String(loop.target || "")))} (pass ${escapeHtml(String(loop.iteration || ""))})${loop.feedback ? ` — ${escapeHtml(loop.feedback)}` : ""}</span></div>`
+        `<div class="step note kind-fail"><span class="act-icon">↩</span><span>Sent back to ${escapeHtml(humanize(String(loop.target || "")))}${loop.unmet && loop.unmet.length ? `: ${escapeHtml(loop.unmet.join(", "))} unmet` : ""}${loop.feedback ? `. ${escapeHtml(loop.feedback)}` : ""}</span></div>`
     )
     .join("");
 
@@ -177,7 +180,7 @@ function requirementsPanelMarkup(view) {
         .join(`<span class="req-arrow">→</span>`);
       return (
         `<div class="req tone-${requirementTone(item.status)}">` +
-        `<div class="req-head"><span class="req-id mono">${escapeHtml(item.id)}</span>` +
+        `<div class="req-head">${reqStampMarkup(item)}` +
         `<span class="req-desc">${escapeHtml(item.description)}</span>` +
         `<span class="req-status">${escapeHtml(item.status)}</span></div>` +
         (trail ? `<div class="req-trail">${trail}</div>` : "") +
@@ -189,6 +192,12 @@ function requirementsPanelMarkup(view) {
   return summary + verdict + loops + `<div class="reqs">${rows}</div>`;
 }
 
+/* The requirement's stamp, small, in place of its bare ID. */
+function reqStampMarkup(item) {
+  const known = STAMP_SHAPES[item.status] || { shape: "open", word: String(item.status || "").toLowerCase() };
+  return `<span class="stamp stamp-mini stamp-${known.shape}" title="${escapeHtml(item.id)} ${escapeHtml(known.word)}"><span class="stamp-id">${escapeHtml(item.id)}</span></span>`;
+}
+
 /* ---------- changes (DR-040) ---------- */
 
 /* `view`: { turns: [{index, prompt, files: [{path, kind, added, removed}],
@@ -196,28 +205,46 @@ function requirementsPanelMarkup(view) {
  * open: Set("index:path") }. Newest turn first. */
 function changesPanelMarkup(view) {
   const live = view.liveEdits
-    ? `<div class="step note"><span class="act-icon">✎</span><span>This turn has made ${view.liveEdits} edit${view.liveEdits === 1 ? "" : "s"} so far; its diff appears here when it finishes.</span></div>`
+    ? `<div class="step note"><span class="act-icon">✎</span><span>This run has made ${view.liveEdits} edit${view.liveEdits === 1 ? "" : "s"} so far; its diff appears here when it finishes.</span></div>`
     : "";
   if (!view.turns.length) {
     return (
       live ||
-      `<div class="inspector-empty">Every file AutoSE writes is journalled with what it was before, so each
-        change can be read as a diff and undone. Nothing has been written in this session yet.</div>`
+      `<div class="inspector-empty">No files changed in this session. When one is, its diff appears here
+        and can be undone.</div>`
     );
   }
   const total = view.turns.reduce(
-    (sum, turn) => ({ files: sum.files + turn.files.length, added: sum.added + turn.added, removed: sum.removed + turn.removed }),
-    { files: 0, added: 0, removed: 0 }
+    (sum, turn) => {
+      const undone = turn.files.filter((file) => file.undone).length;
+      return {
+        files: sum.files + turn.files.length - undone,
+        undone: sum.undone + undone,
+        added: sum.added + turn.added,
+        removed: sum.removed + turn.removed,
+      };
+    },
+    { files: 0, undone: 0, added: 0, removed: 0 }
   );
   const summary =
     `<div class="inspector-summary"><span><strong>${total.files}</strong> file change${total.files === 1 ? "" : "s"}</span>` +
     `<span class="added">+${total.added}</span><span class="removed">−${total.removed}</span>` +
-    `<span class="inspector-state">${view.turns.length} turn${view.turns.length === 1 ? "" : "s"}</span></div>`;
+    (total.undone ? `<span>${total.undone} undone</span>` : "") +
+    `<span class="inspector-state">${view.turns.length} run${view.turns.length === 1 ? "" : "s"}</span></div>`;
   const turns = view.turns
     .map((turn) => {
       const diffs = view.diffs.get(turn.index);
       const files = turn.files
-        .map((file) => {
+        .map((file, position) => {
+          const symbol = `<span class="rev-sym"><span>${position + 1}</span></span>`;
+          if (file.undone) {
+            return (
+              `<div class="step tool rev-undone" title="Undone: the file was put back as it was">` +
+              `<div class="step-head">${symbol}` +
+              `<span class="step-title mono rev-file">${escapeHtml(elideMiddle(file.path, 46))}</span>` +
+              `<span class="step-meta">undone</span></div></div>`
+            );
+          }
           const key = `${turn.index}:${file.path}`;
           const open = view.open.has(key);
           const change = diffs && diffs.find((item) => item.path === file.path);
@@ -229,7 +256,7 @@ function changesPanelMarkup(view) {
           return (
             `<div class="step tool${open ? " open" : ""}">` +
             `<button type="button" class="step-head" data-toggle-change="${escapeHtml(key)}" data-turn="${turn.index}" aria-expanded="${open}">` +
-            `<span class="act-icon">✎</span>` +
+            symbol +
             `<span class="step-title mono">${escapeHtml(elideMiddle(file.path, 46))}</span>` +
             `<span class="step-meta"><span class="added">+${file.added}</span> <span class="removed">−${file.removed}</span>${file.kind && file.kind !== "modified" ? ` · ${escapeHtml(file.kind)}` : ""}</span>` +
             `</button>${body}</div>`
@@ -238,10 +265,10 @@ function changesPanelMarkup(view) {
         .join("");
       return (
         `<div class="change-turn">` +
-        `<div class="step-group">Turn ${turn.index + 1} · ${escapeHtml(elideMiddle(turn.prompt || "", 60))}</div>` +
+        `<div class="step-group">Run ${turn.index + 1} · ${escapeHtml(elideMiddle(turn.prompt || "", 60))}</div>` +
         files +
         (turn.undoable
-          ? `<button type="button" class="ghost-button small change-undo" data-undo-turn="${turn.index}">Undo this turn's changes</button>`
+          ? `<button type="button" class="ghost-button small change-undo" data-undo-turn="${turn.index}">Undo this run's changes</button>`
           : "") +
         `</div>`
       );
@@ -316,7 +343,7 @@ function usagePanelMarkup(view) {
   const turns = (view.turns || []).filter((turn) => turn.total);
   const max = Math.max(1, ...turns.map((turn) => turn.total));
   const turnPart = turns.length
-    ? `<div class="step-group">Tokens per turn</div>` +
+    ? `<div class="step-group">Tokens per run</div>` +
       turns
         .map(
           (turn) =>
@@ -327,7 +354,7 @@ function usagePanelMarkup(view) {
         .join("")
     : "";
   if (!runPart && !turnPart) {
-    return head + `<div class="inspector-empty">Tokens and time appear here as a request runs — per stage, per round, and per turn of the session.</div>`;
+    return head + `<div class="inspector-empty">Tokens and time appear here as a run goes: per stage, per round and per run.</div>`;
   }
   return head + runPart + turnPart;
 }

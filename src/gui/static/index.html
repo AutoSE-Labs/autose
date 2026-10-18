@@ -14,8 +14,8 @@
   <div class="blueprint-grid" aria-hidden="true"></div>
 
   <div class="app-shell rail-open" id="app-shell">
-    <aside class="rail" id="rail" aria-label="Worklog">
-      <div class="rail-head"><span class="eyebrow"><span class="tick"></span>Worklog</span></div>
+    <aside class="rail" id="rail" aria-label="Sessions">
+      <div class="rail-head"><span class="eyebrow"><span class="tick"></span>Sessions</span></div>
       <button id="new-session" class="new-task-button" type="button">+ New session</button>
       <!-- DR-044: everything waiting on the person, from every session. -->
       <section class="needs-you" id="needs-you" aria-label="Waiting for you" hidden></section>
@@ -28,8 +28,8 @@
     </aside>
 
     <header class="app-header">
-      <button id="toggle-rail" class="icon-button" type="button" aria-label="Show or hide the worklog"
-        title="Show or hide the worklog">
+      <button id="toggle-rail" class="icon-button" type="button" aria-label="Show or hide the sessions"
+        title="Show or hide the sessions">
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
           stroke-width="1.5">
           <path d="M2 4.5h12M2 8h12M2 11.5h7" />
@@ -80,8 +80,8 @@
           <path d="M5.75 8.5h4.5M8 6.25v4.5" />
         </svg>
       </button>
-      <button id="clear-history" class="icon-button" type="button" aria-label="Forget this conversation"
-        title="Forget this conversation (the files stay)">
+      <button id="clear-history" class="icon-button" type="button" aria-label="Clear history"
+        title="Clear history (files stay)">
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
           stroke-width="1.5">
           <path d="M3 5.5h10M6.25 5.5V3.75h3.5V5.5M4.5 5.5l.6 7.75h5.8l.6-7.75" />
@@ -108,7 +108,7 @@
         <div class="composer cropped" id="composer">
           <div class="composer-label"><span class="eyebrow"><span class="tick"></span>New request</span></div>
           <textarea id="prompt" rows="2" spellcheck="true" aria-label="Describe your request"
-            placeholder="Describe a change, a bug, or a question about this workspace. Plain English is fine."></textarea>
+            placeholder="Describe a change, or ask about this workspace."></textarea>
           <div class="composer-foot">
             <!-- DR-045: stop after the plan, before anything is changed. -->
             <label class="plan-review-toggle" title="Craft and Forge stop after planning so you can approve, change or edit the plan before any file is touched">
@@ -170,12 +170,11 @@
 
   <div class="overlay" id="setup-overlay" hidden>
     <div class="overlay-panel cropped">
-      <span class="eyebrow"><span class="tick"></span>Nothing to run against</span>
-      <h2>AutoSE needs a model</h2>
+      <span class="eyebrow"><span class="tick"></span>Setup</span>
+      <h2>No model found</h2>
       <p class="overlay-lede" id="setup-problem"></p>
       <div class="setup-hint">
-        <p>AutoSE looks for a runtime already on this machine — Ollama, LM Studio, vLLM, llama.cpp — and uses whatever
-          it serves. Nothing is bundled, nothing is proxied.</p>
+        <p>I looked for Ollama, LM Studio, vLLM and llama.cpp on this machine, and none was serving.</p>
         <pre><code>ollama serve
 ollama pull qwen3:8b</code></pre>
         <p>Any other OpenAI-compatible endpoint works too: set <code>AUTOSE_BASE_URL</code> and
@@ -183,7 +182,7 @@ ollama pull qwen3:8b</code></pre>
       </div>
       <div class="overlay-actions">
         <button class="ghost-button" id="setup-doctor" type="button">Machine check</button>
-        <button class="primary-button" id="setup-retry" type="button">Look again</button>
+        <button class="primary-button" id="setup-retry" type="button">Check again</button>
       </div>
     </div>
   </div>
@@ -218,7 +217,7 @@ ollama pull qwen3:8b</code></pre>
       <h2>Providers, keys and models</h2>
       <div id="settings-body"></div>
       <div class="overlay-actions">
-        <button class="ghost-button" id="settings-refresh" type="button">Look again</button>
+        <button class="ghost-button" id="settings-refresh" type="button">Check again</button>
         <button class="primary-button" id="settings-close" type="button">Done</button>
       </div>
     </div>
@@ -263,7 +262,7 @@ ollama pull qwen3:8b</code></pre>
   <div class="overlay" id="tips-overlay" hidden>
     <div class="overlay-panel cropped wide-panel">
       <span class="eyebrow"><span class="tick"></span>Tips</span>
-      <h2>Get more out of AutoSE</h2>
+      <h2>Tips</h2>
       <div id="tips-body"></div>
       <div class="overlay-actions">
         <button class="ghost-button" id="tips-close" type="button">Close</button>
@@ -276,6 +275,7 @@ ollama pull qwen3:8b</code></pre>
   <script src="/inspector.js"></script>
   <script src="/settings.js"></script>
   <script src="/notify.js"></script>
+  <script src="/route.js"></script>
   <script src="/automation.js"></script>
   <script src="/app.js"></script>
 </body>

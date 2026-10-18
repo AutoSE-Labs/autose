@@ -302,6 +302,7 @@ class StagedWorkflow:
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
                 requirements=as_payload(memory.requirements),
+                route=tuple(emit.route),
             )
         except RunCancelled as exc:
             # DR-030: stopping on purpose is not a failure, and everything the
@@ -319,6 +320,7 @@ class StagedWorkflow:
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
                 requirements=as_payload(memory.requirements),
+                route=tuple(emit.route),
             )
         except (IterationBudgetExhausted, TimeBudgetExhausted) as exc:
             # DR-009: a bound being hit is its own outcome, never a success.
@@ -333,6 +335,7 @@ class StagedWorkflow:
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
                 requirements=as_payload(memory.requirements),
+                route=tuple(emit.route),
             )
         except StageExecutionError as exc:
             emit.workflow_finished("stage_failed", clock.elapsed, detail=str(exc))
@@ -346,6 +349,7 @@ class StagedWorkflow:
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
                 requirements=as_payload(memory.requirements),
+                route=tuple(emit.route),
             )
 
     # -- one stage ----------------------------------------------------------
@@ -739,6 +743,8 @@ class _Emitter:
         from ..inference.types import Usage
 
         self.usage = Usage()
+        #: The run's route as it happens (see ``WorkflowOutcome.route``).
+        self.route: list[dict[str, str]] = []
 
     def add_usage(self, usage) -> None:
         from ..inference.types import Usage
@@ -763,6 +769,7 @@ class _Emitter:
         )
 
     def stage_started(self, stage: StageSpec, *, iteration: int) -> None:
+        self.route.append({"kind": "stage", "stage": stage.name, "title": stage.title})
         self._emit(
             "stage_started",
             stage.label,
@@ -831,6 +838,14 @@ class _Emitter:
         )
 
     def loopback(self, verdict: Verdict, used: int, cap: int | None) -> None:
+        self.route.append(
+            {
+                "kind": "loopback",
+                "stage": verdict.target,
+                "detail": verdict.feedback,
+                "unmet": ", ".join(verdict.unmet),
+            }
+        )
         self._emit(
             "loopback",
             f"back to {verdict.target} ({used}/{describe_limit(cap)})",
