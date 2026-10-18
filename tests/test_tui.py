@@ -358,12 +358,13 @@ def test_switching_models_clears_standing_approvals(app, monkeypatch):
     assert app.approval_gate.always_allowed == ()
 
 
-def test_tier_raises_and_refuses_to_lower(app):
+def test_tier_goes_up_and_back_down_when_chosen(app):
+    """DR-049: a tier the person picks is used as picked."""
     dispatch(app, f"/tier {CRAFT}")
     assert app.session.tier == CRAFT
     dispatch(app, f"/tier {SPARK}")
-    assert app.session.tier == CRAFT
-    assert "only ratchets up" in app.console.file.getvalue()
+    assert app.session.tier == SPARK
+    assert "tier is now spark" in app.console.file.getvalue()
 
 
 def test_requesting_an_implemented_tier_confirms_the_change(app):
