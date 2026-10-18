@@ -2097,7 +2097,195 @@ select {
 }
 
 
-/* ============ carried over: panels and overlays ============ *//* ---------- inspector (DR-037) ---------- */
+/* ============ carried over: panels and overlays ============ */
+
+/* ---------- context window picker ---------- */
+
+.context-figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.context-figure {
+  padding: 10px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.context-figure span {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.context-figure strong {
+  font-size: 18px;
+  color: var(--text);
+}
+
+.choice-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 6px;
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-2);
+  background: var(--sheet);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.choice:hover {
+  border-color: var(--pencil);
+  background: var(--paper);
+}
+
+.choice:focus-visible {
+  outline: 2px solid var(--pen);
+  outline-offset: 2px;
+}
+
+.choice.picked {
+  color: var(--text);
+  border-color: var(--pen);
+  background: var(--pen-soft);
+  box-shadow: inset 3px 0 0 var(--pen);
+}
+
+.choice-size {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--pen-deep);
+}
+
+.choice-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--pen-deep);
+  border: 1px solid var(--pen);
+  border-radius: 999px;
+}
+
+.choice-tag.now {
+  color: var(--go);
+  border-color: var(--go);
+  background: var(--go-soft);
+}
+
+.context-hint {
+  min-height: 1.2em;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.context-remedy-label {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+/* The picker can outgrow a short window; the decision buttons stay in reach. */
+.context-panel .overlay-actions {
+  position: sticky;
+  bottom: -26px;
+  margin: 0 -28px -26px;
+  padding: 14px 28px 18px;
+  background: var(--sheet);
+  border-top: 1px solid var(--edge);
+}
+
+@media (max-width: 640px) {
+  .context-figures {
+    grid-template-columns: 1fr;
+  }
+
+  .choice {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .choice > span:nth-child(3) {
+    grid-column: 2;
+  }
+}
+
+/* ---------- tips ---------- */
+
+.tip-popup {
+  position: fixed;
+  left: 62px;
+  bottom: 16px;
+  z-index: 30;
+  width: 270px;
+  padding: 12px 14px 13px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--sheet);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  animation: tip-in 140ms ease both;
+}
+
+.tip-popup-title {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.tip-popup-text {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* An empty Start: the request box shakes its head. */
+@keyframes nudge {
+  25% {
+    transform: translateX(-4px);
+  }
+
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+.composer.nudge {
+  animation: nudge 180ms ease;
+}
+
+/* ---------- inspector (DR-037) ---------- */
 
 
 .app-shell:not(.inspector-open) .inspector {

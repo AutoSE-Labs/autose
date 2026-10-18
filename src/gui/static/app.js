@@ -2259,12 +2259,12 @@ function renderContextChoices() {
       const tags = [
         choice.current ? `<span class="choice-tag now">in use</span>` : "",
         choice.recommended && !choice.current ? `<span class="choice-tag">suggested</span>` : "",
-      ].join(" ");
+      ].filter(Boolean).join(" ");
       return (
         `<button type="button" role="radio" aria-checked="${choice.tokens === contextPick}" ` +
         `class="choice${choice.tokens === contextPick ? " picked" : ""}" data-tokens="${choice.tokens}">` +
         `<span class="choice-size">${escapeHtml(formatWindow(choice.tokens))}</span>` +
-        `<span>${escapeHtml(choice.note)}</span><span>${tags}</span></button>`
+        `<span>${escapeHtml(choice.note)}</span>${tags ? `<span>${tags}</span>` : ""}</button>`
       );
     })
     .join("");
