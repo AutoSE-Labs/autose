@@ -216,10 +216,30 @@ def _without_output_shaping(command: str) -> str:
     return _DISCARD.sub("", f" {text}").strip()
 
 
+#: What each piece of shell syntax does, in the order a reason names them.
+_SYNTAX_WORDS = (
+    (re.compile(r">"), "writes to a file (>)"),
+    (re.compile(r"&&|\|\||;|\n|\r"), "chains commands (&&, ;)"),
+    (re.compile(r"(?<![|])\|(?![|])"), "pipes into another program (|)"),
+    (re.compile(r"\$\(|`|\$\{"), "runs a command inside it ($(…))"),
+    (re.compile(r"<"), "reads input from a file (<)"),
+    (re.compile(r"(?<![&>])&(?![&>])"), "runs something in the background (&)"),
+)
+
+
+def _syntax_reason(command: str) -> str:
+    """Name what the shell syntax in *command* does, rather than list it all."""
+    found = [words for pattern, words in _SYNTAX_WORDS if pattern.search(command)]
+    if not found:
+        return "it uses shell syntax"
+    named = found[0] if len(found) == 1 else f"{', '.join(found[:-1])} and {found[-1]}"
+    return f"it {named}"
+
+
 def _command_pattern(command: str) -> tuple[list[str] | None, str]:
     command = _without_output_shaping(command)
     if _SHELL_SYNTAX.search(command):
-        return None, "it chains, pipes or redirects commands (;, &&, |, >, $(…))"
+        return None, _syntax_reason(command)
     try:
         words = shlex.split(command)
     except ValueError:
