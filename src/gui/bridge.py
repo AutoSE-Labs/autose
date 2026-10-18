@@ -44,6 +44,14 @@ from pathlib import Path
 from typing import Any
 
 from logic import __version__
+from logic.automation import (
+    AutomationError,
+    AutomationStore,
+    CommandRunner,
+    TrustFile,
+    UnknownAutomationError,
+    run_watch_command,
+)
 from logic.common.approval import (
     APPROVAL_REQUIRED_TOOLS,
     EDIT_APPROVAL_TOOLS,
@@ -70,10 +78,11 @@ from logic.session import (
     setup_from_config,
 )
 from logic.tiers import SPARK, is_tier
-from logic.user_config import save_default_inference
+from logic.user_config import save_default_inference, user_config_dir
 from logic.workflows import UnavailableTierError
 from logic.workflows.review import PlanDecision, PlanReview
 
+from .automation import TICK_SECONDS, AutomationRunner, SkippedRun
 from .payloads import (
     change_payload,
     connection_payload,
@@ -107,6 +116,10 @@ APPROVAL_TIMEOUT_SECONDS = 900.0
 #: model connection; past a handful they only slow each other down. Closing one
 #: does not lose it — it is on disk and reopens from the rail.
 MAX_OPEN_SESSIONS = 6
+
+#: Where the commands a person saved as watchers are vouched for (DR-047):
+#: outside every workspace, so a repository cannot vouch for its own.
+TRUSTED_COMMANDS_FILENAME = "trusted-watchers.json"
 
 #: Frames kept for a browser that reconnects mid-turn. A busy staged run emits
 #: a few hundred; this is one turn's worth of catching up, not a log.
@@ -295,6 +308,12 @@ class _Live:
         #: The models of the provider this session switched to (DR-036), for
         #: the picker; ``None`` while it is still on the default provider.
         self.models: tuple[ModelInfo, ...] | None = None
+        #: DR-047: opened by a schedule or a watcher, with nobody watching.
+        #: Its approvals are refused at once rather than parked for a person.
+        self.unattended = False
+        #: The schedule or watcher that opened it, and the name it shows.
+        self.origin: dict[str, Any] | None = None
+        self.title = ""
 
     def queue_payload(self) -> dict[str, Any]:
         return {"queue": [dict(item) for item in self.queue], "held": self.queue_held}
@@ -343,6 +362,9 @@ class SessionBridge:
         resume: str | None = None,
         approval_timeout: float = APPROVAL_TIMEOUT_SECONDS,
         credentials: CredentialStore | None = None,
+        clock: Callable[[], float] = time.time,
+        automation_interval: float = TICK_SECONDS,
+        command_runner: CommandRunner = run_watch_command,
     ) -> None:
         self._config = config
         #: API keys (DR-036). Written from the settings page, read when a
@@ -365,6 +387,18 @@ class SessionBridge:
             config.resolve_workspace_root() / SESSIONS_DIRECTORY
         )
         self._problem = ""
+        # DR-047: schedules and watchers for this workspace, and the runner
+        # that acts on them. The runner is built here but only ticks once
+        # `start_automation` is called — a bridge in a test never spawns it.
+        self._automation = self._automation_store()
+        self._runner = AutomationRunner(
+            self,
+            lambda: self._automation,
+            clock=clock,
+            interval=automation_interval,
+            command_runner=command_runner,
+        )
+        self._clock = clock
         self._resolve(resume=resume)
 
     # -- lifecycle ---------------------------------------------------------
@@ -402,7 +436,9 @@ class SessionBridge:
                 self._problem = f"no stored session matches '{resume}'"
         self._open_session(record)
 
-    def _open_session(self, record: SessionRecord | None) -> _Live | None:
+    def _open_session(
+        self, record: SessionRecord | None, *, focus: bool = True
+    ) -> _Live | None:
         """Build a session, put it on the desk, and focus it.
 
         The event sink and approval gate are built *before* the session and
@@ -448,7 +484,8 @@ class SessionBridge:
         live = _Live(session, events=events)
         holder.append(live)
         self._open[live.id] = live
-        self._focus = live.id
+        if focus or not self._focus:
+            self._focus = live.id
         return live
 
     def reload(self) -> dict[str, Any]:
@@ -473,6 +510,8 @@ class SessionBridge:
             )
             self._open.clear()
             self._focus = ""
+            # The workspace may have changed, and its automation with it.
+            self._automation = self._automation_store()
             self._resolve()
         return self._broadcast_state()
 
@@ -567,6 +606,7 @@ class SessionBridge:
 
     def shutdown(self) -> None:
         """Deny anything still parked, so no thread is left waiting."""
+        self._runner.stop()
         with self._lock:
             live = list(self._open.values())
         for one in live:
@@ -633,6 +673,11 @@ class SessionBridge:
             "model": inference.model if inference else "",
             # What a new session starts on (DR-036); the focused one may differ.
             "default": self._default_payload(),
+            # DR-047: enough for the header to say what runs on its own.
+            "automation": {
+                **self._automation.summary(),
+                "running": self._runner.alive,
+            },
         }
         if live is None or session is None:
             state.update(
@@ -734,7 +779,9 @@ class SessionBridge:
         session = live.session
         return {
             "session_id": live.id,
-            "title": session_title(session.history, live.current),
+            "title": live.title or session_title(session.history, live.current),
+            "automation": dict(live.origin) if live.origin else None,
+            "unattended": live.unattended,
             "tier": session.tier,
             "auto_classify": session.auto_classify,
             "running": live.running,
@@ -804,11 +851,16 @@ class SessionBridge:
         tier: str | None = None,
         session_id: str | None = None,
         queue: bool = False,
+        unattended: bool = False,
     ) -> dict[str, Any]:
         """Start a turn on a worker thread. Returns as soon as it is running.
 
         With *queue*, a prompt for a session that is already working waits in
         that session's queue and starts when the running turn ends (DR-042).
+
+        *unattended* is for the automation runner only (DR-047). A prompt a
+        person sends — even into a session a schedule opened — is attended,
+        so its approvals go to the browser as usual.
         """
         text = prompt.strip()
         if not text:
@@ -835,6 +887,7 @@ class SessionBridge:
                     status=409,
                 )
             live.running = True
+            live.unattended = unattended
             live.reset_turn()
             live.current = {
                 "prompt": text,
@@ -1258,6 +1311,157 @@ class SessionBridge:
         payload["state"] = self._broadcast_state()
         return payload
 
+    # -- automation (DR-047) ------------------------------------------------
+
+    def _automation_store(self) -> AutomationStore:
+        root = self._config.resolve_workspace_root()
+        return AutomationStore(
+            root, trust=TrustFile(user_config_dir() / TRUSTED_COMMANDS_FILENAME, root)
+        )
+
+    def start_automation(self) -> None:
+        """Start ticking. Called by the server once it is serving."""
+        self._runner.start()
+
+    def automation(self) -> dict[str, Any]:
+        """Every schedule and watcher, and whether anything is acting on them."""
+        return {
+            **self._automation.payload(),
+            "running": self._runner.alive,
+            # Whether a scheduled run's shell and network calls are refused or
+            # approved: only `--yes`, attributed, turns refusal off.
+            "unattended_approvals": "auto" if self._config.auto_approve else "deny",
+            "authorized_by": (
+                self._config.auto_approve_authorized_by
+                if self._config.auto_approve
+                else ""
+            ),
+            "file": str(self._automation.path),
+        }
+
+    def automation_action(self, action: str, fields: dict[str, Any]) -> dict[str, Any]:
+        """Add, change, delete or run a schedule or watcher, by *action* name.
+
+        Validation failures are a 400 with the store's own sentence; an id
+        that names nothing is a 404.
+        """
+        handlers: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+            "add_schedule": self._add_schedule,
+            "update_schedule": self._update_schedule,
+            "delete_schedule": self._delete_schedule,
+            "run_now": self._run_now,
+            "add_watcher": self._add_watcher,
+            "update_watcher": self._update_watcher,
+            "delete_watcher": self._delete_watcher,
+            "check_now": self._check_now,
+        }
+        handler = handlers.get(action)
+        if handler is None:
+            raise BridgeError(f"'{action}' is not one of {', '.join(handlers)}")
+        try:
+            result = handler(fields)
+        except UnknownAutomationError as exc:
+            raise BridgeError(str(exc), status=404) from exc
+        except AutomationError as exc:
+            raise BridgeError(str(exc)) from exc
+        except SkippedRun as exc:
+            raise BridgeError(f"could not start it now: {exc}", status=409) from exc
+        self._broadcast_state()
+        return {**result, "automation": self.automation()}
+
+    def _add_schedule(self, fields: dict[str, Any]) -> dict[str, Any]:
+        schedule = self._automation.add_schedule(fields, now=self._clock())
+        return {"schedule": schedule.to_dict()}
+
+    def _update_schedule(self, fields: dict[str, Any]) -> dict[str, Any]:
+        schedule = self._automation.update_schedule(
+            _id_of(fields), fields, now=self._clock()
+        )
+        return {"schedule": schedule.to_dict()}
+
+    def _delete_schedule(self, fields: dict[str, Any]) -> dict[str, Any]:
+        identifier = _id_of(fields)
+        self._automation.delete_schedule(identifier)
+        return {"deleted": identifier}
+
+    def _run_now(self, fields: dict[str, Any]) -> dict[str, Any]:
+        return self._runner.run_schedule_now(_id_of(fields))
+
+    def _add_watcher(self, fields: dict[str, Any]) -> dict[str, Any]:
+        watcher = self._automation.add_watcher(fields, now=self._clock())
+        return {"watcher": watcher.to_dict(trusted=True)}
+
+    def _update_watcher(self, fields: dict[str, Any]) -> dict[str, Any]:
+        watcher = self._automation.update_watcher(
+            _id_of(fields), fields, now=self._clock()
+        )
+        return {"watcher": watcher.to_dict(trusted=self._automation.trusted(watcher))}
+
+    def _delete_watcher(self, fields: dict[str, Any]) -> dict[str, Any]:
+        identifier = _id_of(fields)
+        self._automation.delete_watcher(identifier)
+        return {"deleted": identifier}
+
+    def _check_now(self, fields: dict[str, Any]) -> dict[str, Any]:
+        return self._runner.check_watcher_now(_id_of(fields))
+
+    # The runner's view of the desk (gui.automation.Desk).
+
+    def start_unattended(
+        self, *, title: str, prompt: str, tier: str | None, origin: dict[str, Any]
+    ) -> str:
+        """Open a session for a schedule or watcher and start *prompt* in it.
+
+        Never takes the focus from whatever the person is looking at. When the
+        desk is full, finished unattended sessions that nobody is looking at
+        are closed first — they are on disk and reopen from the rail — but a
+        session the person opened is never closed to make room; then the run
+        is skipped and retried on the next tick.
+        """
+        with self._lock:
+            if self._setup is None or not self._setup.is_ready:
+                raise SkippedRun(self._problem or "there is no model to run it on")
+            self._make_room_for_unattended()
+            if len(self._open) >= MAX_OPEN_SESSIONS:
+                raise SkippedRun(
+                    f"desk full: {MAX_OPEN_SESSIONS} sessions are open; close one "
+                    "and it runs on the next tick"
+                )
+            live = self._open_session(None, focus=False)
+            if live is None:
+                raise SkippedRun(self._problem or "could not open a session")
+            live.unattended = True
+            live.origin = dict(origin)
+            live.title = title
+        try:
+            self.submit(prompt, tier=tier, session_id=live.id, unattended=True)
+        except BridgeError as exc:
+            raise SkippedRun(str(exc)) from exc
+        return live.id
+
+    def _make_room_for_unattended(self) -> None:
+        """Close idle unattended sessions off-screen, oldest first. Lock held."""
+        idle = [
+            one
+            for one in self._open.values()
+            if one.unattended
+            and not one.running
+            and not one.pending
+            and not one.queue
+            and one.id != self._focus
+        ]
+        while len(self._open) >= MAX_OPEN_SESSIONS and idle:
+            del self._open[idle.pop(0).id]
+
+    def is_running(self, session_id: str) -> bool:
+        with self._lock:
+            live = self._open.get(session_id)
+            return live is not None and live.running
+
+    def publish_automation(self, frame: dict[str, Any]) -> None:
+        self._publish(frame)
+        self._broadcast_state()
+
     # -- the turn ----------------------------------------------------------
 
     def _work(self, live: _Live, prompt: str, tier: str | None) -> None:
@@ -1404,6 +1608,15 @@ class SessionBridge:
             # answer as events, so the call is never invisible.
             return ApprovalDecision.allow(
                 f"'{request.tool_name}' was allowed for the rest of this session"
+            )
+        if live.unattended:
+            # DR-047: a scheduled run is unattended by definition. Parking the
+            # call for fifteen minutes would only hold the run hostage to a
+            # person who is not there; refuse it now and say how to get it.
+            # (With `--yes` this gate is never consulted at all.)
+            return ApprovalDecision.deny(
+                f"unattended run: {request.tool_name} needs a person; run it "
+                "from the dashboard to approve it"
             )
         pending = _Pending(request)
         with self._lock:
@@ -1556,3 +1769,10 @@ def _context_payload(session: Session) -> dict[str, Any] | None:
     )
     payload["gpu_fraction"] = info.gpu_fraction
     return payload
+
+
+def _id_of(fields: dict[str, Any]) -> str:
+    identifier = str(fields.get("id") or "").strip()
+    if not identifier:
+        raise BridgeError("which one? an id is required")
+    return identifier
