@@ -826,9 +826,22 @@ class Session:
         self._model_info = replace(info, gpu_fraction=fresh.gpu_fraction)
 
     def request_tier(self, tier: str) -> str:
-        """Ask for a tier. The ratchet may return a higher one (DR-003)."""
+        """Propose a tier from classification. The ratchet may keep a higher one (DR-003)."""
+        return self._set_tier(ratchet(self._tier, tier))
+
+    def choose_tier(self, tier: str) -> str:
+        """Use the tier a person chose, up or down (DR-049).
+
+        The ratchet guards against a *classifier* reading a follow-up such as
+        "yes, do that" as trivial and dropping a task's pipeline mid-flight.
+        A person picking a tier is not that mistake: they have looked at the
+        session and decided, so the choice stands.
+        """
+        return self._set_tier(normalise_tier(tier))
+
+    def _set_tier(self, tier: str) -> str:
         previous = self._tier
-        self._tier = ratchet(self._tier, tier)
+        self._tier = tier
         if self._tier != previous:
             self._emit(
                 "tier_changed",
@@ -904,7 +917,8 @@ class Session:
         self._cancel.clear()
         classification: Classification | None = None
         if tier:
-            effective = self.request_tier(tier)
+            # Named with this request: a person's choice (DR-049).
+            effective = self.choose_tier(tier)
         elif self.auto_classify:
             self._emit("classification_started", prompt)
             classification = self.classify(prompt)

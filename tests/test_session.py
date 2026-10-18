@@ -185,6 +185,24 @@ def test_the_session_tier_ratchets_and_never_downgrades(scripted, tmp_path):
     assert session.request_tier(SPARK) == CRAFT
 
 
+def test_a_tier_a_person_chooses_is_used_even_when_lower(scripted, tmp_path):
+    """DR-049: the ratchet is for classification, not for the person."""
+    session = _session(scripted, tmp_path, [answer("a")])
+    session.request_tier(CRAFT)
+    assert session.choose_tier(SPARK) == SPARK
+    assert session.tier == SPARK
+    # Classification still cannot pull a session down.
+    session.choose_tier(CRAFT)
+    assert session.request_tier(SPARK) == CRAFT
+
+
+def test_a_tier_named_with_a_request_is_used_as_given(scripted, tmp_path):
+    session = _session(scripted, tmp_path, [answer("a")])
+    session.choose_tier(CRAFT)
+    turn = session.run("a quick question", tier=SPARK)
+    assert turn.tier == SPARK
+
+
 def test_every_tier_the_session_offers_can_actually_run(scripted, tmp_path):
     session = _session(scripted, tmp_path, [answer("a")])
     assert set(session.implemented_tiers) == {SPARK, CRAFT}
