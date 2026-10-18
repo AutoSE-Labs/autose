@@ -1271,6 +1271,23 @@ def test_an_allowance_can_be_taken_back(scripted, tmp_path):
     assert caught.value.status == 404
 
 
+def test_a_rule_added_by_hand_answers_the_calls_it_covers(scripted, tmp_path):
+    """DR-050: a rule added in the dashboard works as one given from a card."""
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command="echo one 2>&1 | tail -1")), answer("done")],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run it")
+    _drain(subscriber, "approval")
+    added = bridge.add_allowance("run_command", "echo")
+    assert added["added"]["label"] == "echo … commands"
+    assert _drain(subscriber, "turn")["turn"]["answer"] == "done"
+    with pytest.raises(BridgeError):
+        bridge.add_allowance("run_command", "rm")
+
+
 def test_an_allowance_for_one_command_still_asks_about_another(scripted, tmp_path):
     """DR-048: allowing `echo` is not allowing every shell command."""
     bridge = _bridge(

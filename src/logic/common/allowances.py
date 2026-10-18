@@ -14,8 +14,15 @@ for every adapter:
 * anything else (``web_search``, and the edit tools when a workspace gates
   them) — the tool, as before.
 
+Shaping a command's output does not change what it does, so it is set aside
+before the command is judged (DR-050): ``2>&1``, sending output to
+``/dev/null``, and a trailing pipe into a read-only filter (``| tail -5``,
+``| head``, ``| grep x``, ``| wc -l``, ``| cat``). ``pip install -r
+requirements.txt 2>&1 | tail -5`` is judged as ``pip install -r
+requirements.txt``.
+
 Some commands are never covered by a standing yes and must be answered one
-call at a time: anything using shell syntax (``;``, ``&&``, pipes, redirects,
+call at a time: anything else using shell syntax (``;``, ``&&``, pipes, redirects,
 ``$(…)``), wrappers that run an arbitrary command (``sudo``, ``env``,
 ``xargs``, ``sh -c``, ``python -c``), and commands that destroy or publish
 (``rm``, ``chmod``, ``git push``). These are word checks, not a sandbox: they
@@ -31,7 +38,7 @@ from urllib.parse import urlparse
 
 from .approval import ApprovalRequest
 
-__all__ = ["Allowance", "AllowanceOffer", "offer_for"]
+__all__ = ["Allowance", "AllowanceOffer", "allowance_for_rule", "offer_for"]
 
 
 @dataclass(frozen=True)
@@ -87,6 +94,17 @@ _TOOL_PHRASES = {
 #: command using any of it is several things at once, and the leading words
 #: no longer describe what it does.
 _SHELL_SYNTAX = re.compile(r"[;&|<>`\n\r]|\$[({]")
+
+#: Output shaping that does not change what a command does (DR-050): stderr
+#: merged into stdout, or output thrown away.
+_DISCARD = re.compile(r"\s+(?:2>&1|[12]?>\s*/dev/null|&>\s*/dev/null)(?=\s|$)")
+
+#: A trailing pipe into a filter that only reads: its arguments may not hold
+#: any further shell syntax, so `| grep x > out` or `| tail $(…)` stay out.
+#: (`sort -o` and `uniq in out` write files, so neither is here.)
+_READ_ONLY_FILTER = re.compile(
+    r"\s*\|\s*(?:tail|head|grep|egrep|fgrep|wc|cat)(?:\s+[^;&|<>`$()\n\r]*)?\s*$"
+)
 
 #: Commands that run whatever command they are given.
 _WRAPPERS = frozenset(
@@ -187,7 +205,19 @@ def offer_for(request: ApprovalRequest) -> AllowanceOffer:
     return AllowanceOffer(Allowance(tool))
 
 
+def _without_output_shaping(command: str) -> str:
+    """The command with its output shaping set aside (DR-050)."""
+    text = command.strip()
+    while True:
+        trimmed = _READ_ONLY_FILTER.sub("", text, count=1)
+        if trimmed == text:
+            break
+        text = trimmed.rstrip()
+    return _DISCARD.sub("", f" {text}").strip()
+
+
 def _command_pattern(command: str) -> tuple[list[str] | None, str]:
+    command = _without_output_shaping(command)
     if _SHELL_SYNTAX.search(command):
         return None, "it chains, pipes or redirects commands (;, &&, |, >, $(…))"
     try:
@@ -251,3 +281,48 @@ def _pattern_from(words: list[str]) -> tuple[list[str] | None, str]:
             return [program, sub, *inner], ""
         return [program, sub], ""
     return [program], ""
+
+
+#: What a rule written by hand may name, besides commands and hosts.
+_WHOLE_TOOLS = frozenset(_TOOL_PHRASES)
+
+_HOST = re.compile(r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$")
+
+
+def allowance_for_rule(tool: str, pattern: str) -> Allowance:
+    """A standing yes written by hand (DR-050), held to the same rules as one
+    given from a card: a command rule must be the leading words a command
+    would be allowed by, so a hand-written rule can never cover more than
+    answering a card could. Raises ``ValueError`` with the reason otherwise.
+    """
+    pattern = pattern.strip()
+    if tool == "run_command":
+        if not pattern:
+            raise ValueError("name the command, for example: pytest, or npm run test")
+        offer = offer_for(ApprovalRequest(tool, {"command": pattern}))
+        if offer.allowance is None:
+            raise ValueError(
+                offer.reason
+                if "one call at a time" in offer.reason
+                else f"{pattern} can only be allowed one call at a time: {offer.reason}"
+            )
+        try:
+            written = " ".join(shlex.split(_without_output_shaping(pattern)))
+        except ValueError as error:
+            raise ValueError(f"{pattern} could not be split into words") from error
+        if offer.allowance.pattern != written:
+            raise ValueError(
+                f"a rule covers a command's leading words: this would be "
+                f"{offer.allowance.pattern}, so write that"
+            )
+        return offer.allowance
+    if tool == "fetch_url":
+        host = pattern.lower()
+        if "://" in host:
+            host = urlparse(host).hostname or ""
+        if not _HOST.match(host):
+            raise ValueError("name a host, for example: docs.python.org")
+        return Allowance(tool, host)
+    if tool in _WHOLE_TOOLS:
+        return Allowance(tool)
+    raise ValueError(f"{tool} cannot be allowed by a rule")

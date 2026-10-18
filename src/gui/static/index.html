@@ -76,6 +76,7 @@
       <button class="section-button on" id="show-sessions" type="button" title="Your sessions"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h6A2.5 2.5 0 0 1 14 5.5v3a2.5 2.5 0 0 1-2.5 2.5H8l-3 2.5V11A2.5 2.5 0 0 1 3 8.5z"/><path d="M14 7.5h.5A2.5 2.5 0 0 1 17 10v3a2.5 2.5 0 0 1-2.5 2.5H14V18l-3-2.5H9.5"/></svg><span class="section-label">Sessions</span></button>
       <button class="section-button" id="show-inbox" type="button" title="Everything waiting for you, from every session"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5l2.2-6.6A1.5 1.5 0 0 1 6.6 3.8h6.8a1.5 1.5 0 0 1 1.4 1.1l2.2 6.6V15a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 15z"/><path d="M3 11.5h4l1 2h4l1-2h4"/></svg><span class="section-label">Needs you</span><span class="section-badge" id="inbox-count" hidden></span></button>
       <button class="section-button" id="open-automation" type="button" title="Schedules and watchers: runs that start on their own"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2.5v3M13 2.5v3M10 10.5v2.5l1.8 1.1"/></svg><span class="section-label">Schedules</span></button>
+      <button class="section-button" id="open-allowed" type="button" title="Allowed commands: what runs without asking in this session"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5 4 5v4.6c0 3.6 2.5 6.6 6 7.9 3.5-1.3 6-4.3 6-7.9V5z"/><path d="M7.4 10.2l1.9 1.9 3.4-3.6"/></svg><span class="section-label">Allowed</span></button>
       <button class="section-button" id="open-diff" type="button" title="What it changed: the diff of every file"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2.5h7l3 3v12H5z"/><path d="M8 8h4M10 6v4M8 13.5h4"/></svg><span class="section-label">Changes</span></button>
       <span class="section-sep" aria-hidden="true"></span>
       <button class="section-button" id="open-doctor" type="button" title="Machine check: model server, GPU, context window and config"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="10" height="10" rx="1.5"/><rect x="8" y="8" width="4" height="4" rx="0.5"/><path d="M8 2.5V5M12 2.5V5M8 15v2.5M12 15v2.5M2.5 8H5M2.5 12H5M15 8h2.5M15 12h2.5"/></svg><span class="section-label">Machine</span></button>
@@ -241,6 +242,29 @@ ollama pull qwen3:8b</code></pre>
         <button class="ghost-button" id="context-close" type="button">Close</button>
         <button class="ghost-button" id="context-copy" type="button" hidden>Copy</button>
         <button class="primary-button" id="context-apply" type="button" hidden>Use this window</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="allowed-overlay" hidden>
+    <div class="overlay-panel wide-panel allowed-panel" role="dialog" aria-labelledby="allowed-title">
+      <span class="eyebrow"><span class="tick"></span>Allowed commands</span>
+      <h2 id="allowed-title">What runs without asking</h2>
+      <p class="panel-note" id="allowed-scope"></p>
+      <div class="allowed-list" id="allowed-list"></div>
+      <form class="allowed-add" id="allowed-add">
+        <span class="allowed-add-title">Add a rule</span>
+        <select id="allowed-tool" aria-label="What kind of call">
+          <option value="run_command">Command starting with</option>
+          <option value="fetch_url">Pages on the host</option>
+          <option value="web_search">Web searches</option>
+        </select>
+        <input id="allowed-pattern" type="text" placeholder="pytest, or npm run test" aria-label="Command words or host" autocomplete="off" />
+        <button class="primary-button" type="submit">Allow</button>
+        <p class="allowed-help">A command rule is its leading words: <code>pytest</code> covers <code>pytest -q tests/</code>, and <code>git status</code> does not cover <code>git push</code>. Commands that delete, publish, chain or run other commands can only be allowed one call at a time. Rules last for this session.</p>
+      </form>
+      <div class="overlay-actions">
+        <button class="ghost-button" id="allowed-close" type="button">Close</button>
       </div>
     </div>
   </div>

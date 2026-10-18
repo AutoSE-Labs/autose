@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from logic.common.allowances import offer_for
+from logic.common.allowances import allowance_for_rule, offer_for
 from logic.common.approval import ApprovalRequest
 
 
@@ -92,3 +92,60 @@ def test_other_tools_are_allowed_as_a_whole():
     allowance = offer_for(ApprovalRequest("web_search", {"query": "x"})).allowance
     assert allowance is not None and allowance.label == "web searches"
     assert allowance.to_dict()["id"] == "web_search:"
+
+
+# -- DR-050: output shaping is set aside; rules can be written by hand -----------
+
+
+@pytest.mark.parametrize(
+    ("command", "pattern"),
+    [
+        ("pip install -r requirements.txt 2>&1 | tail -5", "pip install"),
+        ("pytest -q 2>&1", "pytest"),
+        ("python -m pytest | grep FAIL", "python -m pytest"),
+        ("pytest 2>/dev/null", "pytest"),
+        ("npm run test 2>&1 | head -n 40 | wc -l", "npm run test"),
+    ],
+)
+def test_output_shaping_does_not_block_a_standing_yes(command, pattern):
+    offer = _command(command)
+    assert offer.allowance is not None
+    assert offer.allowance.pattern == pattern
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pytest | sh",
+        "pytest | tail -5 && rm -rf build",
+        "pytest | grep 'a|b'",
+        "pytest | tail $(whoami)",
+        "pytest 2>&1 > out.txt",
+        "npm test | sort -o out",
+        "pytest | tee log.txt",
+    ],
+)
+def test_only_read_only_filters_are_set_aside(command):
+    assert _command(command).allowance is None
+
+
+def test_an_allowance_from_a_card_covers_the_same_command_with_its_output_shaped():
+    allowance = _command("pip install -r requirements.txt").allowance
+    later = ApprovalRequest("run_command", {"command": "pip install fastapi 2>&1 | tail -3"})
+    assert allowance.covers(later)
+
+
+def test_a_rule_written_by_hand_is_held_to_the_same_rules():
+    assert allowance_for_rule("run_command", "pip install").label == "pip install … commands"
+    assert allowance_for_rule("fetch_url", "https://docs.python.org/3/").pattern == "docs.python.org"
+    assert allowance_for_rule("web_search", "").label == "web searches"
+    for tool, pattern, why in [
+        ("run_command", "rm", "one call at a time"),
+        ("run_command", "pytest && rm -rf .", "one call at a time"),
+        ("run_command", "pip install -r req.txt", "pip install"),
+        ("run_command", "", "name the command"),
+        ("fetch_url", "not a host", "name a host"),
+        ("delete_everything", "", "cannot be allowed"),
+    ]:
+        with pytest.raises(ValueError, match=why):
+            allowance_for_rule(tool, pattern)

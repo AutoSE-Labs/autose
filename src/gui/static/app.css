@@ -4119,6 +4119,107 @@ select {
     5px 5px 0 -1px var(--stack);
 }
 
+/* ---------- allowed commands ---------- */
+
+.allowed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.allowed-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid var(--edge-2);
+  border-radius: 10px;
+  background: var(--sheet);
+}
+
+.allowed-kind {
+  justify-self: start;
+  padding: 1px 8px;
+  border: 1px solid var(--pen);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--pen-deep);
+}
+
+.allowed-what {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.allowed-what code,
+.allowed-help code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.allowed-add {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 14px;
+  border: 1.5px dashed var(--pencil);
+  border-radius: 12px;
+}
+
+.allowed-add-title {
+  grid-column: 1 / -1;
+  font-weight: 700;
+}
+
+.allowed-add select,
+.allowed-add input {
+  padding: 7px 10px;
+  border: 1px solid var(--edge-2);
+  border-radius: 8px;
+  background: var(--sheet);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.allowed-add input[hidden] {
+  display: none;
+}
+
+.allowed-help {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.inline-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pen-deep);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.inbox-open {
+  align-self: flex-start;
+}
+
+@media (max-width: 640px) {
+  .allowed-add {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---------- life: small signs of what is going on (life.js) ---------- */
 
 /* The run scrolls under soft edges instead of being cut by a ruler line. */
