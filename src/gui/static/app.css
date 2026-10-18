@@ -322,7 +322,7 @@ select {
 /* ---------- shell ---------- */
 
 .app-shell {
-  --rail-width: 290px;
+  --rail-width: var(--rail-size, 290px);
   --inspector-width: 0px;
   position: relative;
   z-index: 1;
@@ -338,7 +338,7 @@ select {
 }
 
 .app-shell.inspector-open {
-  --inspector-width: 360px;
+  --inspector-width: var(--inspector-size, 360px);
 }
 
 .app-shell:not(.inspector-open) .inspector {
@@ -4602,6 +4602,71 @@ select {
 
   .overlay-panel.files-panel {
     padding: 16px 12px 12px;
+  }
+}
+
+/* ---------- resizable panels ---------- */
+
+.rail,
+.inspector {
+  position: relative;
+}
+
+/* A slim grip on the panel's inner edge: a dotted rule that inks in on hover
+ * and while dragged. */
+.resize-handle {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  z-index: 3;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.resize-handle.at-right {
+  right: 0;
+}
+
+.resize-handle.at-left {
+  left: 0;
+}
+
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  border-left: 2px dotted transparent;
+  transition: border-color 120ms ease;
+}
+
+.resize-handle:hover::after,
+.resize-handle:focus-visible::after,
+.resizing .resize-handle::after {
+  border-left-color: var(--pen);
+}
+
+.resize-handle:focus-visible {
+  outline: none;
+}
+
+.app-shell.resizing,
+.app-shell.resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+@media (max-width: 1240px) {
+  .resize-handle.at-left {
+    display: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .resize-handle {
+    display: none;
   }
 }
 

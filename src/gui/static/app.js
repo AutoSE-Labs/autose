@@ -2995,6 +2995,81 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refreshState();
 });
 
+/* ---------- resizable panels ---------- */
+
+/* The sessions panel and the details panel take the width you drag them to,
+ * kept in this browser. The run takes what is left, never less than MAIN_MIN. */
+const PANEL_LIMITS = { rail: [220, 560, 290], inspector: [300, 720, 360] };
+const MAIN_MIN = 420;
+
+function setPanelSize(which, width, keep = true) {
+  const [min, max, fallback] = PANEL_LIMITS[which];
+  const other = which === "rail" ? "inspector" : "rail";
+  const otherWidth = dom.shell.querySelector(`.${other}`)?.getBoundingClientRect().width || 0;
+  const room = window.innerWidth - 64 - otherWidth - 5 * 12 - MAIN_MIN;
+  const size = Math.round(Math.max(min, Math.min(max, room, width || fallback)));
+  document.documentElement.style.setProperty(`--${which}-size`, `${size}px`);
+  if (keep) {
+    try {
+      window.localStorage.setItem(`autose.${which}-width`, String(size));
+    } catch (error) {
+      // Not kept between visits; the drag still works.
+    }
+  }
+}
+
+function restorePanelSizes() {
+  ["rail", "inspector"].forEach((which) => {
+    let saved = 0;
+    try {
+      saved = Number(window.localStorage.getItem(`autose.${which}-width`)) || 0;
+    } catch (error) {
+      saved = 0;
+    }
+    if (saved) setPanelSize(which, saved, false);
+  });
+}
+
+document.querySelectorAll(".resize-handle").forEach((handle) => {
+  const which = handle.dataset.resize;
+  const panel = handle.parentElement;
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch (error) {
+      // A synthetic pointer cannot be captured; the drag still follows it.
+    }
+    const startX = event.clientX;
+    const startWidth = panel.getBoundingClientRect().width;
+    dom.shell.classList.add("resizing");
+    const move = (moved) => {
+      const delta = moved.clientX - startX;
+      setPanelSize(which, which === "rail" ? startWidth + delta : startWidth - delta);
+    };
+    const stop = () => {
+      dom.shell.classList.remove("resizing");
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", stop);
+      handle.removeEventListener("pointercancel", stop);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+  });
+  handle.addEventListener("dblclick", () => setPanelSize(which, PANEL_LIMITS[which][2]));
+  handle.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 48 : 16;
+    const grow = which === "rail" ? event.key === "ArrowRight" : event.key === "ArrowLeft";
+    const shrink = which === "rail" ? event.key === "ArrowLeft" : event.key === "ArrowRight";
+    if (!grow && !shrink) return;
+    event.preventDefault();
+    setPanelSize(which, panel.getBoundingClientRect().width + (grow ? step : -step));
+  });
+});
+
+restorePanelSizes();
+
 /* ---------- helpers ---------- */
 
 function autosize() {
