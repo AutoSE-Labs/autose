@@ -158,6 +158,7 @@ const overlays = {
   diff: el("diff-overlay"),
   doctor: el("doctor-overlay"),
   tips: el("tips-overlay"),
+  allowed: el("allowed-overlay"),
   context: el("context-overlay"),
   settings: el("settings-overlay"),
   automation: el("automation-overlay"),
@@ -1082,7 +1083,11 @@ function renderInbox() {
         ? `<button type="button" class="ghost-button small" data-decide="session" data-id="${escapeHtml(request.id)}" title="Run this, and later ${escapeHtml(request.allow.label)} in that session, without asking">${allowButtonMarkup(request.allow).replace(/ here$/, "")}</button>`
         : "") +
       `<button type="button" class="ghost-button small" data-decide="deny" data-id="${escapeHtml(request.id)}">Don't run</button>` +
-      `</div></article>`;
+      `</div>` +
+      (request.session !== focusId()
+        ? `<button type="button" class="inline-link inbox-open" data-focus="${escapeHtml(request.session)}">Open this session →</button>`
+        : "") +
+      `</article>`;
   });
   open
     .filter((entry) => entry.plan_waiting)
@@ -2202,13 +2207,70 @@ function renderNeedsYou() {
   const allowed = (state && state.allowances) || [];
   box.hidden = !allowed.length;
   box.innerHTML = allowed.length
-    ? `<div class="needs-allowed"><span>Runs without asking here</span>` +
+    ? `<div class="needs-allowed"><span>Runs without asking here <button type="button" class="inline-link" data-manage-allowed="1">Manage</button></span>` +
       allowed
         .map((item) => `<button type="button" class="allow-chip" data-revoke="${escapeHtml(item.id)}" title="Ask again before ${escapeHtml(item.label)}">${escapeHtml(item.label)} ×</button>`)
         .join("") +
       `</div>`
     : "";
+  if (!overlays.allowed.hidden) renderAllowed();
 }
+
+/* ---------- allowed commands (DR-048, DR-050) ---------- */
+
+function openAllowed() {
+  renderAllowed();
+  overlays.allowed.hidden = false;
+  el("allowed-pattern").focus();
+}
+
+function renderAllowed() {
+  const allowed = (state && state.allowances) || [];
+  const entry = openEntry(focusId());
+  el("allowed-scope").textContent = `For ${entry ? `${sheetNo(focusId())} · ${entry.title}` : "this session"}. Switch sessions to see theirs.`;
+  el("allowed-list").innerHTML = allowed.length
+    ? allowed
+        .map(
+          (item) =>
+            `<div class="allowed-row"><span class="allowed-kind">${escapeHtml(item.tool === "run_command" ? "command" : item.tool === "fetch_url" ? "host" : "tool")}</span>` +
+            `<span class="allowed-what">${item.tool === "run_command" ? `<code>${escapeHtml(item.pattern)} …</code>` : escapeHtml(item.label)}</span>` +
+            `<button type="button" class="ghost-button small" data-revoke-allowed="${escapeHtml(item.id)}" title="Ask again before ${escapeHtml(item.label)}">Remove</button></div>`
+        )
+        .join("")
+    : `<p class="empty-state">Nothing yet: every command, page fetch and search asks first. Add a rule below, or press "Always allow" on a question.</p>`;
+}
+
+el("open-allowed").addEventListener("click", openAllowed);
+el("allowed-close").addEventListener("click", closeOverlays);
+el("allowed-tool").addEventListener("change", (event) => {
+  const tool = event.target.value;
+  const input = el("allowed-pattern");
+  input.hidden = tool === "web_search";
+  input.placeholder = tool === "fetch_url" ? "docs.python.org" : "pytest, or npm run test";
+});
+el("allowed-add").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const tool = el("allowed-tool").value;
+  const pattern = el("allowed-pattern").value.trim();
+  const result = await post("/api/allowances", { action: "add", tool, pattern, session: focusId() });
+  if (result) {
+    state.allowances = result.allowances || [];
+    el("allowed-pattern").value = "";
+    toast(`${result.added.label} will run without asking in this session.`, "good");
+    renderNeedsYou();
+    renderAllowed();
+  }
+});
+el("allowed-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-revoke-allowed]");
+  if (!button) return;
+  const result = await post("/api/allowances", { action: "revoke", id: button.dataset.revokeAllowed, session: focusId() });
+  if (result) {
+    state.allowances = result.allowances || [];
+    renderNeedsYou();
+    renderAllowed();
+  }
+});
 
 /* ---------- overlays ---------- */
 
@@ -2545,7 +2607,7 @@ async function automationClick(event) {
 }
 
 function closeOverlays() {
-  ["diff", "doctor", "tips", "context", "settings", "automation"].forEach((name) => {
+  ["diff", "doctor", "tips", "context", "settings", "automation", "allowed"].forEach((name) => {
     overlays[name].hidden = true;
   });
 }
@@ -2719,6 +2781,10 @@ el("doctor-refresh").addEventListener("click", openDoctor);
 el("diff-close").addEventListener("click", closeOverlays);
 el("doctor-close").addEventListener("click", closeOverlays);
 el("needs-you").addEventListener("click", (event) => {
+  if (event.target.closest("[data-manage-allowed]")) {
+    openAllowed();
+    return;
+  }
   const revoke = event.target.closest("[data-revoke]");
   if (revoke) {
     post("/api/allowances", { action: "revoke", id: revoke.dataset.revoke, session: focusId() }, "It will ask again.");

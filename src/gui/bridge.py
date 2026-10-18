@@ -52,7 +52,7 @@ from logic.automation import (
     UnknownAutomationError,
     run_watch_command,
 )
-from logic.common.allowances import Allowance, offer_for
+from logic.common.allowances import Allowance, allowance_for_rule, offer_for
 from logic.common.approval import (
     APPROVAL_REQUIRED_TOOLS,
     EDIT_APPROVAL_TOOLS,
@@ -1155,6 +1155,35 @@ class SessionBridge:
                 live, {"kind": "plan_review_closed", "id": pending.id, "action": decision.action}
             )
         return decision
+
+    def add_allowance(
+        self, tool: str, pattern: str, *, session_id: str | None = None
+    ) -> dict[str, Any]:
+        """Add a standing yes by hand, held to DR-048's rules (DR-050).
+
+        Calls already waiting that the new rule covers are answered by it, as
+        when the same yes is given from a card.
+        """
+        try:
+            standing = allowance_for_rule(tool, pattern)
+        except ValueError as error:
+            raise BridgeError(str(error)) from error
+        with self._lock:
+            live = self._target(session_id)
+            live.allowances[standing.key] = standing
+            covered = [
+                pending
+                for pending in live.pending.values()
+                if pending.decision is None and standing.covers(pending.request)
+            ]
+            allowances = _allowances_payload(live)
+        for pending in covered:
+            pending.decision = ApprovalDecision.allow(
+                f"{standing.label} were allowed for the rest of this session"
+            )
+            pending.answered.set()
+        self._publish_for(live, {"kind": "allowances", "allowances": allowances})
+        return {"session": live.id, "allowances": allowances, "added": standing.to_dict()}
 
     def revoke_allowance(
         self, allowance_id: str, *, session_id: str | None = None
