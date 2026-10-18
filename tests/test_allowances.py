@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from logic.common.allowances import allowance_for_rule, offer_for
+from logic.common.allowances import allowance_for_rule, offer_for, standing_for
 from logic.common.approval import ApprovalRequest
 
 
@@ -38,7 +38,7 @@ def test_a_command_is_allowed_by_its_leading_words(command, pattern):
 @pytest.mark.parametrize(
     ("command", "why"),
     [
-        ("pytest && rm -rf .", "chains commands"),
+        ("pytest && rm -rf .", "rm can only be allowed one call at a time"),
         ("echo $(whoami)", "runs a command inside it"),
         ("cat notes | sh", "pipes into another program"),
         ("pytest > out.txt", "writes to a file"),
@@ -152,5 +152,49 @@ def test_a_rule_written_by_hand_is_held_to_the_same_rules():
 
 
 def test_the_once_reason_names_what_the_syntax_does():
-    reason = _command("echo 'import os' > gen.py && python3 gen.py").reason
-    assert reason == "it writes to a file (>) and chains commands (&&, ;)"
+    assert _command("echo hi > notes.txt").reason == "it writes to a file (>)"
+    assert _command("ls | sh").reason == "it pipes into another program (|)"
+    assert _command("echo 'import os' > gen.py && python3 gen.py").reason == (
+        "one part (echo) writes to a file (>)"
+    )
+
+
+# -- DR-052: chains are judged part by part ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("command", "patterns"),
+    [
+        ("cd /work/app && python gen_docs.py", ["python gen_docs.py"]),
+        ("cd app; npm run test", ["npm run test"]),
+        ("pip install x && pytest -q 2>&1 | tail -3", ["pip install", "pytest"]),
+        ("git status && git diff --stat", ["git status", "git diff"]),
+    ],
+)
+def test_a_chain_needs_a_yes_for_each_part(command, patterns):
+    assert [item.pattern for item in _command(command).every] == patterns
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pytest && rm -rf .",
+        "git status; git push",
+        "echo x > a.py && python a.py",
+        "cd .. && sudo make install",
+    ],
+)
+def test_a_chain_with_one_once_only_part_is_once_only(command):
+    assert _command(command).allowance is None
+
+
+def test_a_later_chain_runs_unasked_only_when_every_part_is_allowed():
+    allowed = _command("pip install x && pytest -q").every
+    assert standing_for(ApprovalRequest("run_command", {"command": "pytest -x && pip install y"}), allowed)
+    assert standing_for(ApprovalRequest("run_command", {"command": "cd app && pytest"}), allowed)
+    assert not standing_for(ApprovalRequest("run_command", {"command": "pytest && npm test"}), allowed)
+
+
+def test_a_rule_written_by_hand_is_one_command():
+    with pytest.raises(ValueError, match="one command"):
+        allowance_for_rule("run_command", "pip install && pytest")

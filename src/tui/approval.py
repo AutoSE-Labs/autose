@@ -20,7 +20,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 from rich.text import Text
 
-from logic.common.allowances import Allowance, offer_for
+from logic.common.allowances import Allowance, offer_for, standing_for
 from logic.common.approval import ApprovalDecision, ApprovalRequest
 
 from .render import approval_panel
@@ -84,9 +84,7 @@ class TerminalApprovalGate:
                 "the user stopped this run before the call was made"
             )
 
-        standing = next(
-            (item for item in self._always_allow.values() if item.covers(request)), None
-        )
+        standing = standing_for(request, self._always_allow.values())
         if standing is not None:
             return ApprovalDecision.allow(
                 f"{standing.label} were allowed for the rest of this session"
@@ -127,17 +125,18 @@ class TerminalApprovalGate:
                     )
                 )
                 return ApprovalDecision.allow("the user approved this call")
-            standing = offer.allowance
-            self._always_allow[standing.key] = standing
+            # DR-052: a chain's yes is a yes for each of its parts.
+            for part in offer.every:
+                self._always_allow[part.key] = part
             self._console.print(
                 Text(
-                    f"  {THEME.ok_glyph} {standing.label} will run unasked for the "
+                    f"  {THEME.ok_glyph} {offer.label} will run unasked for the "
                     "rest of this session (/tools to review)",
                     style=THEME.muted,
                 )
             )
             return ApprovalDecision.allow(
-                f"the user allowed {standing.label} for the rest of this session"
+                f"the user allowed {offer.label} for the rest of this session"
             )
         if keyword in _DENY:
             return ApprovalDecision.deny("the user declined this call")

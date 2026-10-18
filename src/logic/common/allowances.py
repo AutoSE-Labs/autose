@@ -21,6 +21,13 @@ before the command is judged (DR-050): ``2>&1``, sending output to
 requirements.txt 2>&1 | tail -5`` is judged as ``pip install -r
 requirements.txt``.
 
+A chain of commands joined by ``&&``, ``||`` or ``;`` is judged part by part
+(DR-052): ``cd`` is neutral, and every other part must be allowable on its
+own. The standing yes for ``cd app && python gen_docs.py`` is the yes for
+``python gen_docs.py``; for ``pip install x && pytest`` it is two, one per
+part, and a later chain runs unasked only when every one of its parts is
+allowed.
+
 Some commands are never covered by a standing yes and must be answered one
 call at a time: anything else using shell syntax (``;``, ``&&``, pipes, redirects,
 ``$(…)``), wrappers that run an arbitrary command (``sudo``, ``env``,
@@ -38,7 +45,7 @@ from urllib.parse import urlparse
 
 from .approval import ApprovalRequest
 
-__all__ = ["Allowance", "AllowanceOffer", "allowance_for_rule", "offer_for"]
+__all__ = ["Allowance", "AllowanceOffer", "allowance_for_rule", "offer_for", "standing_for"]
 
 
 @dataclass(frozen=True)
@@ -63,13 +70,8 @@ class Allowance:
         return _TOOL_PHRASES.get(self.tool, f"{self.tool.replace('_', ' ')} calls")
 
     def covers(self, request: ApprovalRequest) -> bool:
-        if request.tool_name != self.tool:
-            return False
-        # Re-derived from the new call rather than compared by prefix, so every
-        # rule that refused to offer a standing yes also refuses to match one:
-        # `pytest; rm -rf .` has no pattern, so no allowance covers it.
-        offered = offer_for(request).allowance
-        return offered is not None and offered.pattern == self.pattern
+        """Whether this allowance alone covers *request*."""
+        return standing_for(request, (self,)) is self
 
     def to_dict(self) -> dict[str, str]:
         return {"id": self.key, "tool": self.tool, "pattern": self.pattern, "label": self.label}
@@ -82,6 +84,25 @@ class AllowanceOffer:
     allowance: Allowance | None
     #: Why only "once" is offered, when ``allowance`` is None.
     reason: str = ""
+    #: The other parts of a chain, each needing its own yes (DR-052).
+    also: tuple[Allowance, ...] = ()
+
+    @property
+    def every(self) -> tuple[Allowance, ...]:
+        """Every allowance this call needs; empty when it can only be once."""
+        return () if self.allowance is None else (self.allowance, *self.also)
+
+    @property
+    def label(self) -> str:
+        return " and ".join(item.label for item in self.every)
+
+    def to_dict(self) -> dict[str, object] | None:
+        if self.allowance is None:
+            return None
+        payload: dict[str, object] = dict(self.allowance.to_dict())
+        payload["label"] = self.label
+        payload["patterns"] = [item.pattern for item in self.every]
+        return payload
 
 
 _TOOL_PHRASES = {
@@ -192,10 +213,11 @@ def offer_for(request: ApprovalRequest) -> AllowanceOffer:
         command = request.arguments.get("command")
         if not isinstance(command, str) or not command.strip():
             return AllowanceOffer(None, "there is no command to describe")
-        words, reason = _command_pattern(command)
-        if words is None:
+        parts, reason = _chain_patterns(command)
+        if parts is None:
             return AllowanceOffer(None, reason)
-        return AllowanceOffer(Allowance(tool, " ".join(words)))
+        allowances = tuple(Allowance(tool, " ".join(words)) for words in parts)
+        return AllowanceOffer(allowances[0], also=allowances[1:])
     if tool == "fetch_url":
         url = request.arguments.get("url")
         host = urlparse(url).hostname if isinstance(url, str) else None
@@ -234,6 +256,77 @@ def _syntax_reason(command: str) -> str:
         return "it uses shell syntax"
     named = found[0] if len(found) == 1 else f"{', '.join(found[:-1])} and {found[-1]}"
     return f"it {named}"
+
+
+def standing_for(request: ApprovalRequest, allowances) -> Allowance | None:
+    """The allowance that answers *request* when *allowances* cover every part
+    of it, else ``None``. Re-derived from the new call rather than compared by
+    prefix, so every rule that refused to offer a standing yes also refuses to
+    match one: `pytest; rm -rf .` has no pattern, so nothing covers it."""
+    needed = offer_for(request).every
+    if not needed:
+        return None
+    have = {item.key: item for item in allowances}
+    if all(item.key in have for item in needed):
+        return have[needed[0].key]
+    return None
+
+
+def _split_chain(command: str) -> list[str]:
+    """*command* cut at ``&&``, ``||``, ``;`` and newlines outside quotes."""
+    parts: list[str] = []
+    current: list[str] = []
+    quote = ""
+    i = 0
+    while i < len(command):
+        char = command[i]
+        if quote:
+            current.append(char)
+            if char == "\\" and quote == '"' and i + 1 < len(command):
+                current.append(command[i + 1])
+                i += 1
+            elif char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+            current.append(char)
+        elif command.startswith(("&&", "||"), i):
+            parts.append("".join(current))
+            current = []
+            i += 1
+        elif char in ";\n\r":
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+        i += 1
+    parts.append("".join(current))
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _chain_patterns(command: str) -> tuple[list[list[str]] | None, str]:
+    """The leading words of each part of a chain, or why it can only be once."""
+    parts = _split_chain(command)
+    chained = len(parts) > 1
+    patterns: list[list[str]] = []
+    for part in parts:
+        try:
+            words = shlex.split(_without_output_shaping(part))
+        except ValueError:
+            words = []
+        if words and words[0] == "cd" and len(words) <= 2 and not _SHELL_SYNTAX.search(part):
+            continue  # changing directory decides nothing on its own
+        found, reason = _command_pattern(part)
+        if found is None:
+            if chained:
+                name = words[0] if words else part.split()[0] if part.split() else "a part"
+                # "one part (echo) writes to a file (>)", or the part's own
+                # reason when it already names the command ("rm can only…").
+                return None, f"one part ({name}) {reason[3:]}" if reason.startswith("it ") else reason
+            return None, reason
+        if found not in patterns:
+            patterns.append(found)
+    return (patterns or [["cd"]]), ""
 
 
 def _command_pattern(command: str) -> tuple[list[str] | None, str]:
@@ -320,6 +413,8 @@ def allowance_for_rule(tool: str, pattern: str) -> Allowance:
         if not pattern:
             raise ValueError("name the command, for example: pytest, or npm run test")
         offer = offer_for(ApprovalRequest(tool, {"command": pattern}))
+        if offer.also:
+            raise ValueError("a rule covers one command; add each part of a chain on its own")
         if offer.allowance is None:
             raise ValueError(
                 offer.reason
