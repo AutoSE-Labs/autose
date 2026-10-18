@@ -14,7 +14,7 @@ from .config import AutoSEConfig, load_config
 from .errors import AutoSEError
 from .inference.context_advice import advise_context
 from .inference.discovery import DetectedRuntime, discover_local_runtimes
-from .inference.registry import available_providers
+from .inference.registry import available_providers, create_model_catalog
 from .workflows import available_tiers
 
 __all__ = ["Diagnosis", "diagnose"]
@@ -33,6 +33,9 @@ class Diagnosis:
     #: (DR-022): everything works, just in less room than the user assumes,
     #: and nothing else would reveal it.
     advisories: tuple[str, ...] = field(default_factory=tuple)
+    #: The address AutoSE is configured to use, when it is not one of the
+    #: ports discovery probes (an SSH tunnel on :11435, say), else "".
+    configured_url: str = ""
 
     @property
     def usable_runtimes(self) -> tuple[DetectedRuntime, ...]:
@@ -60,6 +63,13 @@ def diagnose(config: AutoSEConfig | None = None) -> Diagnosis:
     runtimes = discover_local_runtimes(
         timeout=config.inference.discovery_timeout, include_unreachable=True
     )
+    # The endpoint the configuration names is the one AutoSE will use, so it
+    # is probed too and listed first, even when no standard port answers.
+    configured = _probe_configured(config)
+    if configured is not None:
+        runtimes = (configured,) + tuple(
+            runtime for runtime in runtimes if not _same_url(runtime.base_url, configured.base_url)
+        )
     if not any(runtime.usable for runtime in runtimes):
         problems.append(
             "no local runtime is serving a model. Start one (`ollama serve`) and "
@@ -85,6 +95,34 @@ def diagnose(config: AutoSEConfig | None = None) -> Diagnosis:
         implemented_tiers=available_tiers(),
         problems=tuple(problems),
         advisories=_context_advisories(runtimes),
+        configured_url=configured.base_url if configured is not None else "",
+    )
+
+
+def _same_url(left: str, right: str) -> bool:
+    return left.rstrip("/").lower() == right.rstrip("/").lower()
+
+
+def _probe_configured(config: AutoSEConfig) -> DetectedRuntime | None:
+    """The configured endpoint, probed like a discovered one; ``None`` when
+    nothing is configured beyond the defaults discovery already covers."""
+    settings = config.inference
+    if not settings.is_ready or not settings.base_url:
+        return None
+    try:
+        models = create_model_catalog(settings).list_models()
+    except Exception as exc:  # noqa: BLE001 - a probe reports, it never raises
+        return DetectedRuntime(
+            provider=settings.provider,
+            base_url=settings.base_url,
+            reachable=False,
+            error=f"could not reach {settings.base_url}: {exc}",
+        )
+    return DetectedRuntime(
+        provider=settings.provider,
+        base_url=settings.base_url,
+        reachable=True,
+        models=tuple(models),
     )
 
 

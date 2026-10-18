@@ -971,7 +971,6 @@ function renderStatus() {
   // DR-053: YOLO mode takes over the whole page while it is on.
   const yolo = Boolean(state.yolo);
   document.body.classList.toggle("yolo", yolo);
-  el("yolo-banner").hidden = !yolo;
   el("toggle-yolo").setAttribute("aria-pressed", String(yolo));
   el("yolo-word").textContent = yolo ? "YOLO on" : "YOLO";
   el("toggle-yolo").title = yolo
@@ -2391,48 +2390,58 @@ async function openDoctor() {
 function doctorMarkup(report) {
   const blocks = [];
   if (report.problems.length) {
-    blocks.push(
-      `<div class="panel-block"><h4 class="eyebrow">Problems</h4>${report.problems
-        .map((problem) => `<p class="form-error">${escapeHtml(problem)}</p>`)
-        .join("")}</div>`
-    );
+    blocks.push(report.problems.map((problem) => `<p class="callout bad">${escapeHtml(problem)}</p>`).join(""));
   }
   if (report.advisories.length) {
-    blocks.push(
-      `<div class="panel-block"><h4 class="eyebrow">Worth knowing</h4><ul class="panel-list">${report.advisories
-        .map((note) => `<li class="panel-item">${escapeHtml(note)}</li>`)
-        .join("")}</ul></div>`
-    );
+    blocks.push(report.advisories.map((note) => `<p class="callout warn">${escapeHtml(note)}</p>`).join(""));
   }
+  const same = (a, b) => String(a || "").replace(/\/+$/, "").toLowerCase() === String(b || "").replace(/\/+$/, "").toLowerCase();
+  const live = report.runtimes.filter((runtime) => runtime.reachable || same(runtime.base_url, report.configured_url));
+  const idle = report.runtimes.filter((runtime) => !live.includes(runtime));
+  const modelRows = (runtime) =>
+    runtime.models
+      .map(
+        (model) =>
+          `<div class="doctor-model"><span class="mono">${escapeHtml(model.name)}</span>` +
+          `<span class="doctor-meta">${model.context_length ? `${formatCount(model.context_length)} tokens served` : "window unknown"}${model.is_context_capped ? ` of ${formatCount(model.max_context_length)}` : ""}</span>` +
+          `<span class="doctor-tag ${model.is_tool_capable ? "good" : "idle"}">${model.is_tool_capable ? "tools" : "tools unknown"}</span></div>`
+      )
+      .join("");
+  const cards = live
+    .map((runtime) => {
+      const inUse = same(runtime.base_url, report.configured_url);
+      const state = runtime.usable ? ["good", "serving"] : runtime.reachable ? ["idle", "reachable, no models"] : ["bad", "not reachable"];
+      return (
+        `<div class="provider-card${inUse ? " in-use" : ""}">` +
+        `<div class="provider-head"><span class="provider-name">${escapeHtml(runtime.provider)}</span>` +
+        (inUse ? `<span class="choice-tag now">in use</span>` : "") +
+        `<span class="doctor-tag ${state[0]}">${state[1]}</span></div>` +
+        `<div class="provider-url mono">${escapeHtml(runtime.base_url)}</div>` +
+        (runtime.error && !runtime.usable ? `<p class="doctor-error">${escapeHtml(runtime.error)}</p>` : "") +
+        modelRows(runtime) +
+        `</div>`
+      );
+    })
+    .join("");
+  const idleRows = idle
+    .map(
+      (runtime) =>
+        `<div class="provider-off"><span class="provider-name">${escapeHtml(runtime.provider)}</span>` +
+        `<span class="provider-url mono">${escapeHtml(runtime.base_url)}</span>` +
+        `<span class="provider-state tone-idle">not running</span></div>`
+    )
+    .join("");
   blocks.push(
-    `<div class="panel-block"><h4 class="eyebrow">Runtimes</h4><ul class="panel-list">${report.runtimes.length
-      ? report.runtimes
-        .map(
-          (runtime) => `<li class="panel-item">
-                <div class="row">
-                  <span class="name">${escapeHtml(runtime.provider)}</span>
-                  <span class="meta">${escapeHtml(runtime.base_url)}</span>
-                  <span class="meta ${runtime.usable ? "good" : "warn"}">${runtime.usable ? "serving" : runtime.reachable ? "reachable, no models" : "not reachable"}</span>
-                </div>
-                ${runtime.error ? `<div class="meta warn">${escapeHtml(runtime.error)}</div>` : ""}
-                ${runtime.models
-              .map(
-                (model) =>
-                  `<div class="row"><span class="mono">${escapeHtml(model.name)}</span><span class="meta">${model.context_length ? `${formatCount(model.context_length)} tok served` : "window unknown"}${model.is_context_capped ? ` of ${formatCount(model.max_context_length)}` : ""}</span><span class="meta ${model.is_tool_capable ? "good" : "warn"}">${model.is_tool_capable ? "tools" : "tool support unknown"}</span></div>`
-              )
-              .join("")}
-              </li>`
-        )
-        .join("")
-      : `<li class="panel-item">Nothing answered on this machine.</li>`
-    }</ul></div>`
+    `<div class="doctor-section"><span class="lbl">Model servers</span>` +
+    (cards || `<div class="empty-box"><p>Nothing answered on this machine.</p></div>`) +
+    (idleRows ? `<div class="provider-off-list">${idleRows}</div>` : "") +
+    `</div>`
   );
   blocks.push(
-    `<div class="panel-block"><h4 class="eyebrow">This workspace</h4><ul class="panel-list">
-      <li class="panel-item"><div class="row"><span class="mono">${escapeHtml(report.workspace)}</span></div>
-      <div class="meta">${escapeHtml(report.config_source || "no config file — defaults in use")}</div>
-      <div class="meta">tiers: ${escapeHtml(report.implemented_tiers.join(", "))}</div></li>
-    </ul></div>`
+    `<div class="doctor-section"><span class="lbl">This workspace</span>` +
+    `<div class="provider-card"><div class="mono doctor-path">${escapeHtml(report.workspace)}</div>` +
+    `<div class="doctor-meta">${escapeHtml(report.config_source || "no config file: defaults in use")} · tiers ${escapeHtml(report.implemented_tiers.join(", "))}</div></div>` +
+    `</div>`
   );
   return blocks.join("");
 }
@@ -3183,7 +3192,6 @@ async function setYolo(on) {
 }
 
 el("toggle-yolo").addEventListener("click", () => setYolo(!(state && state.yolo)));
-el("yolo-off").addEventListener("click", () => setYolo(false));
 
 /* ---------- resizable panels ---------- */
 

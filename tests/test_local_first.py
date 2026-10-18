@@ -430,3 +430,31 @@ def test_the_doctor_does_not_advise_restarting_ollama_for_a_window(monkeypatch):
     assert OLLAMA_CONTEXT_ENV not in joined
     assert "4,096" not in joined
     assert diagnosis.healthy
+
+
+def test_the_doctor_probes_the_configured_address_too(monkeypatch):
+    """A model served through an SSH tunnel on :11435 is the one AutoSE uses.
+    The doctor must find it there, not report that nothing is serving because
+    the standard ports are quiet."""
+    from logic.config import InferenceSettings
+    from logic.diagnostics import diagnose
+
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        _serving_routes(
+            {
+                "http://localhost:11435/api/tags": _OLLAMA_TAGS,
+                "http://localhost:11435/api/ps": _OLLAMA_PS,
+            }
+        ),
+    )
+    config = AutoSEConfig(
+        inference=InferenceSettings(
+            provider="ollama", base_url="http://localhost:11435/v1", model="qwen3:8b"
+        )
+    )
+    diagnosis = diagnose(config)
+    assert diagnosis.configured_url == "http://localhost:11435/v1"
+    assert diagnosis.runtimes[0].base_url == "http://localhost:11435/v1"
+    assert diagnosis.runtimes[0].usable
+    assert not diagnosis.problems

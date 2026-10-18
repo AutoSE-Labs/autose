@@ -177,6 +177,7 @@ def diagnosis_payload(diagnosis: Diagnosis) -> dict[str, Any]:
         "implemented_tiers": list(diagnosis.implemented_tiers),
         "total_models": diagnosis.total_models,
         "runtimes": [runtime_payload(runtime) for runtime in diagnosis.runtimes],
+        "configured_url": diagnosis.configured_url,
         "workspace": str(diagnosis.config.resolve_workspace_root()),
         "config_source": str(diagnosis.config.source) if diagnosis.config.source else "",
     }
