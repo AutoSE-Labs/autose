@@ -1507,21 +1507,13 @@ function receiptMarkup(turn) {
             "The run ended without producing an answer."
         )}</p>`;
   const [tone, word] = verdictWord(turn);
-  const checked = checkedBy(turn.requirements);
-  const cells = [
-    ["Run", String(number)],
-    ["Request", turn.prompt.split("\n")[0]],
-    ["Tier", `${turn.tier}${turn.classification ? ` (${turn.classification.source})` : ""}`],
-    ["Checks", checked || (turn.succeeded ? "nothing to check" : "not checked"), checked && turn.succeeded ? "signed" : ""],
-    ["Sent back", sentBackWord(route.loopbacks.length)],
-    ["Tokens", formatCount(usage.total_tokens || 0)],
-  ];
   const files = changes.length + undone.length;
 
   return `${verdictStampMarkup(tone, word)}
     <div class="work-head">
       <span class="lbl sheet-label">Run ${number}</span>
       <span class="work-request" title="${escapeHtml(turn.prompt)}">${escapeHtml(turn.prompt.split("\n")[0])}</span>
+      <span class="work-elapsed" title="Tier, and tokens this run used">${escapeHtml(turn.tier || "")} · ${formatCount(usage.total_tokens || 0)} tok</span>
     </div>
     ${routeMarkup(route)}
     ${stampsMarkup(turn.requirements)}
@@ -1532,8 +1524,7 @@ function receiptMarkup(turn) {
       ${files ? revisionBlockMarkup([...changes, ...undone], turn.index) : ""}
       ${changes.length ? `<div class="receipt-actions"><button class="inline-button" type="button" data-open-diff="1" data-turn="${turn.index}">See the diff</button></div>` : ""}
       ${notes}
-    </div>
-    ${titleBlockMarkup(cells)}`;
+    </div>`;
 }
 
 /* ---------- the live card ---------- */
@@ -1670,7 +1661,7 @@ const CARD_SKELETON = `
     <summary>Its reasoning, as it streams</summary>
     <div class="thinking-body" data-part="reasoning"></div>
   </details>
-  <div data-part="titleblock"></div>`;
+`;
 
 function ensureCard(run) {
   if (run.dom) return;
@@ -1682,7 +1673,6 @@ function ensureCard(run) {
     elapsed: part("elapsed"),
     stop: run.node.querySelector("[data-stop]"),
     details: part("details"),
-    titleblock: part("titleblock"),
     now: part("now"),
     stages: part("stages"),
     stamps: part("stamps"),
@@ -1761,27 +1751,6 @@ function runNumber() {
   return ((state && state.history) || []).length + 1;
 }
 
-function sentBackWord(count) {
-  return count === 0 ? "never" : count === 1 ? "once" : count === 2 ? "twice" : `${count}×`;
-}
-
-function checkedBy(requirements) {
-  if (!requirements || !requirements.length) return "";
-  const held = requirements.filter((item) => item.status === "Verified").length;
-  return `${held} of ${requirements.length} hold`;
-}
-
-function liveTitleCells(run) {
-  return [
-    ["Run", String(runNumber())],
-    ["Request", run.prompt.split("\n")[0]],
-    ["Model", (state && state.model) || "model"],
-    ["Checks", checkedBy(run.requirements) || "after it is built", checkedBy(run.requirements) ? "" : "pending"],
-    ["Sent back", sentBackWord(run.loopbacks.length)],
-    ["Stop", run.running ? "Esc" : "—"],
-  ];
-}
-
 function liveStamps(run) {
   return stampsMarkup(run.requirements);
 }
@@ -1851,7 +1820,6 @@ function renderRun() {
   setHtml(d.now, nowMarkup(run));
   renderCardStop();
 
-  setHtml(d.titleblock, titleBlockMarkup(liveTitleCells(run)));
   const redrawn = setHtml(d.stages, routeMarkup(liveRoute(run)));
   const restamped = setHtml(d.stamps, liveStamps(run));
   if (redrawn || restamped) animateLiveSheet(run);

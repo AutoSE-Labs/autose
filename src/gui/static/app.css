@@ -1433,55 +1433,6 @@ select {
 }
 
 /* The title block, at the foot of every sheet. */
-.title-block {
-  display: grid;
-  grid-template-columns: 0.6fr 2.4fr 1.7fr 1.3fr 1fr 0.9fr;
-  margin: 2px 18px 16px;
-  border: 1.5px solid var(--pen);
-  border-radius: 6px;
-}
-
-.tb-cell {
-  min-width: 0;
-  padding: 4px 10px 5px;
-  border-left: 1px solid var(--pen-soft);
-}
-
-.tb-cell:first-child {
-  border-left: 0;
-}
-
-.tb-cell dt {
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-2);
-}
-
-.tb-cell dd {
-  margin: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.tb-cell dd.signed {
-  font-family: var(--font-hand);
-  font-weight: 400;
-  font-size: 15px;
-  color: var(--pen-deep);
-}
-
-.tb-cell dd.pending {
-  font-family: var(--font-hand);
-  font-weight: 400;
-  font-size: 15px;
-  color: var(--text-2);
-}
 
 /* Finished: the verdict and the answer. */
 .receipt {
@@ -2168,7 +2119,6 @@ select {
   animation: none;
 }
 
-
 /* ============ carried over: panels and overlays ============ */
 
 /* ---------- context window picker ---------- */
@@ -2358,7 +2308,6 @@ select {
 }
 
 /* ---------- inspector (DR-037) ---------- */
-
 
 .app-shell:not(.inspector-open) .inspector {
   visibility: hidden;
@@ -3919,7 +3868,6 @@ select {
   color: var(--ink-soft);
 }
 
-
 /* ---------- the board's shape, applied to the carried-over panels ---------- */
 
 .step,
@@ -4766,7 +4714,6 @@ select {
 :root[data-theme="dark"] .plan-card,
 :root[data-theme="dark"] .composer,
 :root[data-theme="dark"] .composer:has(textarea:focus-visible),
-:root[data-theme="dark"] .title-block,
 :root[data-theme="dark"] .needs-you,
 :root[data-theme="dark"] .greeting,
 :root[data-theme="dark"] .tier-badge,
@@ -4798,7 +4745,6 @@ select {
   box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.8);
 }
 
-:root[data-theme="dark"] .title-block,
 :root[data-theme="dark"] .needs-you,
 :root[data-theme="dark"] .greeting,
 :root[data-theme="dark"] .allowed-add {
@@ -4869,7 +4815,6 @@ select {
   background: #4a2a3b;
 }
 
-:root[data-theme="dark"] .tb-cell,
 :root[data-theme="dark"] .revision-block th,
 :root[data-theme="dark"] .revision-block td {
   border-color: transparent;
@@ -5380,19 +5325,6 @@ body.night::after {
   .thinking {
     margin-left: 14px;
     margin-right: 14px;
-  }
-
-  .title-block {
-    grid-template-columns: 1fr 1fr;
-    margin: 2px 14px 14px;
-  }
-
-  .title-block .tb-cell {
-    border-top: 1px solid var(--pen-soft);
-  }
-
-  .tb-cell:nth-child(odd) {
-    border-left: 0;
   }
 
   .rev-kind,

@@ -9,7 +9,7 @@
  *   returned to, with a revision letter on the curve and a margin note.
  * - Every position is computed from the station layout, so the arrow starts
  *   and ends on its stations and the letter sits on the curve.
- * - Checks are numbered balloons; a title block closes every sheet.
+ * - Checks are numbered balloons.
  */
 
 const ROUTE = { width: 760, left: 34, right: 726, lineY: 54 };
@@ -212,19 +212,6 @@ function stampsMarkup(requirements) {
 }
 
 /* The title block: Sheet, Title, Drawn by, Checked by, Rev, Scale. */
-function titleBlockMarkup(cells) {
-  return (
-    `<dl class="title-block">` +
-    cells
-      .map(
-        ([label, value, kind]) =>
-          `<div class="tb-cell"><dt>${escapeHtml(label)}</dt><dd${kind ? ` class="${kind}"` : ""} title="${escapeHtml(String(value))}">${escapeHtml(String(value))}</dd></div>`
-      )
-      .join("") +
-    `</dl>`
-  );
-}
-
 /* The verdict, stamped on a finished sheet. */
 function verdictStampMarkup(tone, word) {
   return `<span class="verdict-stamp verdict-${tone}" aria-hidden="true">${escapeHtml(word)}</span>`;
