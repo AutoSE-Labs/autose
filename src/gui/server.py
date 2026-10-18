@@ -273,12 +273,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
 
     def _allowances(self, body: dict[str, Any]) -> dict[str, Any]:
-        tool = str(body.get("tool") or "").strip()
-        if not tool:
-            raise BridgeError("which tool? a name is required")
+        allowance = str(body.get("id") or "").strip()
+        if not allowance:
+            raise BridgeError("which allowance? an id is required")
         if body.get("action") != "revoke":
             raise BridgeError("the only allowance action is revoke")
-        return self._bridge.revoke_allowance(tool, session_id=_session_of(body))
+        return self._bridge.revoke_allowance(allowance, session_id=_session_of(body))
 
     def _model(self, body: dict[str, Any]) -> dict[str, Any]:
         name = str(body.get("model") or "").strip()

@@ -52,6 +52,7 @@ from logic.automation import (
     UnknownAutomationError,
     run_watch_command,
 )
+from logic.common.allowances import Allowance, offer_for
 from logic.common.approval import (
     APPROVAL_REQUIRED_TOOLS,
     EDIT_APPROVAL_TOOLS,
@@ -235,10 +236,15 @@ class _Pending:
         self.decision: ApprovalDecision | None = None
 
     def payload(self) -> dict[str, Any]:
+        offer = offer_for(self.request)
         return {
             "id": self.id,
             "created_at": self.created_at,
             **self.request.to_dict(),
+            # DR-048: what "allow for this session" would cover, or why this
+            # call can only be answered once.
+            "allow": offer.allowance.to_dict() if offer.allowance else None,
+            "allow_note": offer.reason,
         }
 
 
@@ -298,9 +304,10 @@ class _Live:
         # failed, so a stop means "wait", not "skip to the next one".
         self.queue: list[dict[str, Any]] = []
         self.queue_held = False
-        # DR-044: tools the person said may run unasked for the rest of this
-        # session. Per session, never global, and gone when the session closes.
-        self.allowed_tools: set[str] = set()
+        # DR-044, DR-048: what the person said may run unasked for the rest of
+        # this session, by key: a command's leading words, a host, or a tool.
+        # Per session, never global, and gone when the session closes.
+        self.allowances: dict[str, Allowance] = {}
         # DR-045: whether staged turns stop for a plan review, and the plan
         # waiting for one.
         self.review_plans = False
@@ -692,7 +699,7 @@ class SessionBridge:
                     "pending_approvals": [],
                     "queue": [],
                     "queue_held": False,
-                    "allowed_tools": [],
+                    "allowances": [],
                     "review_plans": False,
                     "pending_plan": None,
                     "context_limit": None,
@@ -715,7 +722,7 @@ class SessionBridge:
             answer = turn_view[3] if running else ""
             pending = [item.payload() for item in live.pending.values()]
             queued = live.queue_payload()
-            allowed = sorted(live.allowed_tools)
+            allowed = _allowances_payload(live)
             plan_waiting = live.plan_pending.payload() if live.plan_pending else None
             review_plans = live.review_plans
         history = session.history
@@ -734,7 +741,7 @@ class SessionBridge:
                 # DR-042: what waits for this session's running turn.
                 "queue": queued["queue"],
                 "queue_held": queued["held"],
-                "allowed_tools": allowed,
+                "allowances": allowed,
                 "review_plans": review_plans,
                 "pending_plan": plan_waiting,
                 "context_limit": session.context_limit(),
@@ -962,10 +969,15 @@ class SessionBridge:
                 if pending is not None:
                     holder = live
                     break
+            standing: Allowance | None = None
             if pending is not None and holder is not None and approved and scope == "session":
-                # DR-044: the answer covers this call and every later one of
-                # the same tool in this session.
-                holder.allowed_tools.add(pending.request.tool_name)
+                # DR-048: the answer covers this call and every later one like
+                # it: the same command words, the same host, or the same tool.
+                offer = offer_for(pending.request)
+                if offer.allowance is None:
+                    raise BridgeError(f"this call can only be allowed once: {offer.reason}")
+                standing = offer.allowance
+                holder.allowances[standing.key] = standing
         if pending is None:
             # Already resolved, or timed out while the browser was deciding.
             raise BridgeError(
@@ -975,9 +987,8 @@ class SessionBridge:
             ApprovalDecision.allow(
                 reason.strip()
                 or (
-                    f"the user allowed '{pending.request.tool_name}' for the rest "
-                    "of this session"
-                    if scope == "session"
+                    f"the user allowed {standing.label} for the rest of this session"
+                    if standing is not None
                     else "the user approved this call"
                 )
             )
@@ -987,8 +998,25 @@ class SessionBridge:
             )
         )
         pending.answered.set()
-        if holder is not None and scope == "session" and approved:
-            self._publish_for(holder, {"kind": "allowances", "tools": sorted(holder.allowed_tools)})
+        if holder is not None and standing is not None:
+            # Calls already waiting that the new allowance covers are answered
+            # by it too, as they would have been had they arrived a moment later.
+            with self._lock:
+                covered = [
+                    other
+                    for other in holder.pending.values()
+                    if other is not pending
+                    and other.decision is None
+                    and standing.covers(other.request)
+                ]
+            for other in covered:
+                other.decision = ApprovalDecision.allow(
+                    f"{standing.label} were allowed for the rest of this session"
+                )
+                other.answered.set()
+            self._publish_for(
+                holder, {"kind": "allowances", "allowances": _allowances_payload(holder)}
+            )
         return {"resolved": approval_id, "approved": approved, "scope": scope}
 
     def set_plan_review(
@@ -1061,17 +1089,18 @@ class SessionBridge:
         return decision
 
     def revoke_allowance(
-        self, tool: str, *, session_id: str | None = None
+        self, allowance_id: str, *, session_id: str | None = None
     ) -> dict[str, Any]:
-        """Take back an "allow for this session" (DR-044)."""
+        """Take back an "allow for this session" (DR-044, DR-048)."""
         with self._lock:
             live = self._target(session_id)
-            if tool not in live.allowed_tools:
-                raise BridgeError(f"'{tool}' is not allowed in this session", status=404)
-            live.allowed_tools.discard(tool)
-            tools = sorted(live.allowed_tools)
-        self._publish_for(live, {"kind": "allowances", "tools": tools})
-        return {"session": live.id, "tools": tools}
+            if live.allowances.pop(allowance_id, None) is None:
+                raise BridgeError(
+                    f"'{allowance_id}' is not allowed in this session", status=404
+                )
+            allowances = _allowances_payload(live)
+        self._publish_for(live, {"kind": "allowances", "allowances": allowances})
+        return {"session": live.id, "allowances": allowances}
 
     def select_model(
         self,
@@ -1601,13 +1630,15 @@ class SessionBridge:
                 "the user stopped this run before the call was made"
             )
         with self._lock:
-            standing = request.tool_name in live.allowed_tools
-        if standing:
-            # DR-044: the person already said yes to this tool for the rest of
-            # the session. The executor still records the request and the
-            # answer as events, so the call is never invisible.
+            standing = next(
+                (item for item in live.allowances.values() if item.covers(request)), None
+            )
+        if standing is not None:
+            # DR-044, DR-048: the person already said yes to calls like this
+            # for the rest of the session. The executor still records the
+            # request and the answer as events, so the call is never invisible.
             return ApprovalDecision.allow(
-                f"'{request.tool_name}' was allowed for the rest of this session"
+                f"{standing.label} were allowed for the rest of this session"
             )
         if live.unattended:
             # DR-047: a scheduled run is unattended by definition. Parking the
@@ -1769,6 +1800,10 @@ def _context_payload(session: Session) -> dict[str, Any] | None:
     )
     payload["gpu_fraction"] = info.gpu_fraction
     return payload
+
+
+def _allowances_payload(live: _Live) -> list[dict[str, str]]:
+    return [item.to_dict() for item in sorted(live.allowances.values(), key=lambda a: a.key)]
 
 
 def _id_of(fields: dict[str, Any]) -> str:

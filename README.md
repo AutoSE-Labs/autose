@@ -115,6 +115,7 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-044](docs/DecisionRecords/DR-044-approvals-inline-with-a-needs-you-inbox.md) | Approvals are answered inline, listed under "Needs you", and can be granted for the session |
 | [DR-045](docs/DecisionRecords/DR-045-a-person-can-review-the-plan-before-execute.md) | A person can review the plan before anything is changed |
 | [DR-047](docs/DecisionRecords/DR-047-schedules-watchers-and-the-dashboard-as-a-local-service.md) | Schedules and watchers start unattended runs, whose approvals are refused at once; the dashboard can run as a local service |
+| [DR-048](docs/DecisionRecords/DR-048-session-allowances-cover-calls-like-this-one.md) | "Allow for this session" covers calls like this one, not the whole tool |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
 

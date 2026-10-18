@@ -181,7 +181,7 @@ def status_line(session: Session) -> RenderableType:
 APPROVAL_CHOICES: tuple[tuple[str, str], ...] = (
     ("y", "run it, once"),
     ("n", "skip it"),
-    ("a", "always allow this tool"),
+    ("a", "allow calls like this for the session"),
 )
 
 #: Argument names already carried by ``ApprovalRequest.summary``; showing them

@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pytest
 
+from logic.common.approval import ApprovalRequest
+
 gui = pytest.importorskip("gui", reason="the GUI adapter is a Pro-edition build")
 
 from gui.bridge import MAX_OPEN_SESSIONS, BridgeError, SessionBridge  # noqa: E402
@@ -1242,7 +1244,8 @@ def test_allowing_a_tool_for_the_session_stops_asking_about_it(scripted, tmp_pat
         if frame.get("kind") == "approval"
     ]
     assert len(asked) == 1
-    assert bridge.snapshot()["allowed_tools"] == ["run_command"]
+    assert [item["label"] for item in bridge.snapshot()["allowances"]] == ["echo … commands"]
+    assert first["allow"]["label"] == "echo … commands"
 
 
 def test_an_allowance_can_be_taken_back(scripted, tmp_path):
@@ -1256,10 +1259,65 @@ def test_an_allowance_can_be_taken_back(scripted, tmp_path):
     request = _drain(subscriber, "approval")["request"]
     bridge.resolve_approval(request["id"], approved=True, scope="session")
     _drain(subscriber, "turn")
-    assert bridge.revoke_allowance("run_command")["tools"] == []
+    assert bridge.revoke_allowance("run_command:echo")["allowances"] == []
     with pytest.raises(BridgeError) as caught:
-        bridge.revoke_allowance("run_command")
+        bridge.revoke_allowance("run_command:echo")
     assert caught.value.status == 404
+
+
+def test_an_allowance_for_one_command_still_asks_about_another(scripted, tmp_path):
+    """DR-048: allowing `echo` is not allowing every shell command."""
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(tool_call("run_command", command="echo one")),
+            calls(tool_call("run_command", command="ls")),
+            answer("done"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run two different commands")
+    first = _drain(subscriber, "approval")["request"]
+    bridge.resolve_approval(first["id"], approved=True, scope="session")
+    second = _drain(subscriber, "approval")["request"]
+    assert second["arguments"]["command"] == "ls"
+    bridge.resolve_approval(second["id"], approved=False)
+    _drain(subscriber, "turn")
+
+
+def test_a_chained_command_cannot_be_allowed_for_the_session(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command="echo hi && echo there")), answer("done")],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run it")
+    request = _drain(subscriber, "approval")["request"]
+    assert request["allow"] is None
+    assert "chains" in request["allow_note"]
+    with pytest.raises(BridgeError) as caught:
+        bridge.resolve_approval(request["id"], approved=True, scope="session")
+    assert "only be allowed once" in str(caught.value)
+    # Still waiting: refusing the wider yes did not answer the call.
+    bridge.resolve_approval(request["id"], approved=True)
+    assert _drain(subscriber, "turn")["turn"]["answer"] == "done"
+
+
+def test_allowing_for_the_session_answers_matching_calls_already_waiting(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    live = bridge._target(None)
+    from gui.bridge import _Pending
+
+    first = _Pending(ApprovalRequest("run_command", {"command": "pytest -q"}))
+    second = _Pending(ApprovalRequest("run_command", {"command": "pytest tests/x.py"}))
+    other = _Pending(ApprovalRequest("run_command", {"command": "ls"}))
+    for item in (first, second, other):
+        live.pending[item.id] = item
+    bridge.resolve_approval(first.id, approved=True, scope="session")
+    assert second.answered.is_set() and second.decision.approved
+    assert not other.answered.is_set()
 
 
 def test_an_unknown_approval_scope_is_refused(scripted, tmp_path):

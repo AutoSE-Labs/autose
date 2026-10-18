@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 from rich.console import Console
 
+from logic.common.allowances import Allowance
 from logic.common.approval import ApprovalRequest
 from logic.common.events import Event
 from logic.common.workspace import Workspace
@@ -189,7 +190,7 @@ def test_approving_once_does_not_grant_a_standing_allowance(monkeypatch):
     gate = TerminalApprovalGate(console)
     monkeypatch.setattr("tui.approval.Prompt.ask", lambda *a, **k: "y")
     assert gate.request(ApprovalRequest("run_command", {"command": "ls"})).approved
-    assert gate.always_allowed == frozenset()
+    assert gate.always_allowed == ()
 
 
 def test_a_stopping_run_denies_without_prompting(monkeypatch):
@@ -206,7 +207,7 @@ def test_a_stopping_run_denies_without_prompting(monkeypatch):
     )
     # Even a standing allowance does not run the call.
     # Reaches into the standing-allow set directly: that is the state under test.
-    gate._always_allow.add("run_command")
+    gate._always_allow["run_command:ls"] = Allowance("run_command", "ls")
     stopping = True
 
     decision = gate.request(ApprovalRequest("run_command", {"command": "ls"}))
@@ -226,7 +227,7 @@ def test_the_default_answer_approves_once(monkeypatch):
     gate = TerminalApprovalGate(_console())
     monkeypatch.setattr("tui.approval.Prompt.ask", lambda *a, **k: "")
     decision = gate.request(ApprovalRequest("run_command", {"command": "ls"}))
-    assert decision.approved and gate.always_allowed == frozenset()
+    assert decision.approved and gate.always_allowed == ()
 
 
 @pytest.mark.parametrize(
@@ -258,24 +259,34 @@ def test_free_text_never_grants_a_standing_allowance(monkeypatch):
     gate = TerminalApprovalGate(_console())
     monkeypatch.setattr("tui.approval.Prompt.ask", lambda *a, **k: "always be careful")
     assert not gate.request(ApprovalRequest("run_command", {"command": "ls"})).approved
-    assert gate.always_allowed == frozenset()
+    assert gate.always_allowed == ()
 
 
-def test_always_allow_persists_for_that_tool_only(monkeypatch):
+def test_always_allow_covers_calls_like_this_one_only(monkeypatch):
+    """DR-048: "a" on `pytest` allows pytest, not every shell command."""
     gate = TerminalApprovalGate(_console())
     monkeypatch.setattr("tui.approval.Prompt.ask", lambda *a, **k: "a")
-    gate.request(ApprovalRequest("run_command", {"command": "ls"}))
-    assert gate.always_allowed == frozenset({"run_command"})
+    gate.request(ApprovalRequest("run_command", {"command": "pytest -q"}))
+    assert gate.always_allowed == ("pytest … commands",)
 
-    # A second call to the same tool is not prompted for again.
+    # Another pytest call is not prompted for again.
     monkeypatch.setattr(
         "tui.approval.Prompt.ask", lambda *a, **k: pytest.fail("should not prompt")
     )
-    assert gate.request(ApprovalRequest("run_command", {"command": "pwd"})).approved
+    assert gate.request(ApprovalRequest("run_command", {"command": "pytest tests/x.py"})).approved
 
-    # A different approval-required tool still asks.
+    # A different command, and a different approval-required tool, still ask.
     monkeypatch.setattr("tui.approval.Prompt.ask", lambda *a, **k: "n")
+    assert not gate.request(ApprovalRequest("run_command", {"command": "ls"})).approved
+    assert not gate.request(ApprovalRequest("run_command", {"command": "pytest; ls"})).approved
     assert not gate.request(ApprovalRequest("fetch_url", {"url": "http://x"})).approved
+
+
+def test_always_allow_on_a_command_that_cannot_stand_runs_it_once(monkeypatch):
+    gate = TerminalApprovalGate(_console())
+    monkeypatch.setattr("tui.approval.Prompt.ask", lambda *a, **k: "a")
+    assert gate.request(ApprovalRequest("run_command", {"command": "rm -rf build"})).approved
+    assert gate.always_allowed == ()
 
 
 def test_an_interrupted_prompt_denies(monkeypatch):
@@ -295,7 +306,7 @@ def test_resetting_clears_standing_allowances(monkeypatch):
     monkeypatch.setattr("tui.approval.Prompt.ask", lambda *a, **k: "a")
     gate.request(ApprovalRequest("run_command", {"command": "ls"}))
     gate.reset()
-    assert gate.always_allowed == frozenset()
+    assert gate.always_allowed == ()
 
 
 # -- commands ------------------------------------------------------------------
@@ -344,7 +355,7 @@ def test_switching_models_clears_standing_approvals(app, monkeypatch):
     monkeypatch.setattr("tui.approval.Prompt.ask", lambda *a, **k: "a")
     app.approval_gate.request(ApprovalRequest("run_command", {"command": "ls"}))
     dispatch(app, "/model 2")
-    assert app.approval_gate.always_allowed == frozenset()
+    assert app.approval_gate.always_allowed == ()
 
 
 def test_tier_raises_and_refuses_to_lower(app):
