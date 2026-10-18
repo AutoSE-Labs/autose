@@ -666,6 +666,21 @@ class SessionBridge:
                 self._open_session(None)
         return self._broadcast_state()
 
+    def rename_session(self, session_id: str, name: str) -> dict[str, Any]:
+        """Give a session a name, open or stored; an empty name clears it."""
+        name = " ".join(str(name).split())[:80]
+        with self._lock:
+            live = self._open.get(session_id)
+            if live is None:
+                record = self._store.load(session_id)
+                if record is None:
+                    raise BridgeError(f"no session '{session_id}'", status=404)
+                self._store.save(replace(record, name=name))
+        if live is not None:
+            live.session.rename(name)
+            self._broadcast_state()
+        return {"renamed": session_id, "name": name, "sessions": self.sessions()}
+
     def delete_session(self, session_id: str) -> dict[str, Any]:
         with self._lock:
             if session_id in self._open:
@@ -852,7 +867,8 @@ class SessionBridge:
         session = live.session
         return {
             "session_id": live.id,
-            "title": live.title or session_title(session.history, live.current),
+            "title": session.name or live.title or session_title(session.history, live.current),
+            "named": bool(session.name),
             "automation": dict(live.origin) if live.origin else None,
             "unattended": live.unattended,
             "tier": session.tier,

@@ -431,6 +431,8 @@ class Session:
             prompt_overrides=self._prompt_overrides,
         )
         self._created_at = time.time()
+        #: A name the person gave this session, if any.
+        self._name = ""
         # DR-030: one token for the session's lifetime, cleared at the start of
         # every turn. One rather than one-per-turn because an Adapter wires it
         # up once — the dashboard's Stop button holds a reference, the TUI's
@@ -572,6 +574,7 @@ class Session:
             base_url=self._inference.base_url,
             model=self._inference.model,
             tier=self._tier,
+            name=self._name,
             summary=self._memory.summary,
             verbatim=tuple(
                 (exchange.prompt, exchange.answer)
@@ -606,6 +609,7 @@ class Session:
         """
         self._id = record.id
         self._created_at = record.created_at or self._created_at
+        self._name = record.name
         self._turns = [
             Turn(
                 prompt=item.prompt,
@@ -638,6 +642,16 @@ class Session:
             turns=len(self._turns),
             tier=self._tier,
         )
+
+    @property
+    def name(self) -> str:
+        """The name the person gave this session; empty when none."""
+        return self._name
+
+    def rename(self, name: str) -> None:
+        """Name the session (empty clears it) and save the name with it."""
+        self._name = " ".join(name.split())[:80]
+        self.persist()
 
     def persist(self) -> None:
         """Write the session out. Never raises — a failed save is not a failed run."""

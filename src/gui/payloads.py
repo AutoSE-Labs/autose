@@ -188,6 +188,7 @@ def record_payload(record: SessionRecord) -> dict[str, Any]:
     return {
         "id": record.id,
         "title": record.title,
+        "name": record.name,
         "created_at": record.created_at,
         "updated_at": record.updated_at,
         "provider": record.provider,

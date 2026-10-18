@@ -188,6 +188,8 @@ class SessionRecord:
     model: str = ""
     #: The tier the session had ratcheted to (DR-003).
     tier: str = ""
+    #: A name the person gave it; the title falls back to the first request.
+    name: str = ""
     turns: tuple[TurnRecord, ...] = ()
     #: `SessionMemory`'s rolling compressed summary, and the exchanges it was
     #: still holding verbatim (DR-004).
@@ -198,7 +200,9 @@ class SessionRecord:
 
     @property
     def title(self) -> str:
-        """A one-line label: the first thing the user asked for."""
+        """A one-line label: its name, else the first thing the user asked for."""
+        if self.name.strip():
+            return self.name.strip()
         for turn in self.turns:
             first = " ".join(turn.prompt.split())
             if first:
@@ -228,6 +232,7 @@ class SessionRecord:
             "base_url": self.base_url,
             "model": self.model,
             "tier": self.tier,
+            "name": self.name,
             "summary": self.summary,
             "verbatim": [list(pair) for pair in self.verbatim],
             "prompt_tokens": self.prompt_tokens,
@@ -256,6 +261,7 @@ class SessionRecord:
             base_url=str(document.get("base_url", "")),
             model=str(document.get("model", "")),
             tier=str(document.get("tier", "")),
+            name=str(document.get("name", "")),
             summary=str(document.get("summary", "")),
             verbatim=tuple(
                 (str(pair[0]), str(pair[1]))

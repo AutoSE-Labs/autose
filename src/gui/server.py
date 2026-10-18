@@ -386,6 +386,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         identifier = str(body.get("id") or "").strip()
         if action == "new":
             return self._bridge.new_session()
+        if action == "rename":
+            if not identifier:
+                raise BridgeError("which session? an id is required")
+            return self._bridge.rename_session(identifier, str(body.get("name") or ""))
         needs_id = {
             "resume": self._bridge.resume,
             "focus": self._bridge.focus,
@@ -395,7 +399,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         handler = needs_id.get(action)
         if handler is None:
             raise BridgeError(
-                f"'{action}' is not new, resume, focus, close, or delete"
+                f"'{action}' is not new, resume, focus, rename, close, or delete"
             )
         if not identifier:
             raise BridgeError("which session? an id is required")
