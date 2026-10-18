@@ -317,6 +317,108 @@ def test_nothing_to_undo_is_a_conflict_not_a_crash(scripted, tmp_path):
     assert raised.value.status == 409
 
 
+# -- DR-061: one file of one run -------------------------------------------------
+
+
+def _two_file_bridge(scripted, tmp_path) -> SessionBridge:
+    """A bridge whose first run edited a.py and b.py, already finished."""
+    (tmp_path / "a.py").write_text("A = 1\n")
+    (tmp_path / "b.py").write_text("B = 1\n")
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(
+                tool_call(
+                    "edit_file",
+                    call_id="call_a",
+                    path="a.py",
+                    edits=[{"old_str": "A = 1", "new_str": "A = 2"}],
+                ),
+                tool_call(
+                    "edit_file",
+                    call_id="call_b",
+                    path="b.py",
+                    edits=[{"old_str": "B = 1", "new_str": "B = 2"}],
+                ),
+            ),
+            answer("changed both"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("set both to 2")
+    _drain(subscriber, "turn")
+    return bridge
+
+
+def test_one_file_of_a_run_can_be_undone(scripted, tmp_path):
+    bridge = _two_file_bridge(scripted, tmp_path)
+
+    report = bridge.undo_file(0, "a.py")
+
+    assert report["restored"] == ["a.py"] and report["turn"] == 0
+    assert (tmp_path / "a.py").read_text() == "A = 1\n"
+    assert (tmp_path / "b.py").read_text() == "B = 2\n"
+    (turn,) = report["state"]["history"]
+    assert [change["path"] for change in turn["changes"]] == ["b.py"]
+    assert [change["path"] for change in turn["undone"]] == ["a.py"]
+    # The diff viewer still lists it, as undone and without a diff.
+    changes = bridge.changes(turn=0)
+    assert [change["path"] for change in changes["changes"]] == ["b.py"]
+    assert [change["path"] for change in changes["undone"]] == ["a.py"]
+
+
+def test_a_file_changed_since_is_a_conflict_that_says_why(scripted, tmp_path):
+    bridge = _two_file_bridge(scripted, tmp_path)
+    (tmp_path / "a.py").write_text("A = 9  # mine\n")
+
+    with pytest.raises(BridgeError) as raised:
+        bridge.undo_file(0, "a.py")
+
+    assert raised.value.status == 409
+    assert "a.py was not undone" in str(raised.value)
+    assert "changed since" in str(raised.value)
+    assert (tmp_path / "a.py").read_text() == "A = 9  # mine\n"
+
+
+def test_a_file_the_run_did_not_write_is_a_404(scripted, tmp_path):
+    bridge = _two_file_bridge(scripted, tmp_path)
+
+    for turn, path in ((0, "c.py"), (3, "a.py")):
+        with pytest.raises(BridgeError) as raised:
+            bridge.undo_file(turn, path)
+        assert raised.value.status == 404
+
+
+def test_undo_over_http_takes_a_run_and_a_path(scripted, tmp_path):
+    bridge = _two_file_bridge(scripted, tmp_path)
+    dashboard = create_dashboard(
+        bridge, host="127.0.0.1", port=0, token="test-token-1234"
+    )
+    thread = threading.Thread(target=dashboard.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, payload = _request(dashboard, "/api/undo", body={"path": "a.py"})
+        assert status == 400 and "turn" in payload["error"]
+        status, payload = _request(dashboard, "/api/undo", body={"turn": 0})
+        assert status == 400 and "path" in payload["error"]
+
+        status, payload = _request(
+            dashboard, "/api/undo", body={"turn": 0, "path": "a.py"}
+        )
+        assert status == 200 and payload["restored"] == ["a.py"]
+        assert (tmp_path / "b.py").read_text() == "B = 2\n"
+
+        # Without them, the last run that wrote, as before: only b.py is left.
+        status, payload = _request(dashboard, "/api/undo", body={})
+        assert status == 200 and payload["restored"] == ["b.py"]
+        assert (tmp_path / "a.py").read_text() == "A = 1\n"
+        assert (tmp_path / "b.py").read_text() == "B = 1\n"
+    finally:
+        dashboard.stop()
+        dashboard.server_close()
+
+
 
 # -- many sessions at once (DR-031) --------------------------------------------
 

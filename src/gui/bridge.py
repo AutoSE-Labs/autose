@@ -1071,6 +1071,7 @@ class SessionBridge:
             if not 0 <= turn < len(history):
                 raise BridgeError(f"there is no run {turn} in this session", status=404)
             changes = history[turn].changes
+        undone = () if turn is None else session.history[turn].undone
         added = sum(change.stats[0] for change in changes)
         removed = sum(change.stats[1] for change in changes)
         return {
@@ -1081,6 +1082,9 @@ class SessionBridge:
             ],
             "added": added,
             "removed": removed,
+            # DR-061: files put back one by one stay listed, without a diff,
+            # so the viewer shows them as undone rather than as never written.
+            "undone": [change_payload(change) for change in undone],
         }
 
     def steps(
@@ -1911,6 +1915,32 @@ class SessionBridge:
         if report is None:
             raise BridgeError("there is nothing to undo", status=409)
         payload = revert_payload(report)
+        payload["state"] = self._broadcast_state()
+        return payload
+
+    def undo_file(
+        self, turn: int, path: str, *, session_id: str | None = None
+    ) -> dict[str, Any]:
+        """Put one file of run *turn* back, keeping the run's others (DR-061).
+
+        Guarded like :meth:`undo`, since it rewrites a file in the shared
+        workspace. A file that cannot be put back is a 409 carrying the
+        reason — one file asked for and not done is a refusal, not a partial
+        success — and a run or path that is not there is a 404.
+        """
+        with self._lock:
+            live = self._target(session_id)
+            self._require_idle(live)
+            self._require_nothing_running("undo a file", ignoring=live)
+            try:
+                report = live.session.undo_file(turn, path)
+            except LookupError as exc:
+                raise BridgeError(str(exc), status=404) from exc
+        if report.skipped:
+            reason = report.skipped[0][1]
+            raise BridgeError(f"{path} was not undone: {reason}", status=409)
+        payload = revert_payload(report)
+        payload["turn"] = turn
         payload["state"] = self._broadcast_state()
         return payload
 
