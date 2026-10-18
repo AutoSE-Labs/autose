@@ -71,6 +71,7 @@ from .workflows import (
     create_workflow,
     supports_tier,
 )
+from .workflows.review import PlanReviewGate
 
 __all__ = [
     "Session",
@@ -392,6 +393,8 @@ class Session:
             require_edit_approval=require_edit_approval
         )
         self._model_info = model_info
+        #: Asked to approve the plan before Execute (DR-045); ``None`` skips it.
+        self._plan_review: PlanReviewGate | None = None
         #: A window the user picked this session (DR-035), kept across a
         #: model switch; ``None`` lets each model get the chosen default.
         self._chosen_window: int | None = None
@@ -792,6 +795,18 @@ class Session:
             tokens=tokens,
         )
 
+    def review_plans_with(self, gate: PlanReviewGate | None) -> None:
+        """Have every later staged turn put its plan to *gate* (DR-045).
+
+        ``None`` turns review off. Takes effect from the next turn; a turn in
+        progress keeps the gate it started with.
+        """
+        self._plan_review = gate
+
+    @property
+    def reviews_plans(self) -> bool:
+        return self._plan_review is not None
+
     def refresh_model_info(self) -> None:
         """Re-read what the runtime reports about the current model.
 
@@ -943,6 +958,7 @@ class Session:
             context_limit=self.context_limit(),
             tuning=self._tuning,
             prompt_overrides=self._prompt_overrides or {},
+            plan_review=self._plan_review,
         )
         self._emit("turn_started", prompt, tier=tier, prompt_text=prompt)
         outcome: WorkflowOutcome = yield from workflow.stream(request)

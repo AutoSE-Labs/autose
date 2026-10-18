@@ -1266,3 +1266,40 @@ def test_an_unknown_approval_scope_is_refused(scripted, tmp_path):
     bridge = _bridge(scripted, tmp_path, [answer("x")])
     with pytest.raises(BridgeError):
         bridge.resolve_approval("nope", approved=True, scope="forever")
+
+
+# -- DR-045: plan review in the dashboard ----------------------------------------
+
+
+def _ledger(kind: str, *ids: str) -> str:
+    status = {"plan": "Not Started", "execute": "Implemented", "validate": "Verified"}[kind]
+    lines = "\n".join(f"- {rid} [{status}] — Requirement {rid} — Evidence: x" for rid in ids)
+    tail = "\n\nVERDICT: PASS" if kind == "validate" else ""
+    return f"Text.\n\n## REQUIREMENTS STATUS\n{lines}{tail}"
+
+
+def test_a_plan_waits_for_the_person_when_review_is_on(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [answer(_ledger("plan", "R1")), answer(_ledger("execute", "R1")), answer(_ledger("validate", "R1"))],
+    )
+    bridge.set_plan_review(True)
+    subscriber = bridge.subscribe()
+    bridge.submit("add a helper", tier="craft")
+
+    review = _drain(subscriber, "plan_review")["review"]
+    assert "REQUIREMENTS STATUS" in review["plan"]
+    assert bridge.snapshot()["pending_plan"]["id"] == review["id"]
+
+    bridge.resolve_plan(review["id"], action="approve")
+    assert _drain(subscriber, "turn")["turn"]["succeeded"] is True
+    assert bridge.snapshot()["pending_plan"] is None
+
+
+def test_a_revise_without_saying_what_is_refused(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    with pytest.raises(BridgeError):
+        bridge.resolve_plan("any", action="revise", feedback="  ")
+    with pytest.raises(BridgeError):
+        bridge.resolve_plan("any", action="approve-ish")

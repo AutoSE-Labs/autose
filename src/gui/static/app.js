@@ -414,6 +414,33 @@ function handleFrame(frame) {
       renderRail();
       break;
     }
+    case "plan_review":
+      if (state && isFocused(id)) {
+        state.pending_plan = frame.review;
+        renderConversation();
+      }
+      {
+        const entry = openEntry(id);
+        if (entry) entry.plan_waiting = true;
+      }
+      notifyAbout(id, {
+        title: "A plan is waiting for your review",
+        body: "Nothing has been changed yet. Approve it, ask for changes, or edit it.",
+        tag: `plan-${frame.review.id}`,
+        urgent: true,
+        always: true,
+      });
+      renderRail();
+      break;
+    case "plan_review_closed": {
+      if (state && isFocused(id)) state.pending_plan = null;
+      const entry = openEntry(id);
+      if (entry) entry.plan_waiting = false;
+      planCards.delete(frame.id);
+      if (state && isFocused(id)) renderConversation();
+      renderRail();
+      break;
+    }
     case "allowances":
       if (state && isFocused(id)) {
         state.allowed_tools = frame.tools || [];
@@ -874,6 +901,7 @@ function renderStatus() {
   // request itself with a reason. Only an unusable dashboard locks it.
   dom.prompt.disabled = !state.ready;
   dom.send.disabled = !state.ready;
+  el("review-plans").checked = Boolean(state.review_plans);
   dom.send.textContent = state.running ? "Queue" : "Start work";
   // DR-030: a run has no built-in end, so Stop *takes the primary button's
   // place* while one is going rather than sitting beside a dead "Working…"
@@ -947,8 +975,10 @@ function notifyAbout(id, { title, body, tag, urgent = false, always = false }) {
 
 /* What waits for the person, as a number in the tab title. */
 function renderWaitingCount() {
-  const held = ((state && state.open) || []).filter((entry) => entry.queue_held && entry.queued).length;
-  setTitleCount(approvals.length + held);
+  const open = (state && state.open) || [];
+  const held = open.filter((entry) => entry.queue_held && entry.queued).length;
+  const plans = open.filter((entry) => entry.plan_waiting).length;
+  setTitleCount(approvals.length + held + plans);
 }
 
 function renderNotifyButton() {
@@ -1058,6 +1088,8 @@ function renderConversation() {
   history.forEach((turn) => nodes.push(slipNode(turn.prompt), receiptNode(turn)));
   seat.extras.forEach((node) => nodes.push(node));
   if (seat.run) nodes.push(seat.run.slip, seat.run.node);
+  const planCard = planNode();
+  if (planCard) nodes.push(planCard);
   approvalNodes().forEach((node) => nodes.push(node));
   const queued = queueNode();
   if (queued) nodes.push(queued);
@@ -1653,6 +1685,60 @@ function failRun(id, title, message) {
 
 /* ---------- approvals (DR-012) ---------- */
 
+/* ---------- plan review (DR-045) ---------- */
+
+const planCards = new Map();
+
+function planNode() {
+  const review = state && state.pending_plan;
+  if (!review) return null;
+  if (planCards.has(review.id)) return planCards.get(review.id);
+  const node = document.createElement("section");
+  node.className = "plan-card";
+  node.innerHTML =
+    `<div class="approval-head"><span class="eyebrow"><span class="tick"></span>Plan ready for review</span>` +
+    `<strong>Nothing has been changed yet${review.pass_number > 1 ? ` · version ${review.pass_number}` : ""}</strong></div>` +
+    (review.problem ? `<p class="plan-problem">Your edit could not be used: ${escapeHtml(review.problem)}</p>` : "") +
+    `<div class="plan-body prose">${renderMarkdown(review.plan || "")}</div>` +
+    `<textarea class="plan-input" data-plan-feedback rows="2" placeholder="What should change? (for Ask for changes)"></textarea>` +
+    `<textarea class="plan-input plan-editor" data-plan-editor rows="14" hidden></textarea>` +
+    `<div class="approval-actions">` +
+    `<button type="button" class="ghost-button small" data-plan-action="stop">Stop</button>` +
+    `<button type="button" class="ghost-button small" data-plan-action="edit-open">Edit plan</button>` +
+    `<button type="button" class="ghost-button small" data-plan-action="revise">Ask for changes</button>` +
+    `<button type="button" class="primary-button small" data-plan-action="approve">Approve and continue</button>` +
+    `</div>`;
+  node.querySelector("[data-plan-editor]").value = review.plan || "";
+  planCards.set(review.id, node);
+  return node;
+}
+
+async function planAction(button) {
+  const review = state && state.pending_plan;
+  if (!review) return;
+  const card = button.closest(".plan-card");
+  const action = button.dataset.planAction;
+  if (action === "edit-open") {
+    const editor = card.querySelector("[data-plan-editor]");
+    editor.hidden = !editor.hidden;
+    button.textContent = editor.hidden ? "Edit plan" : "Use my edit";
+    button.dataset.planAction = editor.hidden ? "edit-open" : "edit";
+    if (!editor.hidden) editor.focus();
+    return;
+  }
+  const body = { id: review.id, action };
+  if (action === "revise") {
+    body.feedback = card.querySelector("[data-plan-feedback]").value.trim();
+    if (!body.feedback) {
+      toast("Say what should change first.", "bad");
+      card.querySelector("[data-plan-feedback]").focus();
+      return;
+    }
+  }
+  if (action === "edit") body.plan = card.querySelector("[data-plan-editor]").value;
+  await post("/api/plan", body);
+}
+
 /* ---------- approvals, inline (DR-044) ---------- */
 
 /* A call waiting for a decision is a card in the conversation of the session
@@ -1764,6 +1850,15 @@ function renderNeedsYou() {
       `<span class="needs-kind">approve</span><span class="needs-text">${escapeHtml(humanize(String(item.tool || "")))}: ${escapeHtml(elideMiddle(String(item.summary || ""), 40))}</span>` +
       `<small>${escapeHtml(title(item.session))}</small></button>`
   );
+  open
+    .filter((entry) => entry.plan_waiting)
+    .forEach((entry) =>
+      rows.push(
+        `<button type="button" class="needs-row" data-focus="${escapeHtml(entry.session_id)}">` +
+        `<span class="needs-kind">review plan</span><span class="needs-text">A plan waits before any change</span>` +
+        `<small>${escapeHtml(entry.title)}</small></button>`
+      )
+    );
   open
     .filter((entry) => entry.queue_held && entry.queued)
     .forEach((entry) =>
@@ -2179,6 +2274,15 @@ el("clear-history").addEventListener("click", () => {
 
 el("open-diff").addEventListener("click", openDiff);
 el("open-doctor").addEventListener("click", openDoctor);
+el("review-plans").addEventListener("change", (event) => {
+  post(
+    "/api/plan-review",
+    { enabled: event.target.checked, session: focusId() },
+    event.target.checked
+      ? "Craft and Forge will stop after planning for your review."
+      : "Plans go straight to execution."
+  );
+});
 el("open-settings").addEventListener("click", openSettings);
 el("toggle-notify").addEventListener("click", async () => {
   const result = await setNotifications(!notifyActive());
@@ -2259,7 +2363,7 @@ dom.messages.addEventListener("click", (event) => {
   // place, so the <details> element survives a paint and the browser keeps its
   // own open state.
   const target = event.target.closest(
-    "[data-starter], [data-expand], [data-open-diff], [data-stop], [data-details], [data-queue], [data-decide], [data-decide-all]"
+    "[data-starter], [data-expand], [data-open-diff], [data-stop], [data-details], [data-queue], [data-decide], [data-decide-all], [data-plan-action]"
   );
   if (!target) return;
   if (target.dataset.starter !== undefined) {
@@ -2275,6 +2379,8 @@ dom.messages.addEventListener("click", (event) => {
     openDiff();
   } else if (target.dataset.stop) {
     requestStop();
+  } else if (target.dataset.planAction) {
+    planAction(target);
   } else if (target.dataset.decide) {
     decide(target.dataset.id, target.dataset.decide);
   } else if (target.dataset.decideAll) {

@@ -112,6 +112,7 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-042](docs/DecisionRecords/DR-042-session-tabs-and-a-queue-per-session.md) | Open sessions are tabs, and each session queues prompts sent while it works |
 | [DR-043](docs/DecisionRecords/DR-043-desktop-notifications-for-what-waits.md) | The dashboard raises desktop notifications for what waits on the person |
 | [DR-044](docs/DecisionRecords/DR-044-approvals-inline-with-a-needs-you-inbox.md) | Approvals are answered inline, listed under "Needs you", and can be granted for the session |
+| [DR-045](docs/DecisionRecords/DR-045-a-person-can-review-the-plan-before-execute.md) | A person can review the plan before anything is changed |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
 
