@@ -2196,7 +2196,11 @@ function approvalNodes() {
  * are what the next command has to start with. */
 function allowButtonMarkup(allow) {
   if (allow.tool === "run_command") {
-    return `Always allow <code>${escapeHtml(allow.pattern)} …</code> here`;
+    // DR-052: a chain names each of its parts.
+    const parts = (allow.patterns && allow.patterns.length ? allow.patterns : [allow.pattern])
+      .map((pattern) => `<code>${escapeHtml(pattern)} …</code>`);
+    const listed = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
+    return `Always allow ${listed} here`;
   }
   return `Always allow ${escapeHtml(allow.label)} here`;
 }

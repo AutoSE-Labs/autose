@@ -1309,23 +1309,48 @@ def test_an_allowance_for_one_command_still_asks_about_another(scripted, tmp_pat
     _drain(subscriber, "turn")
 
 
-def test_a_chained_command_cannot_be_allowed_for_the_session(scripted, tmp_path):
+def test_a_chain_that_writes_a_file_cannot_be_allowed_for_the_session(scripted, tmp_path):
     bridge = _bridge(
         scripted,
         tmp_path,
-        [calls(tool_call("run_command", command="echo hi && echo there")), answer("done")],
+        [calls(tool_call("run_command", command="echo hi > notes.txt && echo there")), answer("done")],
     )
     subscriber = bridge.subscribe()
     bridge.submit("run it")
     request = _drain(subscriber, "approval")["request"]
     assert request["allow"] is None
-    assert "chains" in request["allow_note"]
+    assert "writes to a file" in request["allow_note"]
     with pytest.raises(BridgeError) as caught:
         bridge.resolve_approval(request["id"], approved=True, scope="session")
     assert "only be allowed once" in str(caught.value)
     # Still waiting: refusing the wider yes did not answer the call.
     bridge.resolve_approval(request["id"], approved=True)
     assert _drain(subscriber, "turn")["turn"]["answer"] == "done"
+
+
+def test_allowing_a_chain_allows_each_of_its_parts(scripted, tmp_path):
+    """DR-052: `cd app && echo …` is a yes for echo; a later echo runs unasked."""
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(tool_call("run_command", command="cd . && echo one 2>&1 | tail -1")),
+            calls(tool_call("run_command", command="echo two")),
+            answer("ran both"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run two commands")
+    first = _drain(subscriber, "approval")["request"]
+    assert first["allow"]["patterns"] == ["echo"]
+    bridge.resolve_approval(first["id"], approved=True, scope="session")
+    assert _drain(subscriber, "turn")["turn"]["answer"] == "ran both"
+    asked = [
+        frame
+        for _, frame in bridge.subscribe(since=0).frames.queue
+        if frame.get("kind") == "approval"
+    ]
+    assert len(asked) == 1
 
 
 def test_allowing_for_the_session_answers_matching_calls_already_waiting(scripted, tmp_path):

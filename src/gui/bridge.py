@@ -52,7 +52,7 @@ from logic.automation import (
     UnknownAutomationError,
     run_watch_command,
 )
-from logic.common.allowances import Allowance, allowance_for_rule, offer_for
+from logic.common.allowances import Allowance, allowance_for_rule, offer_for, standing_for
 from logic.common.browse import list_workspace, read_workspace_file
 from logic.common.workspace import Workspace
 from logic.errors import WorkspaceEscapeError
@@ -249,7 +249,7 @@ class _Pending:
             **self.request.to_dict(),
             # DR-048: what "allow for this session" would cover, or why this
             # call can only be answered once.
-            "allow": offer.allowance.to_dict() if offer.allowance else None,
+            "allow": offer.to_dict(),
             "allow_note": offer.reason,
         }
 
@@ -1076,14 +1076,18 @@ class SessionBridge:
                     holder = live
                     break
             standing: Allowance | None = None
+            offer_label = ""
             if pending is not None and holder is not None and approved and scope == "session":
                 # DR-048: the answer covers this call and every later one like
                 # it: the same command words, the same host, or the same tool.
                 offer = offer_for(pending.request)
                 if offer.allowance is None:
                     raise BridgeError(f"this call can only be allowed once: {offer.reason}")
+                # DR-052: a chain's yes is a yes for each of its parts.
+                for part in offer.every:
+                    holder.allowances[part.key] = part
                 standing = offer.allowance
-                holder.allowances[standing.key] = standing
+                offer_label = offer.label
         if pending is None:
             # Already resolved, or timed out while the browser was deciding.
             raise BridgeError(
@@ -1093,7 +1097,7 @@ class SessionBridge:
             ApprovalDecision.allow(
                 reason.strip()
                 or (
-                    f"the user allowed {standing.label} for the rest of this session"
+                    f"the user allowed {offer_label} for the rest of this session"
                     if standing is not None
                     else "the user approved this call"
                 )
@@ -1113,7 +1117,7 @@ class SessionBridge:
                     for other in holder.pending.values()
                     if other is not pending
                     and other.decision is None
-                    and standing.covers(other.request)
+                    and standing_for(other.request, holder.allowances.values()) is not None
                 ]
             for other in covered:
                 other.decision = ApprovalDecision.allow(
@@ -1215,7 +1219,8 @@ class SessionBridge:
             covered = [
                 pending
                 for pending in live.pending.values()
-                if pending.decision is None and standing.covers(pending.request)
+                if pending.decision is None
+                and standing_for(pending.request, live.allowances.values()) is not None
             ]
             allowances = _allowances_payload(live)
         for pending in covered:
@@ -1785,9 +1790,7 @@ class SessionBridge:
                 "the user stopped this run before the call was made"
             )
         with self._lock:
-            standing = next(
-                (item for item in live.allowances.values() if item.covers(request)), None
-            )
+            standing = standing_for(request, live.allowances.values())
         if standing is not None:
             # DR-044, DR-048: the person already said yes to calls like this
             # for the rest of the session. The executor still records the
