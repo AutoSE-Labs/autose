@@ -3,7 +3,7 @@
  * Pure renderers, shared by the live sheet and the finished one, in both
  * editions. `app.js` owns the data and the requests; this file only draws.
  *
- * - Stages are stations WP-1, WP-2… on one ink line: done is solid ink, the
+ * - Stages are steps 1, 2, 3… on one ink line: done is solid ink, the
  *   current stage is being inked (dotted), what comes next is faint pencil.
  * - A send-back is a redline loop from the check back to the station it
  *   returned to, with a revision letter on the curve and a margin note.
@@ -83,7 +83,7 @@ function routeMarkup(route) {
       const noteCls = status === "active" ? (op.waiting ? "wp-s ink" : "wp-s ink") : status === "halted" ? "wp-s red" : "wp-s";
       return (
         `<circle class="${cls}" cx="${xs[i]}" cy="${y}" r="${r}"></circle>` +
-        `<text class="wp-l" x="${xs[i]}" y="${y + 36}" text-anchor="${anchor(i)}">WP-${i + 1}</text>` +
+        `<text class="wp-l" x="${xs[i]}" y="${y + 36}" text-anchor="${anchor(i)}">Step ${i + 1}</text>` +
         `<text class="wp-n" x="${xs[i]}" y="${y + 57}" text-anchor="${anchor(i)}">${escapeHtml(op.title)}</text>` +
         `<text class="${noteCls}" x="${xs[i]}" y="${y + 77}" text-anchor="${anchor(i)}">${escapeHtml(stationNote(op))}</text>`
       );
@@ -98,13 +98,14 @@ function routeMarkup(route) {
     at >= 0 && route.drops
       ? `<circle class="ink-drop" data-n="${route.drops}" cx="${xs[at]}" cy="${y}" r="11"></circle>`
       : "";
-  // Poses are plain SVG transforms: lifted and leaning towards you while it
-  // waits, drooping on a slow step, upright while it draws.
-  const angle = route.pose === "waiting" ? -14 : route.pose === "slow" ? 18 : 0;
-  const lift = route.pose === "waiting" ? 2 : 14;
+  // Poses are plain SVG transforms around the nib's tip, centred over its
+  // station so it never leaves the sheet at either end: lifted and leaning
+  // towards you while it waits, drooping on a slow step, upright while it works.
+  const angle = route.pose === "slow" ? 12 : 0;
+  const tipY = route.pose === "waiting" ? y - 18 : y - 14;
   const nib =
     at >= 0 && route.pose
-      ? `<g class="nib-on-route nib-${escapeHtml(route.pose)}" transform="translate(${xs[at] + 14} ${lift}) rotate(${angle} 13 31)"><use href="#nib" width="26" height="31"></use></g>`
+      ? `<g class="nib-on-route nib-${escapeHtml(route.pose)}" transform="translate(${xs[at] - 13} ${tipY - 31}) rotate(${angle} 13 31)"><use href="#nib" width="26" height="31"></use></g>`
       : "";
 
   // The send-back: one redline per distinct station it returned to, from the
@@ -114,32 +115,42 @@ function routeMarkup(route) {
   let height = y + 92;
   const targets = [...new Set(route.loopbacks.map((item) => item.to))];
   if (from >= 0 && targets.length) {
+    // Each end drops straight down from under its station's words before it
+    // curves, so the line runs into the arrowhead along the head's own axis.
     const top = y + 88;
-    const depth = 46;
+    const stem = 12;
+    let lowest = top;
     targets.forEach((target, k) => {
       const to = ops.findIndex((op) => op.name === target);
       if (to < 0 || to === from) return;
       const x1 = xs[from];
       const x2 = xs[to];
-      const dip = top + depth + k * 18;
-      // A cubic with both control points at the dip, so its lowest point is
-      // exactly halfway: x at the midpoint, y = (y1 + 3*dip + 3*dip + y2) / 8.
+      const bend = top + stem;
+      const dip = bend + 34 + k * 18;
+      // A cubic with both control points at the dip: its lowest point is
+      // halfway along, at y = (bend + 3*dip + 3*dip + bend) / 8.
       const midX = (x1 + x2) / 2;
-      const midY = (top + 3 * dip + 3 * dip + (top + 2)) / 8;
+      const midY = (bend + 6 * dip + bend) / 8;
       loops +=
-        `<path class="redloop" d="M${x1} ${top} C ${x1} ${dip}, ${x2} ${dip}, ${x2} ${top + 2}" marker-end="url(#route-arrow)"></path>`;
-      const letter = String.fromCharCode(66 + k + Math.max(0, route.loopbacks.length - targets.length));
+        `<path class="redloop" d="M${x1} ${top} V${bend} C ${x1} ${dip}, ${x2} ${dip}, ${x2} ${bend} V${top + 1}" marker-end="url(#route-arrow)"></path>`;
+      const number = String(1 + k + Math.max(0, route.loopbacks.length - targets.length));
       loops +=
-        `<path class="revtri" d="M${midX} ${midY - 13} L${midX + 12} ${midY + 8} L${midX - 12} ${midY + 8} Z"></path>` +
-        `<text class="revtxt" x="${midX}" y="${midY + 5}" text-anchor="middle">${letter}</text>`;
-      height = Math.max(height, midY + 22);
+        `<circle class="revtri" cx="${midX}" cy="${midY}" r="10"></circle>` +
+        `<text class="revtxt" x="${midX}" y="${midY + 4}" text-anchor="middle">${number}</text>`;
+      lowest = Math.max(lowest, midY + 10);
     });
     const last = route.loopbacks[route.loopbacks.length - 1];
     const times = route.loopbacks.length === 1 ? "once" : `${route.loopbacks.length} times`;
-    const why = last.unmet ? `${last.unmet} unmet` : (last.detail || "").slice(0, 48);
-    const toX = (xs[from] + xs[ops.findIndex((op) => op.name === targets[targets.length - 1])]) / 2;
-    loops += `<text class="margin-note" x="${toX}" y="${height + 16}" text-anchor="middle">sent back ${times}${why ? `: ${escapeHtml(why)}` : ""}</text>`;
-    height += 26;
+    let why = last.unmet ? `${last.unmet} unmet` : String(last.detail || "").replace(/\s+/g, " ").trim();
+    if (why.length > 44) why = `${why.slice(0, 43).trimEnd()}…`;
+    const note = `sent back ${times}${why ? `: ${why}` : ""}`;
+    // The note sits centred under the loop, nudged in so it never leaves the
+    // sheet (the hand face runs about 7.5px a character at this size).
+    const half = (note.length * 7.5) / 2;
+    const centre = (xs[from] + xs[ops.findIndex((op) => op.name === targets[targets.length - 1])]) / 2;
+    const noteX = Math.min(ROUTE.width - 6 - half, Math.max(6 + half, centre));
+    height = lowest + 30;
+    loops += `<text class="margin-note" x="${noteX}" y="${lowest + 22}" text-anchor="middle">${escapeHtml(note)}</text>`;
   }
 
   // On a phone the same route reads top to bottom: one row per station.
@@ -149,7 +160,7 @@ function routeMarkup(route) {
       .map(
         (op, i) =>
           `<li class="rl-${escapeHtml(op.status || "next")}"><span class="rl-dot"></span>` +
-          `<span class="rl-text"><span class="lbl">WP-${i + 1}</span> <b>${escapeHtml(op.title)}</b> <span class="rl-note">${escapeHtml(stationNote(op))}</span></span></li>`
+          `<span class="rl-text"><span class="lbl">Step ${i + 1}</span> <b>${escapeHtml(op.title)}</b> <span class="rl-note">${escapeHtml(stationNote(op))}</span></span></li>`
       )
       .join("") +
     (route.loopbacks.length
@@ -225,17 +236,17 @@ function revisionBlockMarkup(changes) {
   const rows = changes
     .map(
       (change, index) =>
-        `<tr${change.reverted ? ` class="rev-undone" title="Erased: put back as it was"` : ""}>` +
+        `<tr${change.reverted ? ` class="rev-undone" title="Undone: put back as it was"` : ""}>` +
         `<td class="rev-sym"><span>${String.fromCharCode(65 + (index % 26))}</span></td>` +
         `<td class="rev-file">${escapeHtml(change.path)}</td>` +
-        `<td class="rev-kind">${escapeHtml(change.reverted ? "erased" : { created: "new", deleted: "deleted" }[change.kind] || "edit")}</td>` +
+        `<td class="rev-kind">${escapeHtml(change.reverted ? "undone" : { created: "new", deleted: "deleted" }[change.kind] || "edit")}</td>` +
         `<td class="rev-lines"><span class="added">+${change.added}</span> / <span class="removed">−${change.removed}</span></td>` +
         `</tr>`
     )
     .join("");
   return (
-    `<table class="revision-block"><caption>Revisions</caption>` +
-    `<thead><tr><th scope="col">Rev</th><th scope="col">File</th><th scope="col">Kind</th><th scope="col">Lines</th></tr></thead>` +
+    `<table class="revision-block"><caption>Files changed</caption>` +
+    `<thead><tr><th scope="col">#</th><th scope="col">File</th><th scope="col">Kind</th><th scope="col">Lines</th></tr></thead>` +
     `<tbody>${rows}</tbody></table>`
   );
 }

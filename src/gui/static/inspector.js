@@ -13,7 +13,7 @@
 const INSPECTOR_TABS = [
   { id: "requirements", label: "Checks" },
   { id: "activity", label: "Steps" },
-  { id: "changes", label: "Revisions" },
+  { id: "changes", label: "Changes" },
   { id: "usage", label: "Usage" },
 ];
 
@@ -50,7 +50,10 @@ function activityPanelMarkup(run) {
   const titles = new Map((run.stages || []).map((stage) => [stage.name, stage.title]));
   let group = null;
   const parts = [];
-  steps.forEach((step) => {
+  steps.forEach((step, index) => {
+    if (index === run.sinceIndex) {
+      parts.push(`<div class="since-mark"><span>since you looked</span></div>`);
+    }
     const stage = step.stage || "";
     if (stage !== group) {
       group = stage;

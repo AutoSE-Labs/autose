@@ -32,8 +32,8 @@
 
   <div class="app-shell rail-open" id="app-shell">
     <header class="app-header">
-      <button id="toggle-rail" class="icon-button phone-only" type="button" aria-label="Show or hide the sheets"
-        title="Show or hide the sheets"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h14M3 10h14M3 15h9"/></svg></button>
+      <button id="toggle-rail" class="icon-button phone-only" type="button" aria-label="Show or hide the sessions"
+        title="Show or hide the sessions"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h14M3 10h14M3 15h9"/></svg></button>
       <span class="brand"><svg class="brand-nib" aria-hidden="true"><use href="#nib" /></svg><span class="brand-name">AutoSE</span></span>
 
       <div class="presence" id="presence" aria-live="polite">
@@ -44,7 +44,7 @@
       <button class="ctx-scale" id="status-ctx" type="button"
         title="How full the context window was last round. Click for what the window means here">
         <span class="lbl">Context</span>
-        <span class="ctx-ruler" aria-hidden="true"><span class="ctx-fill" id="ctx-fill"></span><span class="ctx-ticks"></span></span>
+        <span class="ctx-ruler" aria-hidden="true"><span class="ctx-fill" id="ctx-fill"></span><span class="ctx-step" id="ctx-step" hidden></span><span class="ctx-ticks"></span></span>
         <em id="ctx-label">—</em>
         <span class="ctx-mark" id="ctx-mark" aria-hidden="true"></span>
       </button>
@@ -53,6 +53,7 @@
         <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="10" rx="2"/><path d="M7 17h6M10 14v3"/></svg>
         <span class="sr-only" id="model-label">—</span>
         <select id="model-select" aria-label="Model"></select>
+        <span class="tok-rate" id="tok-rate" title="How fast the model wrote its last reply" hidden></span>
       </label>
 
       <span class="local-pill" id="status-stamp" title="Where this runs, and what it will do without asking">Local · no cloud</span>
@@ -72,26 +73,28 @@
 
     <!-- Sections: everything that is not a run. -->
     <nav class="section-rail" aria-label="Sections">
-      <button class="section-button on" type="button" aria-label="Sheets" title="Sheets"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="12" height="14" rx="1.5"/><path d="M7 7h6M7 10h6M7 13h3"/></svg></button>
-      <button class="section-button" id="open-automation" type="button" aria-label="Schedules and watchers" title="Schedules and watchers"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l3 2"/></svg></button>
-      <button class="section-button" id="open-diff" type="button" aria-label="What it changed" title="What it changed"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h7l3 3v11H5z"/><path d="M8 11h4M10 9v4"/></svg></button>
+      <button class="section-button on" id="show-sessions" type="button" title="Your sessions"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h6A2.5 2.5 0 0 1 14 5.5v3a2.5 2.5 0 0 1-2.5 2.5H8l-3 2.5V11A2.5 2.5 0 0 1 3 8.5z"/><path d="M14 7.5h.5A2.5 2.5 0 0 1 17 10v3a2.5 2.5 0 0 1-2.5 2.5H14V18l-3-2.5H9.5"/></svg><span class="section-label">Sessions</span></button>
+      <button class="section-button" id="show-inbox" type="button" title="Everything waiting for you, from every session"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5l2.2-6.6A1.5 1.5 0 0 1 6.6 3.8h6.8a1.5 1.5 0 0 1 1.4 1.1l2.2 6.6V15a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 15z"/><path d="M3 11.5h4l1 2h4l1-2h4"/></svg><span class="section-label">Needs you</span><span class="section-badge" id="inbox-count" hidden></span></button>
+      <button class="section-button" id="open-automation" type="button" title="Schedules and watchers: runs that start on their own"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2.5v3M13 2.5v3M10 10.5v2.5l1.8 1.1"/></svg><span class="section-label">Schedules</span></button>
+      <button class="section-button" id="open-diff" type="button" title="What it changed: the diff of every file"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2.5h7l3 3v12H5z"/><path d="M8 8h4M10 6v4M8 13.5h4"/></svg><span class="section-label">Changes</span></button>
       <span class="section-sep" aria-hidden="true"></span>
-      <button class="section-button" id="open-doctor" type="button" aria-label="Machine check" title="Machine check"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h3l2-5 4 10 2-5h3"/></svg></button>
-      <button class="section-button" id="open-settings" type="button" aria-label="Providers and keys" title="Providers and keys"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/></svg></button>
-      <button class="section-button" id="open-settings-header" type="button" aria-label="Settings" title="Settings" hidden><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.5"/></svg></button>
-      <button class="section-button" id="clear-history" type="button" aria-label="Clear history" title="Clear history (files stay)"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4h4v2M6 6l.7 10h6.6L14 6"/></svg></button>
-      <button class="section-button push-down" id="open-tips" type="button" aria-label="Tips" aria-describedby="tip-popup" title="Tips"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5a5 5 0 0 0-2.9 9.1c.6.4.7.9.7 1.3v.9h4.4v-.9c0-.4.1-.9.7-1.3A5 5 0 0 0 10 2.5z"/><path d="M8 16.5h4"/></svg></button>
+      <button class="section-button" id="open-doctor" type="button" title="Machine check: model server, GPU, context window and config"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="10" height="10" rx="1.5"/><rect x="8" y="8" width="4" height="4" rx="0.5"/><path d="M8 2.5V5M12 2.5V5M8 15v2.5M12 15v2.5M2.5 8H5M2.5 12H5M15 8h2.5M15 12h2.5"/></svg><span class="section-label">Machine</span></button>
+      <button class="section-button" id="open-settings" type="button" title="Settings: providers, models and API keys"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.6"/><path d="M10 1.8l1.6 2.1 2.6-.6.6 2.6 2.1 1.6-1.2 2.4 1.2 2.4-2.1 1.6-.6 2.6-2.6-.6L10 18.2l-1.6-2.1-2.6.6-.6-2.6-2.1-1.6 1.2-2.4-1.2-2.4 2.1-1.6.6-2.6 2.6.6z"/></svg><span class="section-label">Settings</span></button>
+      <button class="section-button" id="open-settings-header" type="button" aria-label="Settings" title="Settings" hidden></button>
+      <button class="section-button" id="clear-history" type="button" title="Clear this session's history (files stay as they are)"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4h4v2M6 6l.7 10.5h6.6L14 6"/></svg><span class="section-label">Clear</span></button>
+      <button class="section-button push-down" id="open-tips" aria-describedby="tip-popup" type="button" title="Tips"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5a5 5 0 0 0-2.9 9.1c.6.4.7.9.7 1.3v.9h4.4v-.9c0-.4.1-.9.7-1.3A5 5 0 0 0 10 2.5z"/><path d="M8 16.5h4"/></svg><span class="section-label">Tips</span></button>
     </nav>
 
     <!-- The sheet set: every session, open and stored. -->
-    <aside class="rail" id="rail" aria-label="Sheets">
+    <aside class="rail" id="rail" aria-label="Sessions">
       <div class="rail-head">
-        <h2>Sheets</h2>
-        <button id="new-session" class="new-sheet" type="button">+ Fresh sheet</button>
+        <h2 id="rail-title">Sessions</h2>
+        <button id="new-session" class="new-sheet" type="button">+ New session</button>
       </div>
       <!-- DR-044: standing orders, what runs without asking here. -->
-      <section class="needs-you" id="needs-you" aria-label="Standing orders" hidden></section>
+      <section class="needs-you" id="needs-you" aria-label="Runs without asking here" hidden></section>
       <div class="session-list" id="session-list"></div>
+      <div class="inbox-list" id="inbox-list" hidden></div>
     </aside>
 
     <div class="main-column">
@@ -105,7 +108,7 @@
       <section class="composer-area" aria-label="New request">
         <div class="composer" id="composer">
           <textarea id="prompt" rows="2" spellcheck="true" aria-label="Describe your request"
-            placeholder="Describe a change, and I'll draw up a plan"></textarea>
+            placeholder="Describe a change, or ask about this workspace"></textarea>
           <div class="composer-foot">
             <div class="tier-switch" id="tier-select" role="group" aria-label="Tier"></div>
             <!-- DR-045: stop after the plan, before anything is changed. -->
@@ -247,6 +250,7 @@ ollama pull qwen3:8b</code></pre>
   <script src="/notify.js"></script>
   <script src="/route.js"></script>
   <script src="/automation.js"></script>
+  <script src="/life.js"></script>
   <script src="/app.js"></script>
 </body>
 

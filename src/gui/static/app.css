@@ -69,6 +69,7 @@
   --code-text: #eaf0ff;
   --shadow: 0 1px 2px rgba(15, 26, 51, 0.05), 0 12px 30px -16px rgba(37, 82, 252, 0.25);
   --scrim: rgba(15, 26, 51, 0.32);
+  --night: rgba(15, 26, 51, 0.1);
   --cursor-fill: #ffffff;
   --cursor-ring: #2552fc;
 
@@ -124,6 +125,7 @@
   --code-bg: #0a1f36;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 34px -18px rgba(0, 0, 0, 0.7);
   --scrim: rgba(4, 14, 26, 0.55);
+  --night: rgba(0, 0, 0, 0.24);
   --cursor-fill: #ffffff;
   --cursor-ring: #8fb0ff;
   color-scheme: dark;
@@ -309,7 +311,7 @@ select {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 52px var(--rail-width) minmax(0, 1fr) var(--inspector-width);
+  grid-template-columns: 64px var(--rail-width) minmax(0, 1fr) var(--inspector-width);
   grid-template-rows: 58px minmax(0, 1fr);
   grid-template-areas:
     "header header header header"
@@ -600,10 +602,14 @@ select {
 
 .section-button {
   position: relative;
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 56px;
+  height: 50px;
+  padding: 0;
   border: 0;
   border-radius: 10px;
   background: transparent;
@@ -618,6 +624,12 @@ select {
 .section-button.on {
   color: var(--pen-deep);
   background: var(--pen-soft);
+}
+
+.section-label {
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.01em;
 }
 
 .section-sep {
@@ -1366,7 +1378,7 @@ select {
 /* The title block, at the foot of every sheet. */
 .title-block {
   display: grid;
-  grid-template-columns: 0.9fr 2.1fr 1.7fr 1.6fr 0.5fr 1.4fr;
+  grid-template-columns: 0.6fr 2.4fr 1.7fr 1.3fr 1fr 0.9fr;
   margin: 2px 18px 16px;
   border: 1.5px solid var(--pen);
   border-radius: 6px;
@@ -1383,6 +1395,7 @@ select {
 }
 
 .tb-cell dt {
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 9.5px;
   letter-spacing: 0.1em;
@@ -2235,7 +2248,7 @@ select {
 
 .tip-popup {
   position: fixed;
-  left: 62px;
+  left: 78px;
   bottom: 16px;
   z-index: 30;
   width: 270px;
@@ -3591,6 +3604,318 @@ select {
   margin: 0;
   font-size: 22px;
   letter-spacing: -0.01em;
+}
+
+/* ---------- needs you ---------- */
+
+.section-badge {
+  position: absolute;
+  top: 3px;
+  right: 8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--pen);
+  color: var(--on-pen);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+
+.section-badge[hidden] {
+  display: none;
+}
+
+.section-button.has-items:not(.on) {
+  color: var(--pen-deep);
+}
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 12px 14px;
+}
+
+.inbox-list[hidden] {
+  display: none;
+}
+
+.inbox-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1.5px dashed var(--pen);
+  border-radius: 12px;
+  background: var(--sheet);
+}
+
+.inbox-item.plan,
+.inbox-item.queue {
+  border-style: solid;
+  border-color: var(--edge);
+}
+
+.inbox-kind {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.inbox-from {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--pen-deep);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-from:hover {
+  text-decoration: underline;
+}
+
+.inbox-args {
+  margin: 2px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.inbox-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inbox-actions button {
+  flex: 1 1 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-actions [data-decide="session"] {
+  display: block;
+  order: 3;
+  flex-basis: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
+.inbox-actions [data-decide="session"] code {
+  white-space: nowrap;
+}
+
+.inbox-actions code {
+  font-size: 11.5px;
+}
+
+.presence {
+  cursor: inherit;
+}
+
+/* ---------- life: small signs of what is going on (life.js) ---------- */
+
+/* The run scrolls under soft edges instead of being cut by a ruler line. */
+.conversation {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+}
+
+.conversation-inner {
+  padding-top: 16px;
+}
+
+/* Resting: the nib caps itself and dozes; a long rest dims the page. */
+.brand {
+  position: relative;
+}
+
+.resting .brand::after {
+  content: "z";
+  position: absolute;
+  left: 20px;
+  top: -6px;
+  font-family: var(--font-hand);
+  font-size: 13px;
+  color: var(--pen);
+  animation: doze 3.2s ease-in-out infinite;
+}
+
+@keyframes doze {
+  0% {
+    opacity: 0;
+    transform: translate(0, 4px);
+  }
+
+  40% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(6px, -6px);
+  }
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  background: var(--night);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+body.night::after {
+  opacity: 1;
+  transition-duration: 4s;
+}
+
+/* Something happened on this session while you were not looking. */
+.sheet-main {
+  position: relative;
+}
+
+.unseen-dot {
+  position: absolute;
+  left: 36px;
+  top: 8px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--pen);
+  box-shadow: 0 0 0 2px var(--sheet);
+}
+
+.since-mark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-family: var(--font-hand);
+  font-size: 14px;
+  color: var(--pen-deep);
+}
+
+.since-mark::before,
+.since-mark::after {
+  content: "";
+  flex: 1;
+  border-top: 1.5px dashed var(--pen);
+}
+
+.since-note {
+  margin-left: 6px;
+  font-size: 15px;
+}
+
+.work-card.news {
+  animation: news 1.8s ease;
+}
+
+@keyframes news {
+  from {
+    box-shadow: 0 0 0 4px var(--pen-soft), 0 0 0 5px var(--pen);
+  }
+}
+
+/* The stream: the line being inked runs slowly while the model thinks and
+ * briskly while it writes; the nib bobs along with it. */
+@keyframes dash-run {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+@keyframes bob {
+  to {
+    transform: translateY(-2px);
+  }
+}
+
+.work-card.flow-think .r-now {
+  animation: dash-run 2.6s linear infinite;
+}
+
+.work-card.flow-write .r-now {
+  animation: dash-run 0.6s linear infinite;
+}
+
+.work-card.flow-think .nib-on-route use {
+  animation: bob 1.6s ease-in-out infinite alternate;
+}
+
+.work-card.flow-write .nib-on-route use {
+  animation: bob 0.35s ease-in-out infinite alternate;
+}
+
+/* Live readings: speed beside the model, the last step on the ruler. */
+.tok-rate {
+  padding-right: 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: var(--pen-deep);
+}
+
+.ctx-step {
+  position: absolute;
+  left: var(--from, 0%);
+  bottom: 2px;
+  width: calc(var(--to, 0%) - var(--from, 0%));
+  height: 4px;
+  border-radius: 2px;
+  background: var(--pen-deep);
+  opacity: 0.55;
+  transform-origin: bottom;
+}
+
+.ctx-step[hidden] {
+  display: none;
+}
+
+/* The model is being read into memory: the machine breathes. */
+.machine.warming {
+  animation: breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% {
+    box-shadow: 0 0 0 4px var(--pen-soft);
+    opacity: 0.7;
+  }
+}
+
+.brand-nib {
+  transform-origin: 50% 90%;
 }
 
 /* ---------- motion + narrow screens ---------- */
