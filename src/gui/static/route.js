@@ -251,20 +251,10 @@ function revisionBlockMarkup(changes) {
   );
 }
 
-/* A small line figure per sheet, seeded by its id, so parallel sessions are
- * told apart at a glance. */
-function sheetGlyphPath(id) {
-  let seed = 0;
-  for (const ch of String(id || "")) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
-  const a = 1 + (seed % 4);
-  const b = 2 + ((seed >> 3) % 3);
-  const phase = ((seed >> 6) % 628) / 100;
-  let d = "";
-  for (let i = 0; i <= 96; i++) {
-    const t = (i / 96) * Math.PI * 2;
-    const x = 16 + 12.5 * Math.sin(a * t + phase);
-    const y = 16 + 12.5 * Math.sin(b * t);
-    d += `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
-  }
-  return d;
+/* A session's badge: its tier's initial on a rounded tile, so a list of
+ * sessions reads like the tier switch it was started from. */
+function tierBadgeMarkup(tier, state) {
+  const name = String(tier || "");
+  const letter = name ? name[0].toUpperCase() : "·";
+  return `<span class="tier-badge tier-${escapeHtml(name)}${state ? ` ${state}` : ""}" aria-hidden="true">${escapeHtml(letter)}</span>`;
 }

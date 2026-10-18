@@ -1210,7 +1210,7 @@ function openRowMarkup(entry) {
   return `<div class="sheet-row${active ? " active" : ""}${needsYou ? " waiting" : ""}">
       ${needsYou ? `<svg class="waitline" aria-hidden="true"><rect x="1" y="1" rx="10" ry="10"></rect></svg>` : ""}
       <button class="sheet-main" type="button" data-focus="${escapeHtml(entry.session_id)}" title="${escapeHtml(entry.title)}">
-        <svg class="sheet-glyph" viewBox="0 0 32 32" aria-hidden="true"><path d="${sheetGlyphPath(entry.session_id)}"></path></svg>${unseenDotMarkup(entry.session_id)}
+        ${tierBadgeMarkup(entry.tier, entry.running ? "busy" : "")}${unseenDotMarkup(entry.session_id)}
         <span class="sheet-no">${escapeHtml(sheetNo(entry.session_id))} · ${escapeHtml(entry.tier || "")}${auto}</span>
         <span class="sheet-title">${escapeHtml(entry.title)}</span>
         <span class="sheet-state ${tone}">${escapeHtml(line)}</span>
@@ -1224,7 +1224,7 @@ function storedRowMarkup(record) {
   const failed = record.stop_reason && record.stop_reason !== "completed";
   return `<div class="sheet-row stored">
       <button class="sheet-main" type="button" data-resume="${escapeHtml(record.id)}" title="${escapeHtml(record.title)}">
-        <svg class="sheet-glyph" viewBox="0 0 32 32" aria-hidden="true"><path d="${sheetGlyphPath(record.id)}"></path></svg>
+        ${tierBadgeMarkup(record.tier, "closed")}
         <span class="sheet-no">${escapeHtml(sheetNo(record.id))} · ${escapeHtml(record.tier || "")} · ${formatWhen(record.updated_at)}</span>
         <span class="sheet-title">${escapeHtml(record.title || "(no title)")}</span>
         <span class="sheet-state${failed ? " failed" : ""}">${plural(record.turns, "run")} · ${formatCount(record.total_tokens)} tok</span>

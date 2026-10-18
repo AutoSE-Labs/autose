@@ -47,19 +47,19 @@
 
 /* Drafting paper. */
 :root {
-  --paper: #f7f9ff;
+  --paper: #e3e9f6;       /* the table: a clear step below every panel */
   --sheet: #ffffff;
   --sheet-2: #f2f5fd;
-  --grid: rgba(37, 82, 252, 0.05);
-  --grid-2: rgba(37, 82, 252, 0.09);
-  --edge: #dfe5f4;
+  --grid: rgba(37, 82, 252, 0.06);
+  --grid-2: rgba(37, 82, 252, 0.11);
+  --edge: #d3dcef;
   --edge-2: #c9d3ea;
   --pencil: #c9d3ea;      /* faint pencil: what is not drawn yet */
   --pen: #2552fc;         /* the pen: 5.7:1 on white */
   --pen-deep: #1f3fbf;    /* pen as text: 8.3:1 */
   --pen-soft: #e8eeff;
   --text: #0f1a33;
-  --text-2: #4b5a78;      /* 6.9:1 on white, 6.4:1 on paper */
+  --text-2: #4b5a78;      /* 6.9:1 on white, 5.6:1 on paper */
   --red: #c42e26;         /* redline: corrections and failures, 5.6:1 */
   --red-soft: #fdeceb;
   --go: #1a7f4b;          /* 5.0:1 */
@@ -67,7 +67,7 @@
   --on-pen: #ffffff;
   --code-bg: #0f1a33;
   --code-text: #eaf0ff;
-  --shadow: 0 1px 2px rgba(15, 26, 51, 0.05), 0 12px 30px -16px rgba(37, 82, 252, 0.25);
+  --shadow: 0 0 0 1px rgba(15, 26, 51, 0.03), 0 2px 4px rgba(15, 26, 51, 0.06), 0 14px 32px -14px rgba(37, 82, 252, 0.3);
   --scrim: rgba(15, 26, 51, 0.32);
   --night: rgba(15, 26, 51, 0.1);
   --cursor-fill: #ffffff;
@@ -104,12 +104,12 @@
 
 /* The same sheet as a cyanotype. */
 :root[data-theme="dark"] {
-  --paper: #0e2a47;
+  --paper: #081a2e;
   --sheet: #12335a;
   --sheet-2: #163b66;
-  --grid: rgba(207, 227, 255, 0.05);
-  --grid-2: rgba(207, 227, 255, 0.09);
-  --edge: #24507f;
+  --grid: rgba(207, 227, 255, 0.045);
+  --grid-2: rgba(207, 227, 255, 0.085);
+  --edge: #2a5a8e;
   --edge-2: #2e5d92;
   --pencil: #3c6698;
   --pen: #8fb0ff;
@@ -123,7 +123,7 @@
   --go-soft: #133a33;
   --on-pen: #0e2a47;
   --code-bg: #0a1f36;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 34px -18px rgba(0, 0, 0, 0.7);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 16px 36px -16px rgba(0, 0, 0, 0.8);
   --scrim: rgba(4, 14, 26, 0.55);
   --night: rgba(0, 0, 0, 0.24);
   --cursor-fill: #ffffff;
@@ -739,21 +739,48 @@ select {
   text-align: left;
 }
 
-.sheet-glyph {
+.tier-badge {
+  position: relative;
   grid-row: span 3;
-  width: 32px;
-  height: 32px;
-  margin-top: 2px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-top: 3px;
+  border-radius: 9px;
+  border: 1.5px solid var(--pen);
+  background: var(--pen-soft);
+  color: var(--pen-deep);
+  font-weight: 700;
+  font-size: 14px;
 }
 
-.sheet-glyph path {
-  fill: none;
-  stroke: var(--pen);
-  stroke-width: 1.2;
+.tier-badge.tier-craft {
+  background: var(--pen);
+  color: var(--on-pen);
 }
 
-.sheet-row.stored .sheet-glyph path {
-  stroke: var(--pencil);
+.tier-badge.tier-forge {
+  background: var(--pen-deep);
+  border-color: var(--pen-deep);
+  color: var(--sheet);
+}
+
+.tier-badge.closed {
+  background: var(--sheet-2);
+  border-color: var(--edge-2);
+  color: var(--text-2);
+}
+
+/* Working: the badge glows softly, in time with nothing but itself. */
+.tier-badge.busy {
+  animation: busy-glow 1.8s ease-in-out infinite;
+}
+
+@keyframes busy-glow {
+  50% {
+    box-shadow: 0 0 0 5px var(--pen-soft);
+  }
 }
 
 .sheet-no {
@@ -1461,7 +1488,6 @@ select {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   transform: rotate(-5deg);
-  opacity: 0.9;
 }
 
 .verdict-pass {
@@ -1493,7 +1519,7 @@ select {
   }
 
   to {
-    opacity: 0.9;
+    opacity: 1;
     transform: rotate(-5deg) scale(1);
   }
 }
