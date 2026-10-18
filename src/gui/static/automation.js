@@ -32,19 +32,19 @@ function automationMarkup(payload, view, tiers) {
   if (!payload) return `<p class="panel-note">Reading schedules and watchers…</p>`;
   const approvals =
     payload.unattended_approvals === "auto"
-      ? `<p class="panel-note warn-note">This dashboard was started with <span class="mono">--yes</span>, so shell and network calls in these runs go ahead without asking (${escapeHtml(payload.authorized_by)}).</p>`
+      ? `<p class="callout warn">This dashboard was started with <span class="mono">--yes</span>, so shell and network calls in these runs go ahead without asking (${escapeHtml(payload.authorized_by)}).</p>`
       : `<p class="panel-note">Each run opens its own session. Nobody is there to answer, so its shell and network calls are refused, and the run says so. Start the dashboard with <span class="mono">--yes</span> to let them through.</p>`;
   const stopped = payload.running
     ? ""
-    : `<p class="form-error">Nothing is acting on these: the automation runner is not running.</p>`;
-  const problems = (payload.problems || []).map((problem) => `<p class="form-error">${escapeHtml(problem)}</p>`).join("");
+    : `<p class="callout bad">Nothing is acting on these: the automation runner is not running.</p>`;
+  const problems = (payload.problems || []).map((problem) => `<p class="callout bad">${escapeHtml(problem)}</p>`).join("");
   return (
     approvals +
     stopped +
     problems +
     sectionMarkup("Schedules", "schedule", payload.schedules || [], view, tiers) +
     sectionMarkup("Watchers", "watcher", payload.watchers || [], view, tiers) +
-    `<p class="panel-note">Kept in <span class="mono">${escapeHtml(payload.file || "")}</span>.</p>`
+    `<p class="panel-note panel-foot">Kept in <span class="mono">${escapeHtml(payload.file || "")}</span>.</p>`
   );
 }
 
@@ -60,9 +60,11 @@ function sectionMarkup(title, kind, items, view, tiers) {
   const adding = editing && !editing.id ? formMarkup(kind, null, tiers) : "";
   return (
     `<div class="auto-section"><div class="auto-section-head"><h3>${escapeHtml(title)}</h3>` +
-    (adding ? "" : `<button type="button" class="ghost-button small" data-auto-new="${kind}">Add ${kind}</button>`) +
+    (adding || !cards.length ? "" : `<button type="button" class="ghost-button small" data-auto-new="${kind}">Add ${kind}</button>`) +
     `</div>` +
-    (cards.length || adding ? cards.join("") + adding : `<div class="inspector-empty">${escapeHtml(empty)}</div>`) +
+    (cards.length || adding
+      ? cards.join("") + adding
+      : `<div class="empty-box"><p>${escapeHtml(empty)}</p><button type="button" class="ghost-button small" data-auto-new="${kind}">Add ${kind}</button></div>`) +
     `</div>`
   );
 }

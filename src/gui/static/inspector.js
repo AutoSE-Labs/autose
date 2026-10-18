@@ -48,6 +48,7 @@ function activityPanelMarkup(run) {
   }
 
   const titles = new Map((run.stages || []).map((stage) => [stage.name, stage.title]));
+  const numbers = new Map((run.stages || []).map((stage, index) => [stage.name, index + 1]));
   let group = null;
   const parts = [];
   steps.forEach((step, index) => {
@@ -57,8 +58,10 @@ function activityPanelMarkup(run) {
     const stage = step.stage || "";
     if (stage !== group) {
       group = stage;
+      const number = numbers.get(stage);
       parts.push(
-        `<div class="step-group">${escapeHtml(titles.get(stage) || humanize(stage) || "Steps")}</div>`
+        `<div class="step-group"><span class="sg-dot">${number || "·"}</span>` +
+        `<span class="sg-title">${number ? `<span class="lbl">Step ${number}</span> ` : ""}${escapeHtml(titles.get(stage) || humanize(stage) || "Steps")}</span></div>`
       );
     }
     parts.push(step.type === "tool" ? toolStepMarkup(step, run) : noteStepMarkup(step));
@@ -95,6 +98,7 @@ function toolStepMarkup(step, run) {
   return (
     `<div class="step tool status-${step.status}${open ? " open" : ""}">` +
     `<button type="button" class="step-head" data-toggle-step="${escapeHtml(step.id)}" aria-expanded="${Boolean(open)}">` +
+    `<span class="step-dot" aria-hidden="true"></span>` +
     `<span class="act-icon">${spec.icon}</span>` +
     `<span class="step-title">${escapeHtml(spec.verb)}${target ? ` <span class="mono">${escapeHtml(elideMiddle(target, 48))}</span>` : ""}</span>` +
     `<span class="step-meta">${escapeHtml(meta)}</span>` +
@@ -105,7 +109,7 @@ function toolStepMarkup(step, run) {
 function noteStepMarkup(step) {
   return (
     `<div class="step note kind-${escapeHtml(step.kind || "")}">` +
-    `<span class="act-icon">${step.icon || "·"}</span><span>${step.html}</span></div>`
+    `<span class="step-dot" aria-hidden="true"></span><span>${step.html}</span></div>`
   );
 }
 
@@ -316,6 +320,7 @@ function usagePanelMarkup(view) {
   let runPart = "";
   if (run && run.rounds.length) {
     const titles = new Map((run.stages || []).map((stage) => [stage.name, stage.title]));
+  const numbers = new Map((run.stages || []).map((stage, index) => [stage.name, index + 1]));
     const byStage = new Map();
     run.rounds.forEach((round) => {
       const key = round.stage || "";

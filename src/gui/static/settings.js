@@ -54,10 +54,25 @@ function settingsMarkup(payload, current) {
           ? 2
           : 3;
   const ordered = [...(payload.providers || [])].sort((a, b) => rank(a) - rank(b));
-  const cards = ordered.map((connection) => providerCardMarkup(connection, current)).join("");
+  // Usable and key-waiting providers get a card; local runtimes that are not
+  // running here are one line each, since there is nothing to do with them.
+  const off = ordered.filter((connection) => rank(connection) === 3 && connection.is_local);
+  const cards = ordered
+    .filter((connection) => !off.includes(connection))
+    .map((connection) => providerCardMarkup(connection, current))
+    .join("");
+  const offRows = off
+    .map(
+      (connection) =>
+        `<div class="provider-off"><span class="provider-name">${escapeHtml(providerTitle(connection.provider))}</span>` +
+        `<span class="provider-url mono">${escapeHtml(connection.base_url || "")}</span>` +
+        `<span class="provider-state tone-idle">not running here</span></div>`
+    )
+    .join("");
   return (
     `<p class="panel-note">${defaultLine} Keys are stored only in <span class="mono">${escapeHtml(payload.credentials_file || "")}</span>, readable by you alone, and never sent back to this page.</p>` +
-    `<div class="provider-list">${cards}</div>`
+    `<div class="provider-list">${cards}</div>` +
+    (offRows ? `<div class="provider-off-list"><span class="lbl">Not running on this machine</span>${offRows}</div>` : "")
   );
 }
 
