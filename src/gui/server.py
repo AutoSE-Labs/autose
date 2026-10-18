@@ -195,6 +195,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         writers = {
             "/api/prompt": self._prompt,
             "/api/allowances": self._allowances,
+            "/api/plan": self._plan,
+            "/api/plan-review": self._plan_review,
             "/api/queue": self._queue,
             "/api/interrupt": self._interrupt,
             "/api/approval": self._approval,
@@ -249,6 +251,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
             approved=bool(body.get("approved")),
             reason=str(body.get("reason") or ""),
             scope=str(body.get("scope") or "once"),
+        )
+
+    def _plan(self, body: dict[str, Any]) -> dict[str, Any]:
+        identifier = str(body.get("id") or "")
+        if not identifier:
+            raise BridgeError("which plan? an id is required")
+        return self._bridge.resolve_plan(
+            identifier,
+            action=str(body.get("action") or ""),
+            feedback=str(body.get("feedback") or ""),
+            plan=str(body.get("plan") or ""),
+        )
+
+    def _plan_review(self, body: dict[str, Any]) -> dict[str, Any]:
+        return self._bridge.set_plan_review(
+            bool(body.get("enabled")), session_id=_session_of(body)
         )
 
     def _allowances(self, body: dict[str, Any]) -> dict[str, Any]:

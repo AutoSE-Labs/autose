@@ -25,6 +25,7 @@ from ..errors import AutoSEError
 from ..inference.base import ChatModel
 from ..inference.types import Usage
 from ..tuning import Tuning
+from .review import PlanReviewGate
 
 __all__ = [
     "WorkflowRequest",
@@ -77,6 +78,9 @@ class WorkflowRequest:
     #: this via `logic.prompt_overrides.resolve_prompt` rather than assuming
     #: any name is present.
     prompt_overrides: Mapping[str, str] = field(default_factory=dict)
+    #: Asked to approve, revise or replace the plan before Execute (DR-045).
+    #: ``None`` — the default — runs straight from Plan to Execute.
+    plan_review: PlanReviewGate | None = None
 
 
 @dataclass(frozen=True)

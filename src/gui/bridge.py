@@ -37,7 +37,9 @@ import secrets
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +72,7 @@ from logic.session import (
 from logic.tiers import SPARK, is_tier
 from logic.user_config import save_default_inference
 from logic.workflows import UnavailableTierError
+from logic.workflows.review import PlanDecision, PlanReview
 
 from .payloads import (
     change_payload,
@@ -226,6 +229,35 @@ class _Pending:
         }
 
 
+class _PlanPending:
+    """A plan parked for the person to review (DR-045)."""
+
+    def __init__(self, review: PlanReview) -> None:
+        self.id = secrets.token_hex(8)
+        self.review = review
+        self.answered = threading.Event()
+        self.decision: PlanDecision | None = None
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "plan": self.review.plan,
+            "requirements": [dict(item) for item in self.review.requirements],
+            "pass_number": self.review.pass_number,
+            "problem": self.review.problem,
+        }
+
+
+class _BridgePlanGate:
+    """The dashboard's ``PlanReviewGate``: parks the plan until answered."""
+
+    def __init__(self, ask: Callable[[PlanReview], PlanDecision]) -> None:
+        self._ask = ask
+
+    def review(self, review: PlanReview) -> PlanDecision:
+        return self._ask(review)
+
+
 class _Live:
     """One session open on the desk, with the turn state that belongs to it.
 
@@ -256,6 +288,10 @@ class _Live:
         # DR-044: tools the person said may run unasked for the rest of this
         # session. Per session, never global, and gone when the session closes.
         self.allowed_tools: set[str] = set()
+        # DR-045: whether staged turns stop for a plan review, and the plan
+        # waiting for one.
+        self.review_plans = False
+        self.plan_pending: _PlanPending | None = None
         #: The models of the provider this session switched to (DR-036), for
         #: the picker; ``None`` while it is still on the default provider.
         self.models: tuple[ModelInfo, ...] | None = None
@@ -612,6 +648,8 @@ class SessionBridge:
                     "queue": [],
                     "queue_held": False,
                     "allowed_tools": [],
+                    "review_plans": False,
+                    "pending_plan": None,
                     "context_limit": None,
                     "context_advice": None,
                     "model_info": None,
@@ -633,6 +671,8 @@ class SessionBridge:
             pending = [item.payload() for item in live.pending.values()]
             queued = live.queue_payload()
             allowed = sorted(live.allowed_tools)
+            plan_waiting = live.plan_pending.payload() if live.plan_pending else None
+            review_plans = live.review_plans
         history = session.history
         state.update(
             {
@@ -650,6 +690,8 @@ class SessionBridge:
                 "queue": queued["queue"],
                 "queue_held": queued["held"],
                 "allowed_tools": allowed,
+                "review_plans": review_plans,
+                "pending_plan": plan_waiting,
                 "context_limit": session.context_limit(),
                 # DR-034: one verdict about the served window, so the page can
                 # tell a deliberate cap from a window that will hurt.
@@ -700,6 +742,7 @@ class SessionBridge:
             "current": dict(live.current) if live.current else None,
             "waiting": len(live.pending),
             "queued": len(live.queue),
+            "plan_waiting": live.plan_pending is not None,
             "queue_held": live.queue_held,
             "turns": len(session.history),
             "total_tokens": session.usage.total_tokens,
@@ -894,6 +937,75 @@ class SessionBridge:
         if holder is not None and scope == "session" and approved:
             self._publish_for(holder, {"kind": "allowances", "tools": sorted(holder.allowed_tools)})
         return {"resolved": approval_id, "approved": approved, "scope": scope}
+
+    def set_plan_review(
+        self, enabled: bool, *, session_id: str | None = None
+    ) -> dict[str, Any]:
+        """Turn plan review on or off for a session's next turns (DR-045)."""
+        with self._lock:
+            live = self._target(session_id)
+            live.review_plans = enabled
+            live.session.review_plans_with(
+                _BridgePlanGate(partial(self._review_plan, live)) if enabled else None
+            )
+        return self._broadcast_state()
+
+    def resolve_plan(
+        self,
+        plan_id: str,
+        *,
+        action: str,
+        feedback: str = "",
+        plan: str = "",
+    ) -> dict[str, Any]:
+        """Answer a parked plan review (DR-045)."""
+        if action not in ("approve", "revise", "edit", "stop"):
+            raise BridgeError(f"'{action}' is not approve, revise, edit or stop")
+        if action == "revise" and not feedback.strip():
+            raise BridgeError("say what to change in the plan")
+        if action == "edit" and not plan.strip():
+            raise BridgeError("the edited plan is empty")
+        with self._lock:
+            pending = next(
+                (
+                    live.plan_pending
+                    for live in self._open.values()
+                    if live.plan_pending is not None and live.plan_pending.id == plan_id
+                ),
+                None,
+            )
+        if pending is None:
+            raise BridgeError("that plan is no longer waiting for a review", status=409)
+        pending.decision = PlanDecision(
+            action=action,  # type: ignore[arg-type]
+            feedback=feedback.strip(),
+            plan=plan,
+        )
+        pending.answered.set()
+        return {"resolved": plan_id, "action": action}
+
+    def _review_plan(self, live: _Live, review: PlanReview) -> PlanDecision:
+        """Park the plan and wait for the person, or for a stop (DR-045).
+
+        No timeout, unlike an approval: nothing has been changed yet, so a plan
+        left unanswered costs nothing but waiting, and a stop ends the wait.
+        """
+        pending = _PlanPending(review)
+        with self._lock:
+            live.plan_pending = pending
+            self._publish_for(live, {"kind": "plan_review", "review": pending.payload()})
+        while not pending.answered.wait(1.0):
+            if live.session.stop_requested:
+                pending.decision = PlanDecision.stop("the run was stopped at plan review")
+                break
+        decision = pending.decision or PlanDecision.stop("the plan review ended unanswered")
+        with self._lock:
+            if live.plan_pending is pending:
+                live.plan_pending = None
+            self._publish_for(
+                live, {"kind": "plan_review_closed", "id": pending.id, "action": decision.action}
+            )
+        return decision
 
     def revoke_allowance(
         self, tool: str, *, session_id: str | None = None
@@ -1320,6 +1432,10 @@ class SessionBridge:
     def _deny_pending(self, live: _Live, reason: str) -> None:
         with self._lock:
             waiting = list(live.pending.values())
+            plan = live.plan_pending
+        if plan is not None and plan.decision is None:
+            plan.decision = PlanDecision.stop(reason)
+            plan.answered.set()
         for pending in waiting:
             if pending.decision is None:
                 pending.decision = ApprovalDecision.deny(reason)

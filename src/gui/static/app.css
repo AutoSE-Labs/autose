@@ -1442,6 +1442,61 @@ select {
   cursor: pointer;
 }
 
+/* ---------- plan review (DR-045) ---------- */
+
+.plan-card {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--ink-soft);
+  border-left: 4px solid var(--ink);
+  box-shadow: 6px 6px 0 -1px var(--bone-2);
+}
+
+.plan-body {
+  max-height: 420px;
+  overflow-y: auto;
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: var(--bone);
+  border: 1px solid var(--line-soft);
+}
+
+.plan-problem {
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--signal-deep);
+}
+
+.plan-input {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--bone);
+  border: 1px solid var(--line);
+  resize: vertical;
+}
+
+.plan-editor {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.plan-review-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate);
+  cursor: pointer;
+}
+
 /* ---------- compact work card (DR-037) ---------- */
 
 .work-card.compact .thinking {

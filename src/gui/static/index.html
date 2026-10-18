@@ -109,6 +109,10 @@
           <textarea id="prompt" rows="2" spellcheck="true" aria-label="Describe your request"
             placeholder="Describe a change, a bug, or a question about this workspace. Plain English is fine."></textarea>
           <div class="composer-foot">
+            <!-- DR-045: stop after the plan, before anything is changed. -->
+            <label class="plan-review-toggle" title="Craft and Forge stop after planning so you can approve, change or edit the plan before any file is touched">
+              <input type="checkbox" id="review-plans" /> Review plan first
+            </label>
             <span class="composer-hint" id="composer-hint">ENTER ↵ STARTS · SHIFT+ENTER FOR A NEW LINE</span>
             <!-- DR-030: nothing caps a run any more, so stopping it is a
                    first-class control, not a page reload. -->
