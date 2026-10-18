@@ -17,6 +17,8 @@
     <aside class="rail" id="rail" aria-label="Worklog">
       <div class="rail-head"><span class="eyebrow"><span class="tick"></span>Worklog</span></div>
       <button id="new-session" class="new-task-button" type="button">+ New session</button>
+      <!-- DR-044: everything waiting on the person, from every session. -->
+      <section class="needs-you" id="needs-you" aria-label="Waiting for you" hidden></section>
       <div class="session-list" id="session-list"></div>
       <div class="rail-foot">
         <button class="rail-link" id="open-settings" type="button">Providers &amp; keys</button>
@@ -177,27 +179,6 @@ ollama pull qwen3:8b</code></pre>
       <div class="overlay-actions">
         <button class="ghost-button" id="setup-doctor" type="button">Machine check</button>
         <button class="primary-button" id="setup-retry" type="button">Look again</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="overlay" id="approval-overlay" hidden>
-    <div class="overlay-panel cropped approval-panel">
-      <span class="eyebrow"><span class="tick"></span>Waiting on you</span>
-      <h2 id="approval-title">Approve this call?</h2>
-      <p class="overlay-lede" id="approval-lede"></p>
-      <pre class="approval-args"><code id="approval-args"></code></pre>
-      <label class="field">
-        <span>Or refuse it, and say why
-          <small>The reason goes back to the model, which is how it tries something else instead of the same call
-            again.</small>
-        </span>
-        <input type="text" id="approval-reason" placeholder="e.g. stay off the network — read the vendored copy" />
-      </label>
-      <p class="approval-more" id="approval-more" hidden></p>
-      <div class="overlay-actions">
-        <button class="ghost-button" id="approval-deny" type="button">Refuse</button>
-        <button class="primary-button" id="approval-allow" type="button">Run it once</button>
       </div>
     </div>
   </div>

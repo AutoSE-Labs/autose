@@ -253,6 +253,9 @@ class _Live:
         # failed, so a stop means "wait", not "skip to the next one".
         self.queue: list[dict[str, Any]] = []
         self.queue_held = False
+        # DR-044: tools the person said may run unasked for the rest of this
+        # session. Per session, never global, and gone when the session closes.
+        self.allowed_tools: set[str] = set()
         #: The models of the provider this session switched to (DR-036), for
         #: the picker; ``None`` while it is still on the default provider.
         self.models: tuple[ModelInfo, ...] | None = None
@@ -608,6 +611,7 @@ class SessionBridge:
                     "pending_approvals": [],
                     "queue": [],
                     "queue_held": False,
+                    "allowed_tools": [],
                     "context_limit": None,
                     "context_advice": None,
                     "model_info": None,
@@ -628,6 +632,7 @@ class SessionBridge:
             answer = turn_view[3] if running else ""
             pending = [item.payload() for item in live.pending.values()]
             queued = live.queue_payload()
+            allowed = sorted(live.allowed_tools)
         history = session.history
         state.update(
             {
@@ -644,6 +649,7 @@ class SessionBridge:
                 # DR-042: what waits for this session's running turn.
                 "queue": queued["queue"],
                 "queue_held": queued["held"],
+                "allowed_tools": allowed,
                 "context_limit": session.context_limit(),
                 # DR-034: one verdict about the served window, so the page can
                 # tell a deliberate cap from a window that will hurt.
@@ -838,33 +844,69 @@ class SessionBridge:
         return {"stopping": True, "session": live.id}
 
     def resolve_approval(
-        self, approval_id: str, *, approved: bool, reason: str = ""
+        self,
+        approval_id: str,
+        *,
+        approved: bool,
+        reason: str = "",
+        scope: str = "once",
     ) -> dict[str, Any]:
         """Answer one parked approval-required call (DR-012).
 
         Found by id across every open session, because the browser answers the
         call it was shown and should not have to say which card it came from.
         """
+        if scope not in ("once", "session"):
+            raise BridgeError(f"'{scope}' is not once or session")
         with self._lock:
             pending = None
+            holder = None
             for live in self._open.values():
                 pending = live.pending.get(approval_id)
                 if pending is not None:
+                    holder = live
                     break
+            if pending is not None and holder is not None and approved and scope == "session":
+                # DR-044: the answer covers this call and every later one of
+                # the same tool in this session.
+                holder.allowed_tools.add(pending.request.tool_name)
         if pending is None:
             # Already resolved, or timed out while the browser was deciding.
             raise BridgeError(
                 "that approval is no longer waiting for an answer", status=409
             )
         pending.decision = (
-            ApprovalDecision.allow(reason.strip())
+            ApprovalDecision.allow(
+                reason.strip()
+                or (
+                    f"the user allowed '{pending.request.tool_name}' for the rest "
+                    "of this session"
+                    if scope == "session"
+                    else "the user approved this call"
+                )
+            )
             if approved
             else ApprovalDecision.deny(
                 reason.strip() or "the user declined this call in the dashboard"
             )
         )
         pending.answered.set()
-        return {"resolved": approval_id, "approved": approved}
+        if holder is not None and scope == "session" and approved:
+            self._publish_for(holder, {"kind": "allowances", "tools": sorted(holder.allowed_tools)})
+        return {"resolved": approval_id, "approved": approved, "scope": scope}
+
+    def revoke_allowance(
+        self, tool: str, *, session_id: str | None = None
+    ) -> dict[str, Any]:
+        """Take back an "allow for this session" (DR-044)."""
+        with self._lock:
+            live = self._target(session_id)
+            if tool not in live.allowed_tools:
+                raise BridgeError(f"'{tool}' is not allowed in this session", status=404)
+            live.allowed_tools.discard(tool)
+            tools = sorted(live.allowed_tools)
+        self._publish_for(live, {"kind": "allowances", "tools": tools})
+        return {"session": live.id, "tools": tools}
 
     def select_model(
         self,
@@ -1241,6 +1283,15 @@ class SessionBridge:
             # not put a decision to the browser about work that is ending.
             return ApprovalDecision.deny(
                 "the user stopped this run before the call was made"
+            )
+        with self._lock:
+            standing = request.tool_name in live.allowed_tools
+        if standing:
+            # DR-044: the person already said yes to this tool for the rest of
+            # the session. The executor still records the request and the
+            # answer as events, so the call is never invisible.
+            return ApprovalDecision.allow(
+                f"'{request.tool_name}' was allowed for the rest of this session"
             )
         pending = _Pending(request)
         with self._lock:

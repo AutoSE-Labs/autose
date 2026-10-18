@@ -1214,3 +1214,55 @@ def test_an_approval_is_always_announced_when_the_window_is_elsewhere():
     block = script[script.index('case "approval":') : script.index('case "approval_closed":')]
     assert "notifyAbout(" in block and "urgent: true" in block
 
+
+
+# -- DR-044: allow a tool for the rest of the session ---------------------------
+
+
+def test_allowing_a_tool_for_the_session_stops_asking_about_it(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(tool_call("run_command", command="echo one")),
+            calls(tool_call("run_command", command="echo two")),
+            answer("ran both"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run two commands")
+    first = _drain(subscriber, "approval")["request"]
+    assert bridge.resolve_approval(first["id"], approved=True, scope="session")["scope"] == "session"
+    turn = _drain(subscriber, "turn")["turn"]
+    assert turn["answer"] == "ran both"
+    # Only the first call was put to the person; the second ran on the allowance.
+    asked = [
+        frame
+        for _, frame in bridge.subscribe(since=0).frames.queue
+        if frame.get("kind") == "approval"
+    ]
+    assert len(asked) == 1
+    assert bridge.snapshot()["allowed_tools"] == ["run_command"]
+
+
+def test_an_allowance_can_be_taken_back(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command="echo one")), answer("done"), answer("x")],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run it")
+    request = _drain(subscriber, "approval")["request"]
+    bridge.resolve_approval(request["id"], approved=True, scope="session")
+    _drain(subscriber, "turn")
+    assert bridge.revoke_allowance("run_command")["tools"] == []
+    with pytest.raises(BridgeError) as caught:
+        bridge.revoke_allowance("run_command")
+    assert caught.value.status == 404
+
+
+def test_an_unknown_approval_scope_is_refused(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    with pytest.raises(BridgeError):
+        bridge.resolve_approval("nope", approved=True, scope="forever")
