@@ -5075,89 +5075,19 @@ select {
   }
 }
 
-.yolo-banner {
-  position: relative;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 46px;
-  padding: 0 14px 0 64px;
-  background: var(--red);
-  color: #ffffff;
-  font-size: 14px;
-}
-
-:root[data-theme="dark"] .yolo-banner {
-  color: #11111b;
-}
-
-/* Hazard tape at the start of the bar. */
-.yolo-banner::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 50px;
-  background: repeating-linear-gradient(-45deg, #f9e2af 0 9px, #11111b 9px 18px);
-}
-
-.yolo-banner[hidden] {
-  display: none;
-}
-
-.yolo-mark {
-  display: grid;
-  place-items: center;
-}
-
-.yolo-banner strong {
-  font-size: 15px;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.yolo-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.yolo-off {
-  margin-left: auto;
-  flex: none;
-  padding: 7px 18px;
-  border: 0;
-  border-radius: 999px;
-  background: #ffffff;
-  color: var(--red);
-  font: inherit;
-  font-weight: 800;
-  font-size: 14px;
-}
-
-:root[data-theme="dark"] .yolo-off {
-  background: #11111b;
-  color: var(--red);
-}
-
-.yolo-off:hover {
-  filter: brightness(0.95);
-}
-
 /* The whole window is framed in red while nothing asks. */
 body.yolo .app-shell {
-  height: calc(100vh - 46px);
-  box-shadow: inset 0 0 0 3px var(--red);
+  box-shadow: inset 0 0 0 4px var(--red);
 }
 
-/* ---------- Steps as a timeline, in the route's shape ---------- */
+/* ---------- Steps as a timeline, in the route's shape ----------
+ * One x for everything on the line: the line, the stage markers and every
+ * dot are placed on --rail-x, never left to a grid column to land near it. */
 
 .steps {
+  --rail-x: 14px;
   position: relative;
-  padding-left: 2px;
+  padding-left: 0;
 }
 
 /* The line every step hangs on. */
@@ -5166,16 +5096,18 @@ body.yolo .app-shell {
   position: absolute;
   top: 12px;
   bottom: 12px;
-  left: 13px;
-  border-left: 2px solid var(--pencil);
+  left: calc(var(--rail-x) - 1px);
+  width: 2px;
+  background: var(--pencil);
 }
 
 .steps .step-group {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  min-height: 26px;
   margin: 14px 0 6px;
+  padding-left: 34px;
   letter-spacing: normal;
   text-transform: none;
   font-family: var(--font-body);
@@ -5189,13 +5121,15 @@ body.yolo .app-shell {
 }
 
 .sg-dot {
-  position: relative;
+  position: absolute;
+  left: calc(var(--rail-x) - 12px);
+  top: 50%;
   z-index: 1;
   display: grid;
   place-items: center;
-  flex: none;
   width: 24px;
   height: 24px;
+  margin-top: -12px;
   border-radius: 50%;
   background: var(--pen);
   color: var(--on-pen);
@@ -5216,10 +5150,11 @@ body.yolo .app-shell {
 }
 
 .steps .step-head {
-  grid-template-columns: 24px 22px minmax(0, 1fr) auto;
+  position: relative;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px 5px 2px;
+  padding: 5px 8px 5px 34px;
   border-radius: 8px;
   color: var(--text);
 }
@@ -5229,14 +5164,16 @@ body.yolo .app-shell {
 }
 
 .step-dot {
-  position: relative;
+  position: absolute;
+  left: calc(var(--rail-x) - 5px);
+  top: 50%;
   z-index: 1;
-  justify-self: center;
   width: 10px;
   height: 10px;
+  margin-top: -5px;
   border-radius: 50%;
   background: var(--sheet);
-  box-shadow: 0 0 0 2px var(--go);
+  box-shadow: inset 0 0 0 2px var(--go);
 }
 
 .steps .act-icon {
@@ -5252,13 +5189,13 @@ body.yolo .app-shell {
 
 .steps .step.status-running .step-dot {
   background: var(--pen);
-  box-shadow: 0 0 0 2px var(--pen);
+  box-shadow: none;
   animation: blink 1.2s ease-in-out infinite;
 }
 
 .steps .step.status-failed .step-dot {
   background: var(--red);
-  box-shadow: 0 0 0 2px var(--red);
+  box-shadow: none;
 }
 
 .steps .step.status-failed .step-meta {
@@ -5266,7 +5203,7 @@ body.yolo .app-shell {
 }
 
 .steps .step.status-refused .step-dot {
-  box-shadow: 0 0 0 2px var(--pencil);
+  box-shadow: inset 0 0 0 2px var(--pencil);
 }
 
 .steps .step-meta {
@@ -5279,7 +5216,7 @@ body.yolo .app-shell {
 }
 
 .steps .step-body {
-  margin: 4px 0 8px 32px;
+  margin: 4px 0 8px 34px;
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--sheet-2);
@@ -5299,11 +5236,8 @@ body.yolo .app-shell {
 
 /* A note: a quiet line on the timeline, not a box. */
 .steps .step.note {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  align-items: baseline;
-  gap: 8px;
-  padding: 3px 8px 3px 2px;
+  display: block;
+  padding: 3px 8px 3px 34px;
   border: 0;
   background: transparent;
   color: var(--text-2);
@@ -5311,9 +5245,10 @@ body.yolo .app-shell {
 }
 
 .steps .step.note .step-dot {
+  left: calc(var(--rail-x) - 3px);
   width: 6px;
   height: 6px;
-  align-self: center;
+  margin-top: -3px;
   background: var(--pencil);
   box-shadow: none;
 }
@@ -5333,7 +5268,7 @@ body.yolo .app-shell {
 .steps .since-mark {
   position: relative;
   z-index: 1;
-  margin: 8px 0 8px 30px;
+  margin: 8px 0 8px 34px;
 }
 
 /* ---------- the plan card and the queue ---------- */
@@ -5782,6 +5717,80 @@ body.yolo .app-shell {
 :root[data-theme="dark"] .empty-box,
 :root[data-theme="dark"] .knowledge-panel .inspector-empty {
   border-color: var(--surface1);
+}
+
+/* ---------- the machine check ---------- */
+
+#doctor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.doctor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.doctor-section > .lbl {
+  margin-left: 2px;
+}
+
+.doctor-tag {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.doctor-tag.good {
+  background: var(--go-soft);
+  color: var(--go-text);
+}
+
+.doctor-tag.idle {
+  background: var(--sheet-2);
+  color: var(--text-2);
+}
+
+.doctor-tag.bad {
+  background: var(--red-soft);
+  color: var(--red-text);
+}
+
+.doctor-model {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--sheet-2);
+  font-size: 13px;
+}
+
+.doctor-model .doctor-tag {
+  margin-left: auto;
+}
+
+.doctor-meta {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.doctor-error {
+  margin: 6px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--red-text);
+  overflow-wrap: anywhere;
+}
+
+.doctor-path {
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 /* ---------- life: small signs of what is going on (life.js) ---------- */
