@@ -1012,7 +1012,39 @@ function renderStatus() {
 
 /* ---------- the rail ---------- */
 
+/* The session whose name is being edited in the list, if any. */
+let renamingId = "";
+
+function renameRowMarkup(id, title) {
+  return `<div class="sheet-row renaming"><form class="rename-form" data-rename-form="${escapeHtml(id)}">` +
+    `<input class="rename-input" type="text" maxlength="80" value="${escapeHtml(title)}" aria-label="Session name" />` +
+    `<span class="rename-hint">Enter saves · Esc cancels · empty goes back to the first request</span></form></div>`;
+}
+
+function startRename(id) {
+  renamingId = id;
+  renderRail();
+  const input = dom.sessionList.querySelector(".rename-input");
+  if (input) {
+    input.focus();
+    input.select();
+  }
+}
+
+async function finishRename(id, name) {
+  if (renamingId !== id) return;
+  renamingId = "";
+  const result = await post("/api/session", { action: "rename", id, name });
+  if (result) {
+    stored = result.sessions || stored;
+    refreshSessions();
+  }
+  renderRail();
+}
+
 function renderRail() {
+  // A name being typed is not repainted away by the rail's clock.
+  if (renamingId && dom.sessionList.contains(document.activeElement)) return;
   if (!document.hidden) unseen.delete(focusId());
   renderWaitingCount();
   renderInbox();
@@ -1214,6 +1246,7 @@ function openRowMarkup(entry) {
     if (strip.requirements && strip.requirements.failed) tone = "failed";
   }
   const auto = entry.automation ? (entry.automation.type === "watcher" ? " · watcher" : " · scheduled") : "";
+  if (renamingId === entry.session_id) return renameRowMarkup(entry.session_id, entry.title);
   return `<div class="sheet-row${active ? " active" : ""}${needsYou ? " waiting" : ""}">
       ${needsYou ? `<svg class="waitline" aria-hidden="true"><rect x="1" y="1" rx="10" ry="10"></rect></svg>` : ""}
       <button class="sheet-main" type="button" data-focus="${escapeHtml(entry.session_id)}" title="${escapeHtml(entry.title)}">
@@ -1222,6 +1255,7 @@ function openRowMarkup(entry) {
         <span class="sheet-title">${escapeHtml(entry.title)}</span>
         <span class="sheet-state ${tone}">${escapeHtml(line)}</span>
       </button>
+      <button class="session-rename" type="button" data-rename="${escapeHtml(entry.session_id)}" title="Rename this session" aria-label="Rename"><svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 4.5l3 3L7 16H4v-3z"/></svg></button>
       <button class="session-close" type="button" data-close="${escapeHtml(entry.session_id)}" title="${entry.running ? "Stop it before closing it" : "Close this session; it stays on disk"}">×</button>
     </div>`;
 }
@@ -1229,6 +1263,7 @@ function openRowMarkup(entry) {
 function storedRowMarkup(record) {
   const armed = armedDelete === record.id;
   const failed = record.stop_reason && record.stop_reason !== "completed";
+  if (renamingId === record.id) return renameRowMarkup(record.id, record.title || "");
   return `<div class="sheet-row stored">
       <button class="sheet-main" type="button" data-resume="${escapeHtml(record.id)}" title="${escapeHtml(record.title)}">
         ${tierBadgeMarkup(record.tier, "closed")}
@@ -1236,6 +1271,7 @@ function storedRowMarkup(record) {
         <span class="sheet-title">${escapeHtml(record.title || "(no title)")}</span>
         <span class="sheet-state${failed ? " failed" : ""}">${plural(record.turns, "run")} · ${formatCount(record.total_tokens)} tok</span>
       </button>
+      <button class="session-rename" type="button" data-rename="${escapeHtml(record.id)}" title="Rename this session" aria-label="Rename"><svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 4.5l3 3L7 16H4v-3z"/></svg></button>
       <button class="session-delete${armed ? " armed" : ""}" type="button" data-delete="${escapeHtml(record.id)}" title="${armed ? "Click again to delete" : "Delete this saved session"}">${armed ? "!" : "×"}</button>
     </div>`;
 }
@@ -2953,6 +2989,12 @@ el("inbox-list").addEventListener("click", (event) => {
 });
 
 dom.sessionList.addEventListener("click", (event) => {
+  const rename = event.target.closest("[data-rename]");
+  if (rename) {
+    startRename(rename.dataset.rename);
+    return;
+  }
+  if (event.target.closest(".rename-form")) return;
   const remove = event.target.closest("[data-delete]");
   if (remove) {
     const id = remove.dataset.delete;
@@ -2993,6 +3035,34 @@ document.addEventListener("keydown", (event) => {
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refreshState();
+});
+
+dom.sessionList.addEventListener("dblclick", (event) => {
+  const row = event.target.closest(".sheet-title");
+  const owner = row && row.closest(".sheet-row");
+  const button = owner && owner.querySelector("[data-rename]");
+  if (button) startRename(button.dataset.rename);
+});
+
+dom.sessionList.addEventListener("submit", (event) => {
+  const form = event.target.closest("[data-rename-form]");
+  if (!form) return;
+  event.preventDefault();
+  finishRename(form.dataset.renameForm, form.querySelector("input").value.trim());
+});
+
+dom.sessionList.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !event.target.closest(".rename-form")) return;
+  event.stopPropagation();
+  renamingId = "";
+  renderRail();
+});
+
+dom.sessionList.addEventListener("focusout", (event) => {
+  const form = event.target.closest && event.target.closest("[data-rename-form]");
+  if (form && renamingId === form.dataset.renameForm) {
+    finishRename(form.dataset.renameForm, form.querySelector("input").value.trim());
+  }
 });
 
 /* ---------- resizable panels ---------- */

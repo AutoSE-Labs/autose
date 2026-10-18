@@ -1418,3 +1418,25 @@ def test_a_strip_lane_keeps_only_the_last_half_hour():
     live.mark("working", at=20.0 + LANE_SECONDS + 5)
     # The state in force when the window opens is kept; older ones are not.
     assert [status for _, status in live.lane] == ["idle", "working"]
+
+
+# -- renaming a session ------------------------------------------------------------
+
+
+def test_a_session_can_be_renamed_open_or_stored(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("hello")])
+    subscriber = bridge.subscribe()
+    first = bridge.snapshot()["session_id"]
+    bridge.submit("say hello")
+    _drain(subscriber, "turn")
+    bridge.rename_session(first, "  Greeting   test ")
+    open_row = next(item for item in bridge.snapshot()["open"] if item["session_id"] == first)
+    assert open_row["title"] == "Greeting test" and open_row["named"]
+    stored = next(item for item in bridge.sessions()["sessions"] if item["id"] == first)
+    assert stored["name"] == "Greeting test"
+    # An empty name goes back to the first request.
+    bridge.rename_session(first, "")
+    open_row = next(item for item in bridge.snapshot()["open"] if item["session_id"] == first)
+    assert open_row["title"] == "say hello" and not open_row["named"]
+    with pytest.raises(BridgeError):
+        bridge.rename_session("no-such-session", "x")
