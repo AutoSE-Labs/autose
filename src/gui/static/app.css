@@ -110,40 +110,44 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* The same sheet as a cyanotype. */
+/* Dark: Catppuccin Mocha. Crust is the table, Base the sheets, Surface the
+ * rules; Blue is the pen and Lavender its deep shade. Small text that is
+ * not Text or Subtext uses the palette's lighter accents, all over 4.5:1 on
+ * Base. */
 :root[data-theme="dark"] {
-  --paper: #081a2e;
-  --sheet: #12335a;
-  --sheet-2: #163b66;
-  --grid: rgba(207, 227, 255, 0.045);
-  --grid-2: rgba(207, 227, 255, 0.085);
-  --edge: #2a5a8e;
-  --edge-2: #2e5d92;
-  --pencil: #3c6698;
-  --pen: #8fb0ff;
-  --pen-deep: #cfe3ff;
-  --pen-soft: #1b4373;
-  --text: #eef4ff;
-  --text-2: #a9bddb;
-  --red: #ff8a73;
-  --red-soft: #3a2a33;
-  --go: #5fe3a1;
-  --go-soft: #133a33;
-  --go-text: #5fe3a1;
-  --red-text: #ff9a86;
-  --tok-string: #8fe3b4;
-  --tok-number: #ffc285;
-  --tok-call: #d2b6ff;
-  --on-pen: #0e2a47;
-  --code-bg: #0a1f36;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 16px 36px -16px rgba(0, 0, 0, 0.8);
-  --scrim: rgba(4, 14, 26, 0.55);
-  --night: rgba(0, 0, 0, 0.24);
-  --frame: #4474ad;
-  --frame-rule: rgba(143, 176, 255, 0.2);
-  --stack: #03101e;
-  --cursor-fill: #ffffff;
-  --cursor-ring: #8fb0ff;
+  --paper: #11111b;       /* crust */
+  --sheet: #1e1e2e;       /* base */
+  --sheet-2: #181825;     /* mantle */
+  --grid: rgba(180, 190, 254, 0.035);
+  --grid-2: rgba(180, 190, 254, 0.07);
+  --edge: #313244;        /* surface0 */
+  --edge-2: #45475a;      /* surface1 */
+  --pencil: #585b70;      /* surface2 */
+  --pen: #89b4fa;         /* blue */
+  --pen-deep: #b4befe;    /* lavender */
+  --pen-soft: #2a2f4a;    /* blue over base, solid */
+  --text: #cdd6f4;        /* text */
+  --text-2: #a6adc8;      /* subtext0 */
+  --red: #f38ba8;         /* red */
+  --red-soft: #3a2433;
+  --go: #a6e3a1;          /* green */
+  --go-soft: #24332c;
+  --go-text: #a6e3a1;
+  --red-text: #f38ba8;
+  --tok-string: #a6e3a1;  /* green */
+  --tok-number: #fab387;  /* peach */
+  --tok-call: #cba6f7;    /* mauve */
+  --on-pen: #11111b;
+  --code-bg: #181825;     /* mantle */
+  --code-text: #cdd6f4;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 36px -16px rgba(0, 0, 0, 0.85);
+  --scrim: rgba(17, 17, 27, 0.66);
+  --night: rgba(0, 0, 0, 0.28);
+  --frame: #45475a;       /* surface1 */
+  --frame-rule: rgba(180, 190, 254, 0.12);
+  --stack: #0a0a12;
+  --cursor-fill: #cdd6f4;
+  --cursor-ring: #89b4fa;
   color-scheme: dark;
 }
 
@@ -191,7 +195,7 @@ body {
 }
 
 :root[data-theme="dark"] body {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Ccircle cx='9' cy='9' r='5.5' fill='white' stroke='%238fb0ff' stroke-width='2'/%3E%3C/svg%3E") 9 9, auto;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Ccircle cx='9' cy='9' r='5.5' fill='white' stroke='%2389b4fa' stroke-width='2'/%3E%3C/svg%3E") 9 9, auto;
 }
 
 /* Over anything you can press, the dot opens into a soft ring. */
@@ -214,7 +218,7 @@ label,
 :root[data-theme="dark"] [role="tab"],
 :root[data-theme="dark"] [data-focus],
 :root[data-theme="dark"] [data-resume] {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Ccircle cx='14' cy='14' r='10' fill='white' fill-opacity='0.14' stroke='%238fb0ff' stroke-width='2'/%3E%3Ccircle cx='14' cy='14' r='2.5' fill='white'/%3E%3C/svg%3E") 14 14, pointer;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Ccircle cx='14' cy='14' r='10' fill='white' fill-opacity='0.14' stroke='%2389b4fa' stroke-width='2'/%3E%3Ccircle cx='14' cy='14' r='2.5' fill='white'/%3E%3C/svg%3E") 14 14, pointer;
 }
 
 button:disabled {
