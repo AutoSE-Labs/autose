@@ -813,7 +813,7 @@ def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
 
 def test_the_dashboard_fetches_nothing_from_the_network():
     """Local-first is a property of the page too, not only of inference."""
-    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js"):
+    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js"):
         # The SVG namespace inside an inline data: image is a name the SVG
         # parser requires, never a request, so it is the one URL allowed.
         source = (
@@ -1127,7 +1127,7 @@ def test_no_page_script_writes_inline_styles():
     """The CSP is default-src 'self' (DR-029), which drops inline style
     attributes without a word: a bar drawn with style="height:…" renders as
     nothing. Sizes go in SVG attributes or classes instead (DR-041)."""
-    for name in ("app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js"):
+    for name in ("app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js"):
         source = (STATIC_ROOT / name).read_text(encoding="utf-8")
         assert 'style="' not in source, f"{name} writes an inline style attribute"
 
