@@ -2976,6 +2976,12 @@ el("toggle-inspector").addEventListener("click", () => {
   setInspectorOpen(!dom.shell.classList.contains("inspector-open"));
 });
 
+/* Double-clicking a changed file opens it in the diff viewer. */
+el("inspector-body").addEventListener("dblclick", (event) => {
+  const change = event.target.closest("[data-toggle-change]");
+  if (change) openDiff(Number(change.dataset.turn), change.dataset.path);
+});
+
 el("inspector-tabs").addEventListener("click", (event) => {
   const tab = event.target.closest("[data-inspector-tab]");
   if (!tab) return;
@@ -2984,6 +2990,11 @@ el("inspector-tabs").addEventListener("click", (event) => {
 });
 
 el("inspector-body").addEventListener("click", (event) => {
+  const viewer = event.target.closest("[data-open-diff]");
+  if (viewer) {
+    openDiff(Number(viewer.dataset.turn), viewer.dataset.path);
+    return;
+  }
   const change = event.target.closest("[data-toggle-change]");
   if (change) {
     toggleChange(change.dataset.toggleChange, Number(change.dataset.turn));

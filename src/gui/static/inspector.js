@@ -178,10 +178,15 @@ function requirementsPanelMarkup(view) {
   const rows = view.requirements
     .map((item, index) => {
       const trail = journey
-        .map((step) => {
+        .map((step, position) => {
           const status = step.statuses[item.id];
           if (!status) return "";
-          return `<span class="req-step tone-${requirementTone(status)}" title="${escapeHtml(step.title)}: ${escapeHtml(status)}">${escapeHtml(step.title)} · ${escapeHtml(status)}</span>`;
+          // The step that first lists a requirement wrote it; "Not Started"
+          // there is true but reads as if the plan itself never ran.
+          const written = position === 0 && status === "Not Started";
+          const word = written ? "written" : status;
+          const tone = written ? "work" : requirementTone(status);
+          return `<span class="req-step tone-${tone}" title="${escapeHtml(step.title)}: ${escapeHtml(written ? "wrote this requirement" : status)}">${escapeHtml(step.title)} · ${escapeHtml(word)}</span>`;
         })
         .filter(Boolean)
         .join(`<span class="req-arrow">→</span>`);
@@ -243,7 +248,7 @@ function changesPanelMarkup(view) {
       const diffs = view.diffs.get(turn.index);
       const files = turn.files
         .map((file, position) => {
-          const symbol = `<span class="rev-sym"><span>${position + 1}</span></span>`;
+          const symbol = changeBadgeMarkup({ kind: file.kind, reverted: file.undone });
           if (file.undone) {
             return (
               `<div class="step tool rev-undone" title="Undone: the file was put back as it was">` +
@@ -255,14 +260,17 @@ function changesPanelMarkup(view) {
           const key = `${turn.index}:${file.path}`;
           const open = view.open.has(key);
           const change = diffs && diffs.find((item) => item.path === file.path);
+          // The same table as the diff viewer, and a way into the viewer itself.
           const body = open
             ? change
-              ? `<pre class="diff-lines inline">${diffRowsMarkup(change.diff)}</pre>`
+              ? `<div class="inline-diff">${unifiedMarkup(parseDiff(change.diff || ""))}</div>` +
+                `<div class="inline-diff-actions"><button type="button" class="inline-button" data-open-diff="1" data-turn="${turn.index}" data-path="${escapeHtml(file.path)}">Open in diff viewer</button>` +
+                `<span class="inline-diff-hint">or double-click the file</span></div>`
               : `<div class="step-pending">Loading the diff…</div>`
             : "";
           return (
             `<div class="step tool${open ? " open" : ""}">` +
-            `<button type="button" class="step-head" data-toggle-change="${escapeHtml(key)}" data-turn="${turn.index}" aria-expanded="${open}">` +
+            `<button type="button" class="step-head" data-toggle-change="${escapeHtml(key)}" data-turn="${turn.index}" data-path="${escapeHtml(file.path)}" aria-expanded="${open}" title="Click for the diff here; double-click to open it in the diff viewer">` +
             symbol +
             `<span class="step-title mono">${escapeHtml(elideMiddle(file.path, 46))}</span>` +
             `<span class="step-meta"><span class="added">+${file.added}</span> <span class="removed">−${file.removed}</span>${file.kind && file.kind !== "modified" ? ` · ${escapeHtml(file.kind)}` : ""}</span>` +
@@ -282,24 +290,6 @@ function changesPanelMarkup(view) {
     })
     .join("");
   return summary + live + turns;
-}
-
-function diffRowsMarkup(diff) {
-  const rows = String(diff || "")
-    .split("\n")
-    .map((line) => {
-      const kind =
-        line.startsWith("+") && !line.startsWith("+++")
-          ? "add"
-          : line.startsWith("-") && !line.startsWith("---")
-            ? "del"
-            : line.startsWith("@@") || line.startsWith("+++") || line.startsWith("---")
-              ? "meta"
-              : "";
-      return `<span class="row ${kind}">${escapeHtml(line) || " "}</span>`;
-    })
-    .join("");
-  return rows || `<span class="row meta">(no textual diff)</span>`;
 }
 
 /* ---------- usage (DR-041) ---------- */
