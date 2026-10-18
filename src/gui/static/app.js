@@ -1042,7 +1042,66 @@ async function finishRename(id, name) {
   renderRail();
 }
 
+/* ---------- the session bar ---------- */
+
+function renderSessionBar() {
+  if (!state) return;
+  const id = focusId();
+  const entry = openEntry(id);
+  const title = entry ? entry.title : "New session";
+  setHtml(el("sb-badge"), tierBadgeMarkup((entry && entry.tier) || state.tier || "", entry && entry.running ? "busy" : ""));
+  el("sb-no").textContent = id ? sheetNo(id) : "";
+  el("sb-title").textContent = title;
+  el("sb-name").title = `Rename this session (${title})`;
+  const allowed = (state.allowances || []).length;
+  el("sb-allowed-count").textContent = allowed ? String(allowed) : "";
+  el("open-allowed").classList.toggle("has-items", allowed > 0);
+  el("open-allowed").title = allowed
+    ? `${plural(allowed, "rule")}: what runs without asking in this session`
+    : "Nothing runs without asking yet; add a rule here";
+  const files = new Set();
+  (state.history || []).forEach((turn) => (turn.changes || []).forEach((change) => files.add(change.path)));
+  el("sb-changes-count").textContent = files.size ? String(files.size) : "";
+  el("open-diff").disabled = !files.size;
+  el("open-diff").title = files.size
+    ? `${plural(files.size, "file")} changed in this session: see the diffs`
+    : "Nothing changed in this session yet";
+  el("clear-history").disabled = !(state.history || []).length || Boolean(state.running);
+}
+
+function startBarRename() {
+  const entry = openEntry(focusId());
+  el("sb-rename-input").value = entry ? entry.title : "";
+  el("sb-name").hidden = true;
+  el("sb-rename").hidden = false;
+  el("sb-rename-input").focus();
+  el("sb-rename-input").select();
+}
+
+async function finishBarRename(save) {
+  if (el("sb-rename").hidden) return;
+  el("sb-rename").hidden = true;
+  el("sb-name").hidden = false;
+  if (!save) return;
+  const result = await post("/api/session", { action: "rename", id: focusId(), name: el("sb-rename-input").value.trim() });
+  if (result) refreshSessions();
+}
+
+el("sb-name").addEventListener("click", startBarRename);
+el("sb-rename").addEventListener("submit", (event) => {
+  event.preventDefault();
+  finishBarRename(true);
+});
+el("sb-rename-input").addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.stopPropagation();
+    finishBarRename(false);
+  }
+});
+el("sb-rename-input").addEventListener("blur", () => finishBarRename(true));
+
 function renderRail() {
+  renderSessionBar();
   // A name being typed is not repainted away by the rail's clock.
   if (renamingId && dom.sessionList.contains(document.activeElement)) return;
   if (!document.hidden) unseen.delete(focusId());
@@ -2243,7 +2302,10 @@ function renderNeedsYou() {
   // What is waiting lives in the set itself ("Waiting for you"); this box is
   // the standing orders: what runs without asking in this session.
   const allowed = (state && state.allowances) || [];
-  box.hidden = !allowed.length;
+  // Session-specific: shown on the session bar's Allowed button, not in the
+  // global session list.
+  box.hidden = true;
+  renderSessionBar();
   box.innerHTML = allowed.length
     ? `<div class="needs-allowed"><span>Runs without asking here <button type="button" class="inline-link" data-manage-allowed="1">Manage</button></span>` +
       allowed

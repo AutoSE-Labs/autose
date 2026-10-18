@@ -875,8 +875,11 @@ select {
 .session-delete {
   display: grid;
   place-items: center;
+  align-self: center;
   flex: none;
   width: 28px;
+  height: 28px;
+  margin-right: 4px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -4683,8 +4686,10 @@ select {
 .session-rename {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  align-self: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
   border-radius: 7px;
@@ -4885,6 +4890,175 @@ select {
 
 :root[data-theme="dark"] .section-button.on {
   background: var(--sheet);
+}
+
+/* ---------- the session bar: what belongs to the session on screen ---------- */
+
+.session-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto 8px;
+  padding: 2px 4px;
+}
+
+.sb-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.sb-who .tier-badge {
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  border-radius: 8px;
+}
+
+.sb-no {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  color: var(--text-2);
+}
+
+.sb-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.sb-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-name svg {
+  flex: none;
+  color: var(--text-2);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.sb-name:hover,
+.sb-name:focus-visible {
+  background: var(--sheet-2);
+}
+
+.sb-name:hover svg,
+.sb-name:focus-visible svg {
+  opacity: 1;
+}
+
+.sb-rename {
+  flex: 1;
+  min-width: 0;
+}
+
+.sb-rename input {
+  width: 100%;
+  max-width: 420px;
+  padding: 5px 9px;
+  border: 1.5px solid var(--pen);
+  border-radius: 8px;
+  background: var(--sheet);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+}
+
+.sb-rename[hidden],
+.sb-name[hidden] {
+  display: none;
+}
+
+.sb-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
+}
+
+.sb-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--edge-2);
+  border-radius: 999px;
+  background: var(--sheet);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sb-button:hover:not(:disabled) {
+  border-color: var(--pen);
+  color: var(--pen-deep);
+}
+
+.sb-button:disabled {
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 400;
+}
+
+.sb-button.has-items {
+  color: var(--pen-deep);
+}
+
+.sb-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--pen-soft);
+  color: var(--pen-deep);
+  font-size: 11.5px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.sb-count:empty {
+  display: none;
+}
+
+:root[data-theme="dark"] .sb-button {
+  border-color: transparent;
+  background: var(--surface0);
+}
+
+:root[data-theme="dark"] .sb-button:disabled {
+  background: transparent;
+}
+
+:root[data-theme="dark"] .sb-button:hover:not(:disabled) {
+  background: var(--surface1);
+}
+
+@media (max-width: 760px) {
+  .sb-label,
+  .sb-no {
+    display: none;
+  }
+
+  .sb-button {
+    padding: 6px 8px;
+  }
 }
 
 /* ---------- life: small signs of what is going on (life.js) ---------- */
