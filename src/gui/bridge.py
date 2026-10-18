@@ -1260,12 +1260,23 @@ class SessionBridge:
             self._require_idle(live)
             session = live.session
             before = (session.inference.provider, session.inference.base_url)
+            setup = self._setup
+            if (
+                provider
+                and not base_url
+                and setup is not None
+                and setup.inference is not None
+                and provider.strip().lower() == setup.inference.provider.lower()
+            ):
+                # Back to the default provider means back to the default's
+                # address too: the one this dashboard was started against (an
+                # SSH tunnel on another port, say), not the provider's usual one.
+                base_url = setup.inference.base_url
             try:
                 session.select_model(name, provider=provider, base_url=base_url)
             except AutoSEError as exc:
                 raise BridgeError(str(exc)) from exc
             after = (session.inference.provider, session.inference.base_url)
-            setup = self._setup
             on_default = (
                 setup is not None
                 and setup.inference is not None

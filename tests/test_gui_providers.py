@@ -335,3 +335,21 @@ def test_a_dashboard_whose_default_needs_a_key_opens_once_one_is_saved(
     assert "API key" in state["problem"]
     bridge.save_key("ollama-cloud", _KEY)
     assert bridge.snapshot()["ready"] is True
+
+
+def test_switching_back_to_the_default_provider_restores_its_address(served, world):
+    """The default may live somewhere other than its provider's usual port (an
+    SSH tunnel on :11435, say). Leaving it for a hosted provider and coming
+    back must land on that address, not on the provider's conventional one."""
+    _request(
+        served,
+        "/api/providers",
+        body={"action": "save_key", "provider": "ollama-cloud", "api_key": _KEY},
+    )
+    _request(served, "/api/model", body={"model": "gpt-oss:120b", "provider": "ollama-cloud"})
+    status, state, _ = _request(
+        served, "/api/model", body={"model": "local-model", "provider": "test-settings"}
+    )
+    assert status == 200
+    assert state["provider"] == "test-settings"
+    assert state["base_url"] == "http://test/v1"
