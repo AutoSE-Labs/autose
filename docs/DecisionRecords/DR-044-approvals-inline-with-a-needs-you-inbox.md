@@ -67,7 +67,8 @@ rejecting several at once.
 
 ### Allow by command pattern instead of by tool
 
-Deferred. "Allow `pytest *`" is safer than "allow `run_command`", but it needs a
+Superseded by DR-048, which narrows the allowance to calls like the one
+answered (the same command words, the same host). Originally deferred. "Allow `pytest *`" is safer than "allow `run_command`", but it needs a
 pattern language and a way to show what a pattern covers; this record keeps
 parity with the terminal first.
 

@@ -456,7 +456,7 @@ function handleFrame(frame) {
     }
     case "allowances":
       if (state && isFocused(id)) {
-        state.allowed_tools = frame.tools || [];
+        state.allowances = frame.allowances || [];
         renderNeedsYou();
       }
       break;
@@ -1792,9 +1792,14 @@ function approvalNodes() {
       `<p class="approval-lede">${escapeHtml(approvalLede(request.tool))}</p>` +
       `<pre class="approval-args"><code>${escapeHtml(shown)}</code></pre>` +
       `<input type="text" class="approval-reason" placeholder="Refuse with a reason — it goes back to the model (optional)" data-reason-for="${escapeHtml(request.id)}" />` +
+      (request.allow ? "" : `<p class="approval-once">Only once: ${escapeHtml(request.allow_note)}.</p>`) +
       `<div class="approval-actions">` +
       `<button type="button" class="ghost-button small" data-decide="deny" data-id="${escapeHtml(request.id)}">Refuse</button>` +
-      `<button type="button" class="ghost-button small" data-decide="session" data-id="${escapeHtml(request.id)}" title="Run this call, and every later ${escapeHtml(request.tool)} call in this session, without asking">Allow ${escapeHtml(humanize(String(request.tool || "")))} for this session</button>` +
+      // DR-048: the standing yes covers calls like this one (the same command
+      // words, the same host), never the whole shell; some calls get none.
+      (request.allow
+        ? `<button type="button" class="ghost-button small" data-decide="session" data-id="${escapeHtml(request.id)}" title="Run this call, and later ${escapeHtml(request.allow.label)} in this session, without asking">${allowButtonMarkup(request.allow)}</button>`
+        : "") +
       `<button type="button" class="primary-button small" data-decide="once" data-id="${escapeHtml(request.id)}">Run it once</button>` +
       `</div>`;
     approvalCards.set(request.id, node);
@@ -1810,6 +1815,15 @@ function approvalNodes() {
     nodes.unshift(bulk);
   }
   return nodes;
+}
+
+/* "Allow pytest … for this session": the command words in mono, since they
+ * are what the next command has to start with. */
+function allowButtonMarkup(allow) {
+  if (allow.tool === "run_command") {
+    return `Allow <code>${escapeHtml(allow.pattern)} …</code> for this session`;
+  }
+  return `Allow ${escapeHtml(allow.label)} for this session`;
 }
 
 function approvalQuestion(tool) {
@@ -1881,11 +1895,11 @@ function renderNeedsYou() {
         `<small>${escapeHtml(entry.title)}</small></button>`
       )
     );
-  const allowed = (state && state.allowed_tools) || [];
+  const allowed = (state && state.allowances) || [];
   const allowances = allowed.length
     ? `<div class="needs-allowed"><span>Runs without asking here:</span>` +
       allowed
-        .map((tool) => `<button type="button" class="allow-chip" data-revoke="${escapeHtml(tool)}" title="Ask again before every ${escapeHtml(tool)} call">${escapeHtml(humanize(tool))} ×</button>`)
+        .map((item) => `<button type="button" class="allow-chip" data-revoke="${escapeHtml(item.id)}" title="Ask again before ${escapeHtml(item.label)}">${escapeHtml(item.label)} ×</button>`)
         .join("") +
       `</div>`
     : "";
@@ -2442,7 +2456,7 @@ el("doctor-close").addEventListener("click", closeOverlays);
 el("needs-you").addEventListener("click", (event) => {
   const revoke = event.target.closest("[data-revoke]");
   if (revoke) {
-    post("/api/allowances", { action: "revoke", tool: revoke.dataset.revoke, session: focusId() }, "It will ask again.");
+    post("/api/allowances", { action: "revoke", id: revoke.dataset.revoke, session: focusId() }, "It will ask again.");
     return;
   }
   const row = event.target.closest("[data-focus]");

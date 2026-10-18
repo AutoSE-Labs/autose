@@ -1332,6 +1332,19 @@ select {
   margin-bottom: 4px;
 }
 
+.approval-card .approval-once {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--slate);
+}
+
+/* The command words keep their case: `pytest`, not PYTEST. */
+.approval-actions button code {
+  font-family: var(--font-mono);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .approval-card .approval-lede {
   margin: 2px 0 8px;
   font-size: 13px;
