@@ -7,7 +7,8 @@ and which model to ask for. Everything else is tuning.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from typing import Any
 
 from ..errors import ConfigurationError
 
@@ -58,6 +59,16 @@ class InferenceSettings:
     timeout: float | None = DEFAULT_REQUEST_TIMEOUT
     #: Timeout for enumeration and probing, which must never stall startup.
     discovery_timeout: float = DEFAULT_DISCOVERY_TIMEOUT
+    #: ``False`` sends each round as one non-streaming request. Usage is then
+    #: always reported, and a proxy that buffers or times out long SSE
+    #: responses is not in the way. Rounds produce the same result either way.
+    stream: bool = True
+    #: Extra fields merged into every chat-completions request body, for
+    #: provider options AutoSE has no setting for — sampling (``top_p``,
+    #: ``top_k``) or ``chat_template_kwargs`` such as Qwen's
+    #: ``enable_thinking``. They never override the messages, model, tools or
+    #: stream fields.
+    request_extras: dict[str, Any] = field(default_factory=dict, hash=False)
 
     def __post_init__(self) -> None:
         if not self.base_url or not self.base_url.strip():

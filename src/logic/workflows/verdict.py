@@ -50,6 +50,10 @@ class Verdict:
     #: so a user can see the gate did something, not just that it failed.
     overridden: bool = False
     issues: tuple[str, ...] = field(default_factory=tuple)
+    #: True when every unmet requirement is `Unverified`: the validator found
+    #: no defect, it just did not get to check. Re-checking is the remedy,
+    #: not another implementation pass.
+    unchecked_only: bool = False
 
     def describe(self) -> str:
         if self.passed:
@@ -89,6 +93,11 @@ def derive_verdict(
             unmet=unmet,
             overridden=claimed_pass is True,
             issues=(f"unverified requirement(s): {', '.join(unmet)}",),
+            unchecked_only=all(
+                item.status == "Unverified"
+                for item in requirements
+                if not item.is_verified
+            ),
         )
 
     if claimed_pass is False:

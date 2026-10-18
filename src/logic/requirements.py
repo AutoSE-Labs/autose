@@ -66,7 +66,10 @@ class Requirement:
 #: format error, which keeps "Implemented" from being mistaken for "Verified".
 PLAN_STATUSES = frozenset({"Not Started"})
 EXECUTE_STATUSES = frozenset({"Implemented", "In Progress", "Blocked"})
-VALIDATE_STATUSES = frozenset({"Verified", "Failed"})
+#: `Unverified` is a requirement the validator could not get a check to run
+#: for — distinct from `Failed`, which reports a defect it observed. Lumping
+#: the two together sent work back to execute with nothing to fix.
+VALIDATE_STATUSES = frozenset({"Verified", "Failed", "Unverified"})
 
 _HEADING = re.compile(
     r"^#{1,6}\s*\**\s*REQUIREMENTS STATUS\s*\**\s*:?\s*$",
@@ -273,13 +276,15 @@ rename one — followed by a single VERDICT line:
 ## REQUIREMENTS STATUS
 - R1 [Verified] — Same description you were given — Evidence: what you checked
 - R2 [Failed] — Same description you were given — Evidence: what was wrong
+- R3 [Unverified] — Same description you were given — Evidence: why no check ran
 
 VERDICT: PASS
 or
 VERDICT: FAIL execute — one sentence saying what must change
 
-Allowed statuses: Verified, Failed. Mark `Verified` only for something you
-actually confirmed by reading the file or running a command — not because the
-implementation claimed it. The VERDICT target is one of design, plan, or
+Allowed statuses: Verified, Failed, Unverified. Mark `Verified` only for
+something you actually confirmed by reading the file or running a command — not
+because the implementation claimed it. `Failed` means you observed a defect;
+`Unverified` means you could not get a check to run, which is never a pass. The VERDICT target is one of design, plan, or
 execute.
 """

@@ -93,9 +93,17 @@ def run_command(
 
 def _refuse_escaping_command(command: str) -> str | None:
     if _ABSOLUTE_PATH.search(command):
+        # Matched anywhere in the command text, data included: a model that
+        # put `{"path": "/m"}` into a test config kept resending variants of
+        # the same command because the bare message read as being about the
+        # files it touched.
         return (
             "Error: command references an absolute path. "
-            "Use paths relative to the workspace root."
+            "Use paths relative to the workspace root. This check reads the "
+            "whole command text, so a leading `/` inside quoted data (JSON, "
+            "test input) is refused too. If the text needs such a value (a "
+            "URL path, a cookie `Path=/`), write the code to a script file "
+            "and run the file instead."
         )
     if _HOME_PATH.search(command) or _HOME_VAR.search(command):
         return (

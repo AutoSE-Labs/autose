@@ -148,6 +148,81 @@ def test_a_claimed_pass_with_an_unverified_requirement_is_overridden(tmp_path):
     assert "R2" in verdicts[0].data["feedback"]
 
 
+def test_a_round_that_only_left_requirements_unchecked_is_re_validated(tmp_path):
+    """Nothing was found broken, so execute is not asked to fix anything.
+
+    A stalled validator once sent five unchecked requirements back to execute
+    with the feedback "re-run these checks" — work only validation can do.
+    """
+    events = RecordingEventSink()
+    request = _request(
+        tmp_path,
+        [
+            plan("R1", "R2"),
+            execute("R1", "R2"),
+            "Ran out.\n\n## REQUIREMENTS STATUS\n"
+            "- R1 [Verified] — Requirement R1 — Evidence: ran it\n"
+            "- R2 [Unverified] — Requirement R2 — Evidence: no check ran\n\n"
+            "VERDICT: FAIL execute — R2 was not checked",
+            validate("R1", "R2"),
+        ],
+        events=events,
+    )
+    outcome = CraftWorkflow().run(request)
+
+    assert outcome.succeeded
+    loopbacks = events.of_type("loopback")
+    assert [event.data["target"] for event in loopbacks] == [VALIDATE]
+    assert "R2" in loopbacks[0].data["feedback"]
+    starts = [event.data["stage"] for event in events.of_type("stage_started")]
+    assert starts == [PLAN, EXECUTE, VALIDATE, VALIDATE]
+
+
+def test_a_second_unchecked_round_in_a_row_goes_to_execute(tmp_path):
+    """Re-checking is offered once; a requirement that still cannot be checked
+    may need the implementation to change."""
+    unchecked = (
+        "Ran out.\n\n## REQUIREMENTS STATUS\n"
+        "- R1 [Unverified] — Requirement R1 — Evidence: no check ran\n\n"
+        "VERDICT: FAIL execute — R1 was not checked"
+    )
+    events = RecordingEventSink()
+    request = _request(
+        tmp_path,
+        [plan("R1"), execute("R1"), unchecked, unchecked, execute("R1"), validate("R1")],
+        events=events,
+    )
+    outcome = CraftWorkflow().run(request)
+
+    assert outcome.succeeded
+    assert [event.data["target"] for event in events.of_type("loopback")] == [
+        VALIDATE,
+        EXECUTE,
+    ]
+
+
+def test_an_observed_failure_still_goes_to_execute(tmp_path):
+    events = RecordingEventSink()
+    request = _request(
+        tmp_path,
+        [
+            plan("R1", "R2"),
+            execute("R1", "R2"),
+            "Checked.\n\n## REQUIREMENTS STATUS\n"
+            "- R1 [Failed] — Requirement R1 — Evidence: crashes\n"
+            "- R2 [Unverified] — Requirement R2 — Evidence: no check ran\n\n"
+            "VERDICT: FAIL execute — R1 crashes",
+            execute("R1", "R2"),
+            validate("R1", "R2"),
+        ],
+        events=events,
+    )
+    outcome = CraftWorkflow().run(request)
+
+    assert outcome.succeeded
+    assert [event.data["target"] for event in events.of_type("loopback")] == [EXECUTE]
+
+
 def test_every_requirement_verified_but_no_verdict_line_fails_closed(tmp_path):
     """An unreadable gate is not a passed gate."""
     events = RecordingEventSink()
@@ -189,7 +264,7 @@ def test_a_validator_may_fail_a_round_with_every_requirement_verified(tmp_path):
     assert "breaks existing callers" in first.data["feedback"]
 
 
-def test_a_stage_that_invents_a_requirement_is_rejected_and_retried(tmp_path):
+def test_a_stage_that_invents_a_requirement_is_rejected_and_repaired(tmp_path):
     events = RecordingEventSink()
     request = _request(
         tmp_path,
@@ -203,11 +278,11 @@ def test_a_stage_that_invents_a_requirement_is_rejected_and_retried(tmp_path):
     )
     outcome = CraftWorkflow().run(request)
     assert outcome.succeeded
-    retries = events.of_type("stage_retry")
+    retries = events.of_type("stage_repaired")
     assert retries and "invented R9" in retries[0].data["reason"]
 
 
-def test_a_stage_that_drops_a_requirement_is_rejected_and_retried(tmp_path):
+def test_a_stage_that_drops_a_requirement_is_rejected_and_repaired(tmp_path):
     events = RecordingEventSink()
     request = _request(
         tmp_path,
@@ -215,10 +290,10 @@ def test_a_stage_that_drops_a_requirement_is_rejected_and_retried(tmp_path):
         events=events,
     )
     assert CraftWorkflow().run(request).succeeded
-    assert "dropped R2" in events.of_type("stage_retry")[0].data["reason"]
+    assert "dropped R2" in events.of_type("stage_repaired")[0].data["reason"]
 
 
-def test_a_malformed_ledger_is_retried_with_the_parser_complaint(tmp_path):
+def test_a_malformed_ledger_is_repaired_with_the_parser_complaint(tmp_path):
     events = RecordingEventSink()
     request = _request(
         tmp_path,
@@ -226,7 +301,7 @@ def test_a_malformed_ledger_is_retried_with_the_parser_complaint(tmp_path):
         events=events,
     )
     assert CraftWorkflow().run(request).succeeded
-    assert "REQUIREMENTS STATUS" in events.of_type("stage_retry")[0].data["reason"]
+    assert "REQUIREMENTS STATUS" in events.of_type("stage_repaired")[0].data["reason"]
 
 
 def test_a_stage_that_cannot_produce_a_valid_output_fails_the_workflow(tmp_path):
@@ -236,7 +311,8 @@ def test_a_stage_that_cannot_produce_a_valid_output_fails_the_workflow(tmp_path)
     long as the user lets it, which is what `test_format_retries_are_unlimited`
     covers in tests/test_limits.py.
     """
-    request = _request(tmp_path, ["no ledger"] * 4)
+    # Each attempt is followed by one in-place repair, so twice the replies.
+    request = _request(tmp_path, ["no ledger"] * 6)
     workflow = StagedWorkflow(
         CRAFT, (PLAN, EXECUTE, VALIDATE), bounds=WorkflowBounds(max_format_retries=2)
     )
@@ -413,7 +489,9 @@ def test_a_retried_stage_is_told_what_it_already_tried(tmp_path):
 # -- DR-008: stage permissions ------------------------------------------------------
 
 
-def test_the_validation_stage_has_no_write_tool_in_its_schema(tmp_path):
+def test_the_validation_stage_has_no_edit_tool_in_its_schema(tmp_path):
+    """Validate may write scratch scripts (confined, see
+    test_the_validation_stage_writes_only_scratch_scripts) but never edit."""
     model = ScriptedChatModel(
         [_answer(t) for t in (plan("R1"), execute("R1"), validate("R1"))]
     )
@@ -429,7 +507,6 @@ def test_the_validation_stage_has_no_write_tool_in_its_schema(tmp_path):
     validate_tools = {
         entry["function"]["name"] for entry in model.requests[2]["tools"]
     }
-    assert "write_file" not in validate_tools
     assert "edit_file" not in validate_tools
     assert "read_file" in validate_tools
 
@@ -518,3 +595,138 @@ def test_changed_files_are_structured_data_not_answer_prose(tmp_path):
     assert outcome.files_changed == ("thing.py",)
     assert "Files changed" not in outcome.answer
     assert "thing.py" not in outcome.answer
+
+
+def test_validate_scratch_scripts_are_removed_and_not_reported(tmp_path):
+    from logic.inference.types import ToolCall
+    from logic.workflows.stages import VALIDATE_SCRATCH_DIRECTORY
+
+    script_call = CompletionResult(
+        content="",
+        finish_reason="tool_calls",
+        tool_calls=(
+            ToolCall(
+                id="w",
+                name="write_file",
+                arguments={
+                    "path": f"{VALIDATE_SCRATCH_DIRECTORY}/check.py",
+                    "content": "print('ok')\n",
+                },
+            ),
+        ),
+        usage=Usage(prompt_tokens=1, completion_tokens=1),
+    )
+    request = WorkflowRequest(
+        prompt="add a retry helper",
+        workspace=Workspace.at(tmp_path),
+        model=ScriptedChatModel(
+            [
+                _answer(plan("R1")),
+                _answer(execute("R1")),
+                script_call,
+                _answer(validate("R1")),
+            ]
+        ),
+        events=RecordingEventSink(),
+        approval_gate=RecordingApprovalGate(default=True),
+    )
+    outcome = CraftWorkflow().run(request)
+
+    assert outcome.succeeded
+    assert not (tmp_path / VALIDATE_SCRATCH_DIRECTORY).exists()
+    assert not any(VALIDATE_SCRATCH_DIRECTORY in str(f) for f in outcome.files_changed)
+
+
+def test_a_later_validation_pass_reruns_earlier_checks(tmp_path, monkeypatch):
+    from logic.inference.types import ToolCall
+    from logic.workflows import stages
+    from logic.workflows.staged import EARLIER_CHECKS_NOTICE
+    from logic.workflows.stages import VALIDATE_SCRATCH_DIRECTORY
+
+    monkeypatch.setattr(stages, "CONFIRMING_VALIDATION_PASSES", 1)
+    script_call = CompletionResult(
+        content="",
+        finish_reason="tool_calls",
+        tool_calls=(
+            ToolCall(
+                id="w",
+                name="write_file",
+                arguments={
+                    "path": f"{VALIDATE_SCRATCH_DIRECTORY}/check_rows.py",
+                    "content": "print('two spans in one row')\n",
+                },
+            ),
+        ),
+        usage=Usage(prompt_tokens=1, completion_tokens=1),
+    )
+    seen: list[bool] = []
+    model = ScriptedChatModel(
+        [
+            _answer(plan("R1")),
+            _answer(execute("R1")),
+            script_call,
+            _answer(validate("R1")),
+            _answer(validate("R1")),
+        ]
+    )
+    original = model._next
+
+    def recording_next(*args, **kwargs):
+        seen.append(
+            (tmp_path / VALIDATE_SCRATCH_DIRECTORY / "earlier_check_rows.py").exists()
+        )
+        return original(*args, **kwargs)
+
+    model._next = recording_next
+    request = WorkflowRequest(
+        prompt="add a retry helper",
+        workspace=Workspace.at(tmp_path),
+        model=model,
+        events=RecordingEventSink(),
+        approval_gate=RecordingApprovalGate(default=True),
+    )
+    outcome = CraftWorkflow().run(request)
+
+    assert outcome.succeeded
+    # Absent while the first pass ran, back for the confirming pass.
+    assert seen == [False, False, False, False, True]
+    last_prompt = str(model.requests[-1]["messages"])
+    assert EARLIER_CHECKS_NOTICE.split(".")[0] in last_prompt
+    assert not (tmp_path / VALIDATE_SCRATCH_DIRECTORY).exists()
+
+
+def test_a_pass_must_be_confirmed_by_an_independent_validation(tmp_path, monkeypatch):
+    from logic.workflows import stages
+
+    monkeypatch.setattr(stages, "CONFIRMING_VALIDATION_PASSES", 1)
+    events = RecordingEventSink()
+    request = _request(
+        tmp_path,
+        [plan("R1"), execute("R1"), validate("R1"), validate("R1")],
+        events=events,
+    )
+    outcome = CraftWorkflow().run(request)
+
+    assert outcome.succeeded
+    starts = [event.data["stage"] for event in events.of_type("stage_started")]
+    assert starts == [PLAN, EXECUTE, VALIDATE, VALIDATE]
+    assert len(events.of_type("validation_confirmation")) == 1
+
+
+def test_a_confirming_validation_that_fails_sends_work_back(tmp_path, monkeypatch):
+    from logic.workflows import stages
+
+    monkeypatch.setattr(stages, "CONFIRMING_VALIDATION_PASSES", 1)
+    events = RecordingEventSink()
+    failed = validate("R1", status="Failed", verdict="VERDICT: FAIL execute — misses a rule")
+    request = _request(
+        tmp_path,
+        [plan("R1"), execute("R1"), validate("R1"), failed, execute("R1"), validate("R1")],
+        events=events,
+    )
+    outcome = CraftWorkflow().run(request)
+
+    assert outcome.succeeded
+    assert [event.data["target"] for event in events.of_type("loopback")] == [EXECUTE]
+    # Confirmed once per run, not again after the loopback.
+    assert len(events.of_type("validation_confirmation")) == 1

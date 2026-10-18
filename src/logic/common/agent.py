@@ -18,6 +18,7 @@ import hashlib
 import inspect
 import json
 import posixpath
+import re
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
@@ -77,6 +78,27 @@ _NUDGE_AFTER_TOOLS = (
     "you need — do not call any more tools. Write your complete final response "
     "now, following the required format exactly."
 )
+_MAX_NO_CHANGE_NUDGES = 3
+_NUDGE_NO_CHANGES = (
+    "You have not changed any file yet, so nothing has been implemented. Stop "
+    "investigating: make the changes the plan calls for now, with write_file "
+    "and edit_file, starting with the first one."
+)
+
+_CUT_OFF_WRITE_NOTICE = (
+    "Not run: your reply hit the output size limit, so this call was cut off "
+    "and its content is incomplete. Nothing was written. Write the file in "
+    "parts of at most ~200 lines each: the first part with write_file, every "
+    "further part with write_file and append=true."
+)
+
+
+def _is_error_result(content: str) -> bool:
+    """Whether a tool result reports that the call did nothing."""
+    head = content.lstrip()[:40].lower()
+    return head.startswith(("error", "refused", "not run"))
+
+
 _NUDGE_BEFORE_TOOLS = (
     "You produced no response. Start now: use your tools to read whatever you "
     "need from the workspace, then write your complete final response in the "
@@ -103,10 +125,11 @@ _MAX_IDENTICAL_READ_ONLY_CALLS = 2
 #: keys on arguments, and a model that is stalling varies its arguments
 #: without varying the answer (`list_files(".")`, then `list_files("./")`).
 #: Keying on the result instead makes two spellings of one question count
-#: once. Three rounds, because a single refused repeat is a recoverable
-#: stumble and a model that has learned nothing across three consecutive
-#: rounds is not about to.
-_MAX_STALLED_ROUNDS = 3
+#: once. Six rounds: a single refused repeat is a recoverable stumble, and a
+#: model that has learned nothing across six consecutive rounds is not about
+#: to. Three was too eager for models that re-read while they plan or verify:
+#: it cut planning short and ended validation before anything was checked.
+_MAX_STALLED_ROUNDS = 6
 
 #: Argument names that hold a workspace path, and so may be normalised before
 #: two calls are compared. Deliberately not `pattern`, `text`, `file_pattern`
@@ -146,6 +169,31 @@ _CONTEXT_THRASHING_NOTICE = (
     "tool schemas and reserved output). The model re-read what it could no "
     "longer see. Raise the served context window — this is not a model that "
     "is going in circles, it is one being made to forget."
+)
+
+#: The range header `read_file` puts on every result: `# path  (lines a-b of n)`.
+_READ_RANGE_HEADER = re.compile(r"\A# (.+?)  \(lines (\d+)-(\d+) of \d+\)")
+
+_REVERTED_FILE_NOTICE = (
+    "\n\nNote: this wrote content to {path} that this stage already wrote "
+    "earlier, to this file or another — you are going back and forth between "
+    "fixes, or repeating an experiment. The results you got with that content "
+    "still apply. Try a genuinely different approach, or leave this and move "
+    "on to what remains."
+)
+
+#: Content shorter than this is common enough (an empty ``__init__.py``, a
+#: one-line fixture) that writing it to a second file is not a repeat.
+_MIN_COPIED_CONTENT_BYTES = 64
+
+#: Runs of digits, collapsed when comparing written content across files.
+_DIGIT_RUN = re.compile(rb"\d+")
+
+#: Durations and clock times in command output ("Time: 2.31 s", "ok pkg
+#: 0.012s", "12:04:55"), which differ between otherwise identical runs.
+_ELAPSED_TIME = re.compile(
+    r"\b\d+(?:\.\d+)?\s?(?:ms|s|sec|secs|seconds|m|min)\b"
+    r"|\b\d{1,2}:\d{2}:\d{2}(?:\.\d+)?\b"
 )
 
 _REPEATED_CALL_NOTICE = (
@@ -256,6 +304,11 @@ class BaseAgent:
 
     #: Human-readable stage name, used in emitted events.
     name: str = "agent"
+    #: Whether finishing without one successful write_file/edit_file is a
+    #: failure to do the job (the execute stage), not a valid answer.
+    requires_changes: bool = False
+    #: What a stalled agent is told when asked to answer with tools removed.
+    forced_answer_notice: str = _NUDGE_AFTER_TOOLS
 
     def __init__(
         self,
@@ -403,6 +456,10 @@ class BaseAgent:
         usage = Usage()
         metrics: list[ContextMetrics] = []
         nudges = 0
+        # Successful write_file / edit_file calls, and how often a stage that
+        # must change files was told it had not (see `requires_changes`).
+        changes_made = 0
+        change_nudges = 0
         # Warn once per call: the condition persists across rounds, and
         # repeating it every round buries the round that revealed it.
         truncation_reported = False
@@ -418,6 +475,31 @@ class BaseAgent:
         # rounds have added nothing to that set. Cleared together with
         # `repeat_counts` whenever the workspace may have changed under them.
         seen_results: set[str] = set()
+        # Line ranges of each file already handed back, cleared with
+        # `seen_results`. A model that has read a whole file and then walks it
+        # again ten lines at a time never repeats an argument or a result, so
+        # neither guard above sees it: one run re-read a 450-line file in
+        # 120 slices for 30 minutes of Plan. A read whose lines were all
+        # returned before is not progress.
+        read_coverage: dict[str, list[tuple[int, int]]] = {}
+        # Digests of every version each written file has had this run. A model
+        # alternating between two fixes keeps editing — each write a real
+        # change, so never a stall — while getting nowhere: one Execute stage
+        # flipped a test fixture between the same two versions for 20 minutes.
+        file_versions: dict[str, set[str]] = {}
+        # Digests of every non-trivial content written to any path. One
+        # Validate stage copied the same check script into t1/, t2/, ... t23/
+        # and ran it each time for 16 minutes: every write a new path, so
+        # never a revert, and every write cleared the tallies that would have
+        # seen the identical output. A copy of content already written
+        # teaches nothing either.
+        written_contents: dict[str, str] = {}
+        # Names of copies, mapped to the file each copies. A command run on a
+        # copy prints the copy's name — one Validate stage wrote one debug
+        # script as check_debug42 ... check_debug65 and ran each, and the
+        # file name in jest's output made every run look like new evidence.
+        # Output is compared with each copy's name put back to the original's.
+        copy_names: dict[str, str] = {}
         stalled_rounds = 0
         # How many of the current no-progress rounds were also rounds the
         # budget had to drop history from. When the two counts agree, the
@@ -526,6 +608,27 @@ class BaseAgent:
                     )
                     continue
 
+                if (
+                    self.requires_changes
+                    and changes_made == 0
+                    and change_nudges < _MAX_NO_CHANGE_NUDGES
+                ):
+                    # A stage whose job is to change files is about to finish
+                    # having changed none. An execute stage once spent half an
+                    # hour reading and searching, then reported completion
+                    # with nothing written.
+                    change_nudges += 1
+                    if completion.content:
+                        memory.add_assistant(completion.to_message())
+                    memory.add_user(_NUDGE_NO_CHANGES)
+                    self._emit(
+                        "agent_nudged",
+                        "asked to make the changes; none were made",
+                        stage=self.name,
+                        attempt=change_nudges,
+                    )
+                    continue
+
                 holder["result"] = AgentResult(
                     content=completion.content or memory.last_content,
                     stop_reason=self._final_stop_reason(completion, memory),
@@ -537,6 +640,13 @@ class BaseAgent:
                 return
 
             memory.add_assistant(completion.to_message())
+            # A reply that used its whole output budget was cut off, wherever
+            # the provider says it stopped (vLLM reports "tool_calls" for a
+            # truncated tool call).
+            cap = self._budget.max_output_tokens
+            hit_output_cap = completion.finish_reason == "length" or bool(
+                cap and completion.usage.completion_tokens >= cap
+            )
             # Whether this round taught the model anything it did not already
             # have. A round of refused repeats and re-reads leaves it False.
             progressed = False
@@ -551,15 +661,66 @@ class BaseAgent:
                         call.id, "Not run — you asked AutoSE to stop."
                     )
                     continue
+                if call.name in ("write_file", "edit_file") and hit_output_cap:
+                    # The reply used its whole output budget, so this call's
+                    # arguments were cut off: running it would write a
+                    # truncated file. Models answered a silently dropped write
+                    # by resending it, at 8K tokens a time, indefinitely.
+                    memory.add_tool_result(call.id, _CUT_OFF_WRITE_NOTICE)
+                    continue
+                if call.name not in READ_ONLY_TOOL_NAMES and call.name not in (
+                    "write_file",
+                    "edit_file",
+                ):
+                    # A shell command can change state, but most re-runs do
+                    # not, and the model loops on them like on reads: one run
+                    # sent `python -c "import httpx; print(httpx.__file__)"`
+                    # 721 times. Repeats are capped like a read's, and a run
+                    # counts as progress only when its output is new.
+                    repeated = self._check_repeated_call(call, repeat_counts)
+                    if repeated is not None:
+                        memory.add_tool_result(call.id, repeated)
+                        continue
+                    result = self._executor.execute(call)
+                    memory.add_tool_result(call.id, result.content)
+                    if self._is_new_evidence(
+                        call, result.content, seen_results, copy_names
+                    ):
+                        progressed = True
+                    continue
                 if call.name not in READ_ONLY_TOOL_NAMES:
+                    result = self._executor.execute(call)
+                    if not _is_error_result(result.content) and self._is_revert(
+                        call, file_versions, written_contents, copy_names
+                    ):
+                        # Back to a version this run already had: whatever was
+                        # learned at that version still holds, so the tallies
+                        # stand and this is not progress.
+                        memory.add_tool_result(
+                            call.id,
+                            result.content + _REVERTED_FILE_NOTICE.format(
+                                path=call.arguments.get("path", "")
+                            ),
+                        )
+                        changes_made += 1
+                        continue
+                    memory.add_tool_result(call.id, result.content)
+                    if _is_error_result(result.content):
+                        # Nothing changed, so the tallies stand, and the same
+                        # failure again is no progress. Clearing them on every
+                        # mutating call let a model resend a failing write
+                        # hundreds of times without tripping the stall guard.
+                        if self._is_new_evidence(call, result.content, seen_results):
+                            progressed = True
+                        continue
+                    changes_made += 1
                     # State may just have changed under whatever a read-only
                     # call returned earlier, so neither its repeat count nor
                     # its result is evidence of stalling any more.
                     repeat_counts.clear()
                     seen_results.clear()
+                    read_coverage.clear()
                     one_line_streak = 0
-                    result = self._executor.execute(call)
-                    memory.add_tool_result(call.id, result.content)
                     progressed = True
                     continue
                 repeated = self._check_repeated_call(call, repeat_counts)
@@ -580,6 +741,10 @@ class BaseAgent:
                     one_line_streak = 0
                 result = self._executor.execute(call)
                 memory.add_tool_result(call.id, result.content)
+                if call.name == "read_file" and not self._adds_read_coverage(
+                    result.content, read_coverage
+                ):
+                    continue
                 if self._is_new_evidence(call, result.content, seen_results):
                     progressed = True
 
@@ -635,6 +800,22 @@ class BaseAgent:
                     stalled_rounds=stalled_rounds,
                     evicting_rounds=evicting_rounds,
                 )
+            # Before giving up, ask once for the answer with the tools taken
+            # away. A stalled stage used to end incomplete and be retried from
+            # scratch, which discarded everything it had read and walked into
+            # the same loop again; with no tool to call, the only possible
+            # reply is the answer, written from what it already gathered.
+            forced, usage = self._answer_without_tools(memory, usage)
+            if forced is not None:
+                holder["result"] = AgentResult(
+                    content=forced.content,
+                    stop_reason="answered",
+                    rounds=round_number,
+                    tool_calls=memory.tool_call_count,
+                    usage=usage,
+                    context_metrics=tuple(metrics),
+                )
+                return
             holder["result"] = AgentResult(
                 content=memory.last_content,
                 stop_reason="context_thrashing" if thrashing else "stalled",
@@ -751,12 +932,96 @@ class BaseAgent:
         except (TypeError, ValueError):
             return False
 
-    def _is_new_evidence(self, call: ToolCall, content: str, seen: set[str]) -> bool:
+    @staticmethod
+    def _shape_digest(data: bytes) -> str:
+        """Digest content with every run of digits collapsed.
+
+        A copy of a check script often differs from its original only in a
+        number — its own name written inside it, a counter. Those copies are
+        still the same check.
+        """
+        return hashlib.sha256(_DIGIT_RUN.sub(b"#", data)).hexdigest()
+
+    def _is_revert(
+        self,
+        call: ToolCall,
+        versions: dict[str, set[str]],
+        written: dict[str, str],
+        copies: dict[str, str],
+    ) -> bool:
+        """Record the written file's content; True if it was written before.
+
+        Before means this file had it, or — for content long enough not to be
+        a coincidence, such as an empty ``__init__.py`` — any file did.
+        """
+        path = call.arguments.get("path")
+        if not isinstance(path, str):
+            return False
+        try:
+            data = self._workspace.resolve(path).read_bytes()
+        except Exception:  # noqa: BLE001 - unreadable means "cannot tell"
+            return False
+        digest = hashlib.sha256(data).hexdigest()
+        seen = versions.setdefault(_normalise_path(path), set())
+        if digest in seen:
+            return True
+        seen.add(digest)
+        if len(data) < _MIN_COPIED_CONTENT_BYTES:
+            return False
+        shape = self._shape_digest(data)
+        original = written.get(shape)
+        if original is not None:
+            if original != _normalise_path(path):
+                copies[posixpath.basename(path)] = posixpath.basename(original)
+            return True
+        written[shape] = _normalise_path(path)
+        return False
+
+    @staticmethod
+    def _adds_read_coverage(
+        content: str, coverage: dict[str, list[tuple[int, int]]]
+    ) -> bool:
+        """Record a read_file result's line range; False if all of it was seen.
+
+        Results without the range header (errors, unknown formats) count as
+        new, so this never hides anything the other guards would let through.
+        """
+        match = _READ_RANGE_HEADER.match(content)
+        if match is None:
+            return True
+        path = match.group(1)
+        start, end = int(match.group(2)), int(match.group(3))
+        ranges = coverage.setdefault(path, [])
+        if any(low <= start and end <= high for low, high in ranges):
+            return False
+        # Merge so that adjacent slices of one file cover what they span.
+        merged: list[tuple[int, int]] = []
+        for low, high in sorted([*ranges, (start, end)]):
+            if merged and low <= merged[-1][1] + 1:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], high))
+            else:
+                merged.append((low, high))
+        ranges[:] = merged
+        return True
+
+    def _is_new_evidence(
+        self,
+        call: ToolCall,
+        content: str,
+        seen: set[str],
+        copies: dict[str, str] | None = None,
+    ) -> bool:
         """Whether this result told the model something it did not already have.
 
         Digested rather than stored whole: a run may read a great many large
         files, and this set lives for the whole call.
         """
+        # Longest first, so a name that contains another is replaced whole.
+        for copy in sorted(copies or (), key=len, reverse=True):
+            content = content.replace(copy, (copies or {})[copy])
+        # Test runners print how long they took; a rerun that differs only
+        # there taught nothing new.
+        content = _ELAPSED_TIME.sub("<time>", content)
         digest = hashlib.sha256(
             f"{call.name}\x00{content}".encode(errors="replace")
         ).hexdigest()
@@ -831,6 +1096,63 @@ class BaseAgent:
             # has to produce *something* the loop can act on.
             completion = CompletionResult()
         return completion
+
+    def repair_output(self, prompt: str, previous: str, complaint: str) -> CompletionResult:
+        """Ask once, with no tools, for *previous* rewritten to satisfy *complaint*.
+
+        For an output whose content is right but whose form is not, such as a
+        missing required section. Re-running the stage for that discarded all
+        the work behind the output and often repeated it for many minutes.
+        """
+        messages = [
+            {"role": "system", "content": self.system_prompt()},
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": previous},
+            {
+                "role": "user",
+                "content": (
+                    f"{complaint}\n\nRewrite your response above in full with this "
+                    "fixed. Keep its findings; do not investigate further."
+                ),
+            },
+        ]
+        prepared = self._budget.prepare(messages, None)
+        return self._model.complete(
+            prepared.messages,
+            tools=None,
+            max_output_tokens=self._budget.max_output_tokens,
+        )
+
+    def _answer_without_tools(
+        self, memory: AgentMemory, usage: Usage
+    ) -> tuple[CompletionResult | None, Usage]:
+        """One round with no tools offered, for a model that keeps calling them.
+
+        Returns the completion when it carries an answer, else ``None``.
+        """
+        from ..errors import ContextBudgetError
+
+        memory.add_user(self.forced_answer_notice)
+        try:
+            prepared = self._budget.prepare(memory.messages, None)
+            completion = self._model.complete(
+                prepared.messages,
+                tools=None,
+                max_output_tokens=self._budget.max_output_tokens,
+            )
+        except ContextBudgetError:
+            return None, usage
+        usage = _add_usage(usage, completion.usage)
+        self._emit(
+            "agent_nudged",
+            "asked for the final answer with tools disabled",
+            stage=self.name,
+            finish_reason=completion.finish_reason,
+        )
+        if completion.has_tool_calls or not completion.content.strip():
+            return None, usage
+        memory.add_assistant(completion.to_message())
+        return completion, usage
 
     def _recover_text_tool_call(self, completion: CompletionResult) -> CompletionResult:
         """Rescue a tool call the model wrote as prose instead of structured output."""

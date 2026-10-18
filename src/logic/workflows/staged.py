@@ -25,9 +25,10 @@ Three rules the runner owns, which no stage is trusted to self-enforce:
 
 from __future__ import annotations
 
+import shutil
 import time
 from collections.abc import Callable, Generator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..common.agent import AgentResult
 from ..common.cancel import CancelToken
@@ -61,8 +62,17 @@ from ..requirements import (
     summarise,
 )
 from ..tuning import Tuning
+from . import stages as _stages
 from .base import WorkflowOutcome, WorkflowRequest
-from .stages import EXECUTE, PLAN, STAGES, VALIDATE, StageAgent, StageSpec
+from .stages import (
+    EXECUTE,
+    PLAN,
+    STAGES,
+    VALIDATE,
+    VALIDATE_SCRATCH_DIRECTORY,
+    StageAgent,
+    StageSpec,
+)
 from .verdict import Verdict, derive_verdict
 
 __all__ = ["StagedWorkflow", "WorkflowBounds", "DEFAULT_BOUNDS"]
@@ -234,6 +244,17 @@ class StagedWorkflow:
         loopbacks = 0
         index = 0
         feedback = ""
+        # Whether the last loopback re-ran validation. Only one in a row: a
+        # validator that twice cannot check something hands it to execute.
+        rechecked = False
+        # Independent validation passes that approved after the first one.
+        confirmations = 0
+        # Check scripts earlier validation passes wrote, kept across rounds.
+        # The scratch directory is emptied after every pass, so without this a
+        # later pass never re-runs them — and a fix for one finding broke what
+        # an earlier pass had confirmed (a second \multicolumn in a row stopped
+        # parsing) with no pass noticing.
+        earlier_checks: dict[str, str] = {}
         emit = _Emitter(request.events, self._tier)
 
         emit.workflow_started(self._stages, bounds)
@@ -244,16 +265,32 @@ class StagedWorkflow:
                 stage = STAGES[self._stages[index]]
 
                 emit.stage_started(stage, iteration=loopbacks + 1)
-                result = self._run_stage(
-                    stage, request, memory, feedback, emit, clock, bounds
-                )
+                if stage.name == VALIDATE and _restore_checks(
+                    request.workspace, earlier_checks
+                ):
+                    feedback = "\n\n".join(
+                        part for part in (feedback, EARLIER_CHECKS_NOTICE) if part
+                    )
+                try:
+                    result = self._run_stage(
+                        stage, request, memory, feedback, emit, clock, bounds
+                    )
+                finally:
+                    if stage.name == VALIDATE:
+                        _keep_checks(request.workspace, earlier_checks)
+                        _remove_scratch(request.workspace)
                 feedback = ""
 
                 if stage.name == VALIDATE:
                     verdict = self._judge(result.content, memory)
                     emit.verdict(verdict, memory)
                     if verdict.passed:
-                        break
+                        if confirmations >= _stages.CONFIRMING_VALIDATION_PASSES:
+                            break
+                        confirmations += 1
+                        feedback = _stages.CONFIRMING_VALIDATION_NOTICE
+                        emit.confirmation(confirmations)
+                        continue
                     loopbacks += 1
                     cap = bounds.validation_iterations
                     if cap is not None and loopbacks >= cap:
@@ -264,6 +301,24 @@ class StagedWorkflow:
                             stage=VALIDATE,
                             iterations=loopbacks,
                         )
+                    if verdict.unchecked_only and not rechecked:
+                        # The validator found no defect, it ran out before
+                        # checking. Sending that to execute asks it to fix
+                        # nothing (and EXECUTE_REQUIRES_CHANGES makes it change
+                        # something anyway); a fresh validation pass is the fix.
+                        verdict = replace(
+                            verdict,
+                            target=VALIDATE,
+                            feedback=(
+                                "The previous validation pass stopped before it "
+                                "confirmed these requirements: "
+                                + ", ".join(verdict.unmet)
+                                + ". Run a check for each of them first."
+                            ),
+                        )
+                        rechecked = True
+                    else:
+                        rechecked = False
                     memory.record_attempt(verdict.target, verdict.feedback)
                     feedback = verdict.feedback
                     index = self._index_of(verdict.target)
@@ -383,6 +438,14 @@ class StagedWorkflow:
                 self._adopt(stage, result.content, memory)
             except (RequirementsFormatError, ArtifactTooLargeError) as exc:
                 complaint = str(exc)
+                repaired = (
+                    self._repair_format(agent, stage, prompt, result, complaint, memory, emit)
+                    if isinstance(exc, RequirementsFormatError)
+                    else None
+                )
+                if repaired is not None:
+                    emit.stage_finished(stage, repaired, memory)
+                    return repaired
                 emit.stage_retry(stage, attempt, complaint)
                 continue
 
@@ -396,6 +459,35 @@ class StagedWorkflow:
             f"could not produce a valid output after {attempt} attempt(s). "
             f"Last problem: {complaint}",
         )
+
+    def _repair_format(
+        self,
+        agent: StageAgent,
+        stage: StageSpec,
+        prompt: str,
+        result: AgentResult,
+        complaint: str,
+        memory: RequestMemory,
+        emit: _Emitter,
+    ) -> AgentResult | None:
+        """Fix a malformed but otherwise finished output in place, if possible.
+
+        A missing ledger section used to re-run the whole stage, discarding
+        the investigation behind the output; one rewrite usually suffices.
+        """
+        try:
+            completion = agent.repair_output(prompt, result.content, complaint)
+        except Exception:  # noqa: BLE001 - fall back to the ordinary retry
+            return None
+        if completion.has_tool_calls or not completion.content.strip():
+            return None
+        try:
+            self._adopt(stage, completion.content, memory)
+        except (RequirementsFormatError, ArtifactTooLargeError):
+            return None
+        emit.add_usage(completion.usage)
+        emit.stage_repaired(stage, complaint)
+        return replace(result, content=completion.content)
 
     def _call_stage(
         self,
@@ -463,7 +555,8 @@ class StagedWorkflow:
                 stage.name, stage.system_prompt, request.prompt_overrides
             ),
         )
-        if stage.can_write:
+        if stage.can_write and stage.name != VALIDATE:
+            # Validate's scratch scripts are not changes to the work.
             # Layered *over* whatever the stage's own guard installed, so a
             # stage-specific restriction still applies and only its accepted
             # writes are reported as changed files.
@@ -602,6 +695,68 @@ class StagedWorkflow:
         return "\n\n".join(part for part in parts if part).strip()
 
 
+#: Prefix of a check script restored from an earlier validation pass. Restored
+#: next to the new scripts, not in a subdirectory, so relative imports in them
+#: still resolve.
+EARLIER_CHECK_PREFIX = "earlier_"
+_MAX_KEPT_CHECKS = 40
+_MAX_KEPT_CHECK_BYTES = 64_000
+
+EARLIER_CHECKS_NOTICE = (
+    "Check scripts that earlier validation passes wrote are back in "
+    f"`{VALIDATE_SCRATCH_DIRECTORY}/`, named `{EARLIER_CHECK_PREFIX}*`. The work "
+    "has changed since they ran. Run every one of them again before writing "
+    "new checks: a fix for one finding often breaks something an earlier pass "
+    "confirmed. A check that passed before and fails now is a regression — "
+    "fail the round and name it. A check can itself be wrong; judge any "
+    "failure against the request, not against the check."
+)
+
+
+def _keep_checks(workspace, kept: dict[str, str]) -> None:
+    """Remember the check scripts this validation pass wrote."""
+    try:
+        root = workspace.resolve(VALIDATE_SCRATCH_DIRECTORY)
+        if not root.is_dir():
+            return
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.name.startswith(EARLIER_CHECK_PREFIX):
+                continue
+            relative = path.relative_to(root).as_posix()
+            if "/" in relative or path.stat().st_size > _MAX_KEPT_CHECK_BYTES:
+                continue
+            if relative not in kept and len(kept) >= _MAX_KEPT_CHECKS:
+                continue
+            try:
+                kept[relative] = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+    except Exception:  # noqa: BLE001, S110 - keeping checks must never fail the run
+        pass
+
+
+def _restore_checks(workspace, kept: dict[str, str]) -> bool:
+    """Put earlier passes' check scripts back; say whether any were restored."""
+    if not kept:
+        return False
+    try:
+        root = workspace.resolve(VALIDATE_SCRATCH_DIRECTORY)
+        root.mkdir(parents=True, exist_ok=True)
+        for name, content in kept.items():
+            (root / f"{EARLIER_CHECK_PREFIX}{name}").write_text(content, encoding="utf-8")
+    except Exception:  # noqa: BLE001 - restoring checks must never fail the run
+        return False
+    return True
+
+
+def _remove_scratch(workspace) -> None:
+    """Delete the validate stage's scratch scripts so they never ship."""
+    try:
+        shutil.rmtree(workspace.resolve(VALIDATE_SCRATCH_DIRECTORY), ignore_errors=True)
+    except Exception:  # noqa: BLE001, S110 - cleanup must never fail the run
+        pass
+
+
 def _track_changes(
     agent: StageAgent, memory: RequestMemory, journal: ChangeJournal | None
 ) -> None:
@@ -707,6 +862,16 @@ class _Emitter:
             reason=reason,
         )
 
+    def stage_repaired(self, stage: StageSpec, reason: str) -> None:
+        """A malformed output was rewritten in place instead of re-running the stage."""
+        self._emit(
+            "stage_repaired",
+            reason,
+            tier=self._tier,
+            stage=stage.name,
+            reason=reason,
+        )
+
     def stage_finished(self, stage: StageSpec, result, memory: RequestMemory) -> None:
         self._emit(
             "stage_finished",
@@ -738,6 +903,14 @@ class _Emitter:
             unmet=list(verdict.unmet),
             feedback=verdict.feedback,
             requirements=summarise(list(memory.requirements)),
+        )
+
+    def confirmation(self, number: int) -> None:
+        self._emit(
+            "validation_confirmation",
+            f"approved; running independent check {number}",
+            tier=self._tier,
+            number=number,
         )
 
     def loopback(self, verdict: Verdict, used: int, cap: int | None) -> None:

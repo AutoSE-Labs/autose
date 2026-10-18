@@ -89,3 +89,17 @@ def test_an_overridden_pass_reports_the_unmet_ids_not_the_stages_feedback():
 
 def test_an_empty_report_fails_closed():
     assert not derive_verdict("", _reqs("Verified")).passed
+
+
+def test_only_unverified_gaps_are_flagged_as_unchecked():
+    """No defect was observed, so the remedy is checking, not changing code."""
+    verdict = derive_verdict("VERDICT: FAIL execute", _reqs("Verified", "Unverified"))
+    assert not verdict.passed
+    assert verdict.unchecked_only
+
+
+def test_any_observed_failure_is_not_unchecked_only():
+    verdict = derive_verdict(
+        "VERDICT: FAIL execute", _reqs("Failed", "Unverified", "Verified")
+    )
+    assert not verdict.unchecked_only

@@ -103,6 +103,19 @@ def test_mandatory_content_that_does_not_fit_fails_closed():
         budget.prepare(_conversation(rounds=4))
 
 
+def _keeps_request(messages: list[dict]) -> bool:
+    """Whether the original request survived, bare or carrying the omission note.
+
+    Since the note moved out of a second system message (Qwen rejects one), it
+    is prepended to the request turn itself when rounds are dropped.
+    """
+    return any(
+        (message.get("content") or "") == "the request"
+        or (message.get("content") or "").endswith("\n\nthe request")
+        for message in messages
+    )
+
+
 def test_a_request_with_no_user_turn_fails_closed():
     budget = ContextBudget(
         context_limit=15,
@@ -129,6 +142,29 @@ def test_fitting_keeps_system_and_latest_user_turn_and_drops_oldest_rounds():
     assert prepared.messages[-1]["role"] == "tool"
     assert _keeps_request(prepared.messages)
     assert len(prepared.messages) < len(_conversation(rounds=5))
+
+
+def test_dropping_history_keeps_the_same_start_until_it_overflows_again():
+    """A window that slides one round per request defeats the prefix cache."""
+    budget = ContextBudget(
+        context_limit=200,
+        reserved_output_tokens=0,
+        safety_factor=1.0,
+        estimator=_FixedEstimator(10),
+    )
+    conversation = _conversation(rounds=12)
+    starts = []
+    for _ in range(4):
+        prepared = budget.prepare(conversation)
+        assert budget.estimate(prepared.messages) <= 200
+        starts.append(prepared.messages[2]["tool_calls"][0]["id"])
+        conversation = conversation + _conversation(rounds=13)[-2:]
+        conversation[-2] = dict(conversation[-2], tool_calls=[
+            dict(conversation[-2]["tool_calls"][0], id=f"n{len(conversation)}")
+        ])
+        conversation[-1] = dict(conversation[-1], tool_call_id=f"n{len(conversation)}")
+
+    assert len(set(starts[:2])) == 1
 
 
 def test_dropping_context_never_orphans_a_tool_result_from_its_call():

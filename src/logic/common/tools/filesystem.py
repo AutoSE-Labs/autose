@@ -12,6 +12,7 @@ from __future__ import annotations
 import fnmatch
 import os
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 from ...errors import WorkspaceEscapeError
@@ -209,26 +210,38 @@ def search_files(
 
     cap = max(1, int(max_results))
     results: list[str] = []
+    for filepath in _search_candidates(root, file_pattern):
+        try:
+            content = filepath.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for number, line in enumerate(content.splitlines(), start=1):
+            if not regex.search(line):
+                continue
+            results.append(
+                f"{workspace.display(filepath)}:{number}: {line.rstrip()}"
+            )
+            if len(results) >= cap:
+                results.append(f"... (results capped at {cap})")
+                return "\n".join(results)
+    return "\n".join(results) if results else f"No matches for '{text}' in {directory}"
+
+
+def _search_candidates(root: Path, file_pattern: str) -> Iterator[Path]:
+    """Files search_files reads: the file itself when given one, else a walk.
+
+    Models often name the file they want searched as the directory. Walking a
+    file yields nothing, so that used to report "No matches" for text that
+    was there, and the model retried the same search indefinitely.
+    """
+    if root.is_file():
+        yield root
+        return
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [name for name in dirnames if name not in _SKIP_DIRECTORIES]
         for filename in sorted(filenames):
-            if not fnmatch.fnmatch(filename, file_pattern):
-                continue
-            filepath = Path(dirpath) / filename
-            try:
-                content = filepath.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for number, line in enumerate(content.splitlines(), start=1):
-                if not regex.search(line):
-                    continue
-                results.append(
-                    f"{workspace.display(filepath)}:{number}: {line.rstrip()}"
-                )
-                if len(results) >= cap:
-                    results.append(f"... (results capped at {cap})")
-                    return "\n".join(results)
-    return "\n".join(results) if results else f"No matches for '{text}' in {directory}"
+            if fnmatch.fnmatch(filename, file_pattern):
+                yield Path(dirpath) / filename
 
 
 def find_files(
@@ -256,8 +269,14 @@ def find_files(
     return "\n".join(workspace.display(path) for path in matches)
 
 
-def write_file(path: str, content: str, *, workspace: Workspace) -> str:
-    """Create a file, or replace one wholesale, with *content*."""
+def write_file(
+    path: str, content: str, append: bool = False, *, workspace: Workspace
+) -> str:
+    """Create a file, or replace one wholesale, with *content*.
+
+    With *append*, add *content* to the end instead, so a file longer than one
+    reply can carry is written in parts.
+    """
     try:
         target = workspace.resolve(path)
     except WorkspaceEscapeError as exc:
@@ -267,6 +286,14 @@ def write_file(path: str, content: str, *, workspace: Workspace) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
     # newline="" keeps the content byte-exact; otherwise Windows turns each
     # LF into CRLF, unlike edit_file, which preserves line endings.
+    if append and target.exists():
+        with target.open("a", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+        total = len(target.read_text(encoding="utf-8").splitlines())
+        return (
+            f"Appended {len(content.splitlines())} line(s) to {workspace.display(target)} "
+            f"({total} in total)"
+        )
     target.write_text(content, encoding="utf-8", newline="")
     return f"Wrote {len(content.splitlines())} line(s) to {workspace.display(target)}"
 

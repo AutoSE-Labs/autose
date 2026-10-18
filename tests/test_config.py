@@ -12,6 +12,7 @@ from logic.config import (
     write_example_config,
 )
 from logic.errors import ConfigurationError
+from logic.inference import InferenceSettings
 
 
 @pytest.fixture(autouse=True)
@@ -237,3 +238,22 @@ def test_inference_settings_can_be_swapped_without_mutating_config():
     updated = config.with_inference(config.inference.with_model("chosen"))
     assert updated.inference.model == "chosen"
     assert config.inference.model == ""
+
+
+def test_stream_and_request_extras_are_read_from_the_inference_section(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "inference:\n"
+        "  base_url: http://localhost:8000/v1\n"
+        "  stream: false\n"
+        "  request_extras:\n"
+        "    top_p: 0.8\n",
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    assert config.inference.stream is False
+    assert config.inference.request_extras == {"top_p": 0.8}
+
+
+def test_stream_defaults_to_true():
+    assert InferenceSettings().stream is True

@@ -24,6 +24,7 @@ from logic.common.tools import catalog_subset
 from logic.common.tools.editing import edit_file
 from logic.common.workspace import Workspace
 from logic.errors import RunCancelled
+from logic.inference.types import CompletionResult
 from logic.limits import (
     UNLIMITED,
     count_limit,
@@ -492,14 +493,13 @@ def test_respelling_a_path_does_not_dodge_the_repeat_tally(workspace):
     assert [event.data["count"] for event in refusals] == [
         _MAX_IDENTICAL_READ_ONLY_CALLS + 1,
         _MAX_IDENTICAL_READ_ONLY_CALLS + 2,
+        _MAX_IDENTICAL_READ_ONLY_CALLS + 3,
     ]
     assert [event.data["arguments"]["directory"] for event in refusals] == [
         ".//.",
         "  .  ",
+        "./././",
     ]
-    # The last spelling is never reached: refusing two in a row is itself no
-    # progress, so the stall guard ends the call first.
-    assert events.of_type("agent_stalled")
 
 
 def test_genuine_work_in_many_rounds_is_never_called_a_stall(workspace):
@@ -533,6 +533,197 @@ def test_re_reading_one_file_between_new_ones_is_not_a_stall(workspace):
     ] + [answer("finished")]
     agent, events = _stalling_agent(workspace, script)
     result = agent.run("read around")
+
+    assert result.stop_reason == "answered"
+    assert not events.of_type("agent_stalled")
+
+
+def test_walking_an_already_read_file_in_slices_is_a_stall(workspace):
+    """Every slice differs, but none of them shows a line not already seen.
+
+    One Plan stage read a 450-line file whole and then walked it backwards ten
+    lines at a time for 30 minutes: no argument and no result ever repeated.
+    """
+    (workspace.root / "big.py").write_text(
+        "\n".join(f"line {n}" for n in range(1, 121)), encoding="utf-8"
+    )
+    script = [calls(tool_call("read_file", path="big.py"), content="reading")] + [
+        calls(
+            tool_call("read_file", path="big.py", start_line=start, end_line=start + 9),
+            content="reading",
+        )
+        for start in range(101, 0, -10)
+    ]
+    agent, events = _stalling_agent(workspace, script)
+    result = agent.run("plan")
+
+    assert result.stop_reason == "stalled"
+    assert result.rounds < 10
+    assert events.of_type("agent_stalled")
+
+
+def test_reading_a_long_file_in_new_slices_is_progress(workspace):
+    """Slices that each show unseen lines are genuine work, however small."""
+    (workspace.root / "big.py").write_text(
+        "\n".join(f"line {n}" for n in range(1, 201)), encoding="utf-8"
+    )
+    script = [
+        calls(
+            tool_call("read_file", path="big.py", start_line=start, end_line=start + 9),
+            content="reading",
+        )
+        for start in range(1, 200, 10)
+    ] + [answer("finished")]
+    agent, events = _stalling_agent(workspace, script)
+    result = agent.run("plan")
+
+    assert result.stop_reason == "answered"
+    assert not events.of_type("agent_stalled")
+
+
+def test_flipping_a_file_between_two_versions_is_a_stall(workspace):
+    """Each write changes the file, but only back to a version already seen."""
+    events = RecordingEventSink()
+    agent = _Stage(
+        model=ScriptedChatModel(
+            [
+                calls(
+                    tool_call(
+                        "write_file", path="t.py", content=f"v{index % 2}\n"
+                    ),
+                    content="trying",
+                )
+                for index in range(40)
+            ]
+        ),
+        tools=catalog_subset("read_file", "write_file"),
+        workspace=workspace,
+        events=events,
+    )
+    result = agent.run("fix the test")
+
+    assert result.stop_reason == "stalled"
+    assert result.rounds < 12
+
+
+def test_copying_one_script_into_new_paths_is_a_stall(workspace):
+    """Each write is a new path, but the same content, read back the same."""
+    script = "print('checking the same thing again')\n" * 3
+    events = RecordingEventSink()
+    agent = _Stage(
+        model=ScriptedChatModel(
+            [
+                calls(
+                    tool_call("write_file", path=f"t{index}/check.py", content=script),
+                    content="again",
+                )
+                for index in range(40)
+            ]
+        ),
+        tools=catalog_subset("read_file", "write_file"),
+        workspace=workspace,
+        events=events,
+    )
+    result = agent.run("check it")
+
+    assert result.stop_reason == "stalled"
+    assert result.rounds < 12
+
+
+def test_running_copies_of_one_script_is_a_stall(workspace):
+    """Each copy has a new name, and the command echoes it, but nothing else differs."""
+    script = "console.log('checking the same thing again');\n" * 3
+    events = RecordingEventSink()
+    agent = _Stage(
+        model=ScriptedChatModel(
+            [
+                calls(
+                    tool_call("write_file", path=f"debug{index}.js", content=script),
+                    tool_call("run_command", command=f"echo ran debug{index}.js"),
+                    content="again",
+                )
+                for index in range(40)
+            ]
+        ),
+        tools=catalog_subset("read_file", "write_file", "run_command"),
+        workspace=workspace,
+        events=events,
+    )
+    result = agent.run("check it")
+
+    assert result.stop_reason == "stalled"
+    assert result.rounds < 12
+
+
+def test_numbered_copies_with_timed_output_are_a_stall(workspace):
+    """Copies differ only in a number, runs only in how long they took."""
+    events = RecordingEventSink()
+    agent = _Stage(
+        model=ScriptedChatModel(
+            [
+                calls(
+                    tool_call(
+                        "write_file",
+                        path=f"check{index}.js",
+                        content=f"// check {index}\n" + "expect(render()).toBe(1);\n" * 4,
+                    ),
+                    tool_call(
+                        "run_command",
+                        command=f"echo 'Tests: 1 failed, Time: {index}.{index}2 s'",
+                    ),
+                    content="again",
+                )
+                for index in range(40)
+            ]
+        ),
+        tools=catalog_subset("read_file", "write_file", "run_command"),
+        workspace=workspace,
+        events=events,
+    )
+    result = agent.run("check it")
+
+    assert result.stop_reason == "stalled"
+    assert result.rounds < 12
+
+
+def test_writing_the_same_short_file_to_several_paths_is_progress(workspace):
+    events = RecordingEventSink()
+    agent = _Stage(
+        model=ScriptedChatModel(
+            [
+                calls(
+                    tool_call("write_file", path=f"pkg{index}/__init__.py", content=""),
+                    content="w",
+                )
+                for index in range(15)
+            ]
+            + [answer("finished")]
+        ),
+        tools=catalog_subset("read_file", "write_file"),
+        workspace=workspace,
+        events=events,
+    )
+    result = agent.run("make packages")
+
+    assert result.stop_reason == "answered"
+    assert not events.of_type("agent_stalled")
+
+
+def test_writing_new_versions_of_a_file_is_progress(workspace):
+    events = RecordingEventSink()
+    agent = _Stage(
+        model=ScriptedChatModel(
+            [
+                calls(tool_call("write_file", path="t.py", content=f"v{index}\n"), content="w")
+                for index in range(15)
+            ]
+            + [answer("finished")]
+        ),
+        tools=catalog_subset("read_file", "write_file"),
+        workspace=workspace,
+        events=events,
+    )
+    result = agent.run("write it")
 
     assert result.stop_reason == "answered"
     assert not events.of_type("agent_stalled")
@@ -640,3 +831,87 @@ def test_a_stall_that_only_partly_evicted_still_mentions_the_window(workspace):
     assert stalled
     assert 0 < stalled[0].data["evicting_rounds"] < stalled[0].data["stalled_rounds"]
     assert "raising it may help as well" in stalled[0].message
+
+
+def test_a_stalled_stage_answers_from_what_it_gathered_when_tools_are_removed(workspace):
+    """A stall asks once for the answer with no tools before giving up.
+
+    Retrying the stage from scratch discarded everything it had read and
+    walked into the same loop again; the forced answer keeps it.
+    """
+    script = [
+        calls(tool_call("read_file", path="m.txt"), content="still looking")
+        # One read that learns something, then six that do not: the stall.
+        for _ in range(7)
+    ] + [answer("the plan")]
+    agent, events = _stalling_agent(workspace, script)
+    result = agent.run("explain this project")
+
+    assert result.stop_reason == "answered"
+    assert result.content == "the plan"
+    nudged = events.of_type("agent_nudged")
+    assert any("tools disabled" in event.message for event in nudged)
+
+
+def test_a_write_cut_off_by_the_output_limit_is_not_run(workspace):
+    """A truncated write_file would write a truncated file; it is refused instead."""
+    cut = CompletionResult(
+        content="",
+        tool_calls=(tool_call("write_file", path="new.txt", content="partial"),),
+        finish_reason="length",
+    )
+    agent = _Stage(
+        model=ScriptedChatModel([cut, answer("done")]),
+        tools=catalog_subset("write_file", "read_file"),
+        workspace=workspace,
+        events=RecordingEventSink(),
+    )
+    agent.run("write it")
+    assert not (workspace.root / "new.txt").exists()
+
+
+def test_resending_a_failing_write_is_stopped_as_a_stall(workspace):
+    """A failing write changes nothing, so repeating it is no progress."""
+    broken = calls(tool_call("write_file", path="x.txt"), content="writing")
+    agent = _Stage(
+        model=ScriptedChatModel([broken] * 40),
+        tools=catalog_subset("write_file", "read_file"),
+        workspace=workspace,
+        events=RecordingEventSink(),
+    )
+    result = agent.run("write it")
+    assert result.stop_reason == "stalled"
+    assert result.rounds < 10
+
+
+def test_a_repeated_shell_command_with_the_same_output_is_stopped_as_a_stall(workspace):
+    """A command re-run without any edit in between teaches nothing new."""
+    same = calls(tool_call("run_command", command="echo hi"), content="checking")
+    agent = _Stage(
+        model=ScriptedChatModel([same] * 40),
+        tools=catalog_subset("run_command", "read_file"),
+        workspace=workspace,
+        events=RecordingEventSink(),
+        approval_gate=RecordingApprovalGate(default=True),
+    )
+    result = agent.run("check it")
+    assert result.stop_reason == "stalled"
+    assert result.rounds < 10
+
+
+def test_a_stage_that_must_change_files_is_told_when_it_has_not(workspace):
+    """An execute-like stage may not finish having written nothing."""
+    agent = _Stage(
+        model=ScriptedChatModel([
+            answer("done, nothing to change"),
+            calls(tool_call("write_file", path="a.txt", content="x")),
+            answer("implemented"),
+        ]),
+        tools=catalog_subset("write_file", "read_file"),
+        workspace=workspace,
+        events=RecordingEventSink(),
+    )
+    agent.requires_changes = True
+    result = agent.run("implement it")
+    assert result.content == "implemented"
+    assert (workspace.root / "a.txt").read_text(encoding="utf-8") == "x"

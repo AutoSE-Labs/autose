@@ -241,6 +241,10 @@ def _from_document(document: Mapping[str, Any], *, source: Path | None) -> AutoS
             DEFAULT_DISCOVERY_TIMEOUT,
             "inference.discovery_timeout",
         ),
+        stream=_bool(inference_section.get("stream"), defaults.stream, "inference.stream"),
+        request_extras=_mapping(
+            inference_section.get("request_extras"), "inference.request_extras"
+        ),
     )
 
     configured_root = workspace_section.get("root")
@@ -350,6 +354,27 @@ def _float(value: Any, fallback: float, label: str) -> float:
         return float(value)
     except (TypeError, ValueError) as exc:
         raise ConfigurationError(f"{label} must be a number, got {value!r}") from exc
+
+
+def _bool(value: Any, fallback: bool, label: str) -> bool:
+    if value is None or value == "":
+        return fallback
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("true", "yes", "on", "1"):
+        return True
+    if text in ("false", "no", "off", "0"):
+        return False
+    raise ConfigurationError(f"{label} must be true or false, got {value!r}")
+
+
+def _mapping(value: Any, label: str) -> dict[str, Any]:
+    if value is None or value == "":
+        return {}
+    if not isinstance(value, Mapping):
+        raise ConfigurationError(f"{label} must be a mapping, got {value!r}")
+    return dict(value)
 
 
 def _optional_float(value: Any, fallback: float | None, label: str) -> float | None:

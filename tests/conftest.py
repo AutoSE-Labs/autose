@@ -31,3 +31,31 @@ def isolated_provider_registry():
     finally:
         registry._PROVIDERS.clear()
         registry._PROVIDERS.update(saved)
+
+
+@pytest.fixture(autouse=True)
+def scripted_execute_may_write_nothing(monkeypatch):
+    """Most workflow tests script an execute stage that answers without
+    writing; the no-change guard would nudge it and exhaust the script. The
+    guard itself is covered directly in tests/test_limits.py."""
+    from logic.workflows import stages
+
+    monkeypatch.setattr(stages, "EXECUTE_REQUIRES_CHANGES", False)
+
+
+@pytest.fixture(autouse=True)
+def single_validation_pass(monkeypatch):
+    """Scripted workflows answer validate once; the confirming pass is covered
+    directly in tests/test_staged_workflow.py."""
+    from logic.workflows import stages
+
+    monkeypatch.setattr(stages, "CONFIRMING_VALIDATION_PASSES", 0)
+
+
+@pytest.fixture(autouse=True)
+def no_retry_waits(monkeypatch):
+    """Transient inference failures are retried with real waits in production;
+    tests that simulate an unreachable backend should not sit through them."""
+    from logic.inference import openai_compatible
+
+    monkeypatch.setattr(openai_compatible, "_TRANSIENT_RETRY_DELAYS", (0, 0))

@@ -357,3 +357,75 @@ def test_malformed_sse_lines_are_skipped(monkeypatch):
 
 def test_usage_defaults_to_zero_when_a_provider_omits_it():
     assert Usage.from_payload(None).total_tokens == 0
+
+
+# -- non-streaming rounds and request extras ------------------------------
+
+
+def test_stream_false_makes_one_plain_request_and_yields_the_same_chunks(monkeypatch):
+    bodies: list[dict] = []
+
+    def fake_urlopen(request, timeout=None):
+        bodies.append(json.loads(request.data.decode("utf-8")))
+        return _json_response(
+            {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": "answer", "reasoning": "thought"},
+                    }
+                ],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+            }
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    model = OpenAICompatibleChatModel(_settings(stream=False))
+    chunks = list(model.stream([{"role": "user", "content": "hi"}]))
+
+    assert len(bodies) == 1 and "stream" not in bodies[0]
+    assert [c.reasoning for c in chunks if c.reasoning] == ["thought"]
+    assert [c.content for c in chunks if c.content] == ["answer"]
+    assert chunks[-1].result.usage.completion_tokens == 3
+
+
+def test_request_extras_reach_the_body_but_cannot_replace_core_fields(monkeypatch):
+    bodies: list[dict] = []
+
+    def fake_urlopen(request, timeout=None):
+        bodies.append(json.loads(request.data.decode("utf-8")))
+        return _json_response({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    extras = {
+        "top_k": 20,
+        "chat_template_kwargs": {"enable_thinking": False},
+        "temperature": 0.7,
+        "model": "other-model",
+    }
+    OpenAICompatibleChatModel(_settings(request_extras=extras)).complete(
+        [{"role": "user", "content": "hi"}]
+    )
+
+    body = bodies[0]
+    assert body["top_k"] == 20
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert body["temperature"] == 0.7
+    assert body["model"] == "test-model"
+
+
+def test_a_gateway_error_is_retried_before_failing(monkeypatch):
+    attempts: list[int] = []
+
+    def fake_urlopen(request, timeout=None):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise urllib.error.HTTPError(
+                "http://backend.test/v1/chat/completions", 502, "Bad Gateway", {}, io.BytesIO(b"")
+            )
+        return _json_response({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    result = OpenAICompatibleChatModel(_settings()).complete([{"role": "user", "content": "hi"}])
+    assert result.content == "ok"
+    assert len(attempts) == 2

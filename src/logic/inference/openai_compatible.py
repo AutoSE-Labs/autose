@@ -9,6 +9,7 @@ opinion about which vendor's client library is present.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -86,6 +87,39 @@ def _reasoning_of(payload: dict) -> str:
     return ""
 
 
+#: Gateway statuses a proxy in front of the runtime returns while its upstream
+#: is briefly unreachable.
+_TRANSIENT_HTTP_CODES = frozenset({502, 503, 504})
+#: Seconds to wait before each retry of a transient failure (about 15 minutes
+#: in all), after which the last error is raised as before.
+_TRANSIENT_RETRY_DELAYS = (5, 10, 20, 40, 60, 60, 60, 60, 120, 120, 120, 120, 120)
+
+
+class _TransientInferenceError(Exception):
+    """A failure worth retrying; carries the error to raise if retries run out."""
+
+    def __init__(self, final: Exception) -> None:
+        super().__init__(str(final))
+        self.final = final
+
+
+def _is_connection_failure(exc: BaseException) -> bool:
+    """A refused, reset or unreachable connection, not a slow response.
+
+    A read timeout is not retried: the request already waited the full
+    configured timeout, and repeating it would double a long stall.
+    """
+    reason = getattr(exc, "reason", exc)
+    if isinstance(reason, (ConnectionRefusedError, ConnectionResetError, ConnectionAbortedError)):
+        return True
+    text = str(reason).lower()
+    return any(
+        needle in text
+        for needle in ("connection refused", "connection reset", "network is unreachable",
+                       "remote end closed", "no route to host")
+    )
+
+
 class OpenAICompatibleChatModel:
     """Speaks ``POST {base_url}/chat/completions`` and nothing else."""
 
@@ -128,6 +162,20 @@ class OpenAICompatibleChatModel:
         max_output_tokens: int | None = None,
         reasoning_effort: str | None = None,
     ) -> Iterator[StreamChunk]:
+        if not self._settings.stream:
+            # Same chunks a stream would end with, from one ordinary request.
+            result = self.complete(
+                messages,
+                tools=tools,
+                max_output_tokens=max_output_tokens,
+                reasoning_effort=reasoning_effort,
+            )
+            if result.reasoning:
+                yield StreamChunk(reasoning=result.reasoning)
+            if result.content:
+                yield StreamChunk(content=result.content)
+            yield StreamChunk(result=result)
+            return
         payload = self._request_body(
             messages,
             tools,
@@ -180,9 +228,14 @@ class OpenAICompatibleChatModel:
         reasoning_effort: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
+            "temperature": self._settings.temperature,
+            **{
+                key: value
+                for key, value in self._settings.request_extras.items()
+                if key not in ("model", "messages", "tools", "stream", "stream_options")
+            },
             "model": self._settings.model,
             "messages": messages,
-            "temperature": self._settings.temperature,
         }
         if tools:
             body["tools"] = tools
@@ -213,6 +266,21 @@ class OpenAICompatibleChatModel:
         )
 
     def _post(self, body: dict) -> dict:
+        """POST once, retrying transient gateway and connection failures.
+
+        A proxy or tunnel between AutoSE and the runtime can drop for a few
+        seconds; treating its 502 as fatal ended hour-long runs on a blip.
+        """
+        for delay in (*_TRANSIENT_RETRY_DELAYS, None):
+            try:
+                return self._post_once(body)
+            except _TransientInferenceError as exc:
+                if delay is None:
+                    raise exc.final from exc.__cause__
+                time.sleep(delay)
+        raise AssertionError("unreachable")
+
+    def _post_once(self, body: dict) -> dict:
         request = self._build_request(body)
         try:
             with urllib.request.urlopen(  # noqa: S310 - configured endpoint
@@ -229,10 +297,16 @@ class OpenAICompatibleChatModel:
                     )
                 return decoded
         except urllib.error.HTTPError as exc:
+            if exc.code in _TRANSIENT_HTTP_CODES:
+                final = InferenceError(f"inference backend returned HTTP {exc.code}")
+                raise _TransientInferenceError(final) from exc
             self._raise_for_http_error(exc)
             raise InferenceError(f"inference backend returned HTTP {exc.code}") from exc
         except (urllib.error.URLError, TimeoutError) as exc:
-            raise InferenceTimeoutError(self._unreachable_message(exc)) from exc
+            final = InferenceTimeoutError(self._unreachable_message(exc))
+            if _is_connection_failure(exc):
+                raise _TransientInferenceError(final) from exc
+            raise final from exc
         except json.JSONDecodeError as exc:
             raise InferenceError(
                 f"inference backend returned a non-JSON response: {exc}"

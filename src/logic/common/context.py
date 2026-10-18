@@ -52,6 +52,14 @@ __all__ = [
 #: trades usable input budget for a smaller chance of overflow.
 DEFAULT_SAFETY_FACTOR = 1.10
 
+#: When history must be dropped, drop down to this fraction of the message
+#: budget, then keep that cut until the budget overflows again. Dropping only
+#: the one oldest round each time slides the window every round: every request
+#: then starts differently from the last, the server's prefix cache misses, and
+#: an 80k-token prompt is re-read in full each round (~45 s instead of ~3 s on
+#: the evaluation GPU).
+EVICTION_REFILL_FRACTION = 0.75
+
 #: Ceiling on output capacity held back before any input budget is computed
 #: (DR-010). Reserving more than this buys nothing on a large window.
 DEFAULT_RESERVED_OUTPUT_TOKENS = 8192
@@ -251,6 +259,9 @@ class ContextBudget:
         self.estimator = estimator or HeuristicTokenEstimator()
         #: ``None`` disables round pruning altogether (DR-030).
         self.max_history_rounds = count_limit(max_history_rounds)
+        # The first message kept by the last fit. Later fits keep starting
+        # there while the result fits, so the prompt prefix stays the same.
+        self._window_start: dict | None = None
 
     @classmethod
     def from_tuning(
@@ -447,6 +458,22 @@ class ContextBudget:
 
         end = latest_index if tail else len(messages)
         groups = self._assistant_groups(messages[request_index + 1 : end])
+        noticed = _prepend_notice(messages[request_index], _OMISSION_NOTICE)
+
+        # Keep the previous cut while it still fits, so this request starts
+        # exactly like the last one did.
+        for index, group in enumerate(groups):
+            if index and group[0] is self._window_start:
+                recent = [message for chunk in groups[index:] for message in chunk]
+                # Qwen rejects any system message that is not the first message.
+                with_notice = system + [noticed] + recent + tail
+                if self.estimate(with_notice) <= message_budget:
+                    return with_notice
+                break
+
+        target = max(1, math.floor(message_budget * EVICTION_REFILL_FRACTION))
+        if self.estimate(head + tail) > target:
+            target = message_budget
         kept: list[list[dict]] = []
         for group in reversed(groups):
             candidate = (
@@ -454,14 +481,13 @@ class ContextBudget:
                 + [message for chunk in [group, *kept] for message in chunk]
                 + tail
             )
-            if self.estimate(candidate) > message_budget:
+            if self.estimate(candidate) > target:
                 break
             kept.insert(0, group)
 
+        self._window_start = kept[0][0] if kept and len(kept) < len(groups) else None
         recent = [message for group in kept for message in group]
         if len(kept) < len(groups):
-            # Qwen rejects any system message that is not the first message.
-            noticed = _prepend_notice(messages[request_index], _OMISSION_NOTICE)
             with_notice = system + [noticed] + recent + tail
             if self.estimate(with_notice) <= message_budget:
                 return with_notice

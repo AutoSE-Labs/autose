@@ -58,6 +58,12 @@ def test_search_files_reports_path_and_line_number(workspace):
     assert "m.py:2: value = 1" in result
 
 
+def test_search_files_searches_a_file_named_as_the_directory(workspace):
+    (workspace.root / "m.py").write_text("import os\nvalue = 1\n", encoding="utf-8")
+    result = search_files("value", directory="m.py", workspace=workspace)
+    assert "m.py:2: value = 1" in result
+
+
 def test_search_files_caps_results(workspace):
     (workspace.root / "m.txt").write_text("hit\n" * 100, encoding="utf-8")
     result = search_files("hit", max_results=5, workspace=workspace)
@@ -179,3 +185,10 @@ def test_an_explicit_range_that_was_honoured_in_full_is_not_called_truncated(wor
     )
     result = read_file("m.txt", start_line=2, end_line=4, workspace=workspace)
     assert "Truncated" not in result
+
+
+def test_write_file_append_adds_to_the_end(workspace):
+    write_file("big.py", "a = 1\n", workspace=workspace)
+    result = write_file("big.py", "b = 2\n", append=True, workspace=workspace)
+    assert (workspace.root / "big.py").read_text(encoding="utf-8") == "a = 1\nb = 2\n"
+    assert "2 in total" in result

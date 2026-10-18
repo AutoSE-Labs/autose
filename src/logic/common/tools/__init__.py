@@ -130,14 +130,23 @@ _WRITE_FILE = Tool(
         "Create a new file, or replace an existing file's contents entirely. "
         "Use this only for new files and intentional full rewrites — to change "
         "part of an existing file, use edit_file instead, which is safer and "
-        "does not require reproducing the whole file."
+        "does not require reproducing the whole file. A reply has a size limit: "
+        "write a long new file in parts of at most ~200 lines — the first with "
+        "write_file, each further part with append=true."
     ),
     parameters={
         "path": {
             "type": "string",
             "description": "Path to the file, relative to the workspace root.",
         },
-        "content": {"type": "string", "description": "Full contents to write."},
+        "content": {
+            "type": "string",
+            "description": "Contents to write (or to add, with append=true).",
+        },
+        "append": {
+            "type": "boolean",
+            "description": "Add content to the end of the file instead of replacing it.",
+        },
     },
     required=["path", "content"],
     fn=write_file,
