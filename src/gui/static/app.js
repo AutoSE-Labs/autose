@@ -2208,7 +2208,7 @@ function approvalNodes() {
         : "") +
       `<button type="button" class="ghost-button" data-decide="deny" data-id="${escapeHtml(request.id)}">Don't run</button>` +
       `</div>` +
-      `<input type="text" class="approval-reason" placeholder="Optional: tell me why, and I'll try another way" data-reason-for="${escapeHtml(request.id)}" />`;
+      `<input type="text" class="approval-reason" placeholder="Or tell me what to do instead, and press Enter" data-reason-for="${escapeHtml(request.id)}" />`;
     approvalCards.set(request.id, node);
     return withPlate(node, request);
   });
@@ -3144,6 +3144,17 @@ document.querySelectorAll(".overlay").forEach((overlay) => {
     if (event.target === overlay && backdropPress === overlay) overlay.hidden = true;
     backdropPress = null;
   });
+});
+
+/* Enter in the reason box answers "Don't run" with what was typed: a
+ * suggestion is a refusal that says what to do instead. An empty box does
+ * nothing, so a stray Enter refuses nothing. */
+dom.messages.addEventListener("keydown", (event) => {
+  const input = event.target.closest && event.target.closest(".approval-reason");
+  if (!input || event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  if (!input.value.trim()) return;
+  decide(input.dataset.reasonFor, "deny");
 });
 
 /* ---------- resizable panels ---------- */
