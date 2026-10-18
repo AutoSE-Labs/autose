@@ -59,6 +59,7 @@ _ASSETS: dict[str, tuple[str, str]] = {
     "/route.js": ("route.js", "text/javascript; charset=utf-8"),
     "/life.js": ("life.js", "text/javascript; charset=utf-8"),
     "/diff.js": ("diff.js", "text/javascript; charset=utf-8"),
+    "/files.js": ("files.js", "text/javascript; charset=utf-8"),
     "/automation.js": ("automation.js", "text/javascript; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
     # Bundled so the page needs nothing from the network (DR-029).
@@ -196,6 +197,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 target, turn=_turn_of(query)
             ),
             "/api/doctor": self._bridge.doctor,
+            # DR-051: the Files view, read-only and bounded by the workspace.
+            "/api/files": self._bridge.files,
+            "/api/file": lambda: self._bridge.file_text(_first(query.get("path")) or ""),
             "/api/providers": self._bridge.providers,
             "/api/automation": self._bridge.automation,
         }

@@ -159,6 +159,7 @@ const overlays = {
   doctor: el("doctor-overlay"),
   tips: el("tips-overlay"),
   allowed: el("allowed-overlay"),
+  files: el("files-overlay"),
   context: el("context-overlay"),
   settings: el("settings-overlay"),
   automation: el("automation-overlay"),
@@ -361,6 +362,7 @@ function handleFrame(frame) {
     }
     case "turn":
       markUnseen(id);
+      refreshFileIndex();
       finishRun(id, frame.turn);
       notifyAbout(id, {
         title: frame.turn.succeeded ? "Run finished" : "Run did not finish",
@@ -1075,7 +1077,7 @@ function renderInbox() {
     const shown = keys.length === 1 && typeof args[keys[0]] === "string" ? args[keys[0]] : request.summary || "";
     return `<article class="inbox-item ask">` +
       `<div class="inbox-kind">${escapeHtml(approvalQuestion(request.tool))}</div>${from(request.session)}` +
-      `<pre class="inbox-args"><code>${escapeHtml(shown)}</code></pre>` +
+      `<pre class="inbox-args"><code>${linkifyPaths(shown)}</code></pre>` +
       (request.allow ? "" : `<p class="inbox-note">Only once: ${escapeHtml(request.allow_note || "")}.</p>`) +
       `<div class="inbox-actions">` +
       `<button type="button" class="primary-button small" data-decide="once" data-id="${escapeHtml(request.id)}">Run it</button>` +
@@ -2097,7 +2099,7 @@ function approvalNodes() {
       // run's stage has been replayed.
       `<span class="plate" data-plate hidden></span>` +
       `</div>` +
-      `<pre class="approval-args"><code>${escapeHtml(shown)}</code></pre>` +
+      `<pre class="approval-args"><code>${linkifyPaths(shown)}</code></pre>` +
       (request.allow ? "" : `<p class="approval-once">Only once: ${escapeHtml(request.allow_note)}.</p>`) +
       `<div class="approval-actions">` +
       `<button type="button" class="primary-button" data-decide="once" data-id="${escapeHtml(request.id)}">Run it</button>` +
@@ -2607,7 +2609,7 @@ async function automationClick(event) {
 }
 
 function closeOverlays() {
-  ["diff", "doctor", "tips", "context", "settings", "automation", "allowed"].forEach((name) => {
+  ["diff", "doctor", "tips", "context", "settings", "automation", "allowed", "files"].forEach((name) => {
     overlays[name].hidden = true;
   });
 }
@@ -3029,7 +3031,12 @@ function describeTool(tool, args) {
   const spec = TOOL_LABELS[tool];
   if (!spec) return { icon: "·", html: `Using ${escapeHtml(humanize(tool || "a tool"))}` };
   const raw = String(args[spec.key] || "");
-  const detail = spec.key && raw ? ` ${monoSpan(elideMiddle(raw, 64), raw)}` : "";
+  // A path a tool reads or writes is a link into the Files view (DR-051).
+  const detail = !spec.key || !raw
+    ? ""
+    : spec.key === "path"
+      ? ` ${fileRefMarkup(raw, elideMiddle(raw, 64))}`
+      : ` ${monoSpan(elideMiddle(raw, 64), raw)}`;
   const kind = tool === "run_command" ? "run" : "";
   return { kind, icon: spec.icon, html: `${escapeHtml(spec.verb)}${detail}` };
 }
