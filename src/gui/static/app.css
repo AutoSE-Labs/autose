@@ -70,6 +70,9 @@
   --shadow: 0 0 0 1px rgba(15, 26, 51, 0.03), 0 2px 4px rgba(15, 26, 51, 0.06), 0 14px 32px -14px rgba(37, 82, 252, 0.3);
   --scrim: rgba(15, 26, 51, 0.32);
   --night: rgba(15, 26, 51, 0.1);
+  --frame: #93a8dc;       /* a panel's inked border */
+  --frame-rule: rgba(37, 82, 252, 0.2);  /* the fine rule inside it */
+  --stack: #c2cff0;       /* the sheet under the sheet */
   --cursor-fill: #ffffff;
   --cursor-ring: #2552fc;
 
@@ -126,6 +129,9 @@
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 16px 36px -16px rgba(0, 0, 0, 0.8);
   --scrim: rgba(4, 14, 26, 0.55);
   --night: rgba(0, 0, 0, 0.24);
+  --frame: #4474ad;
+  --frame-rule: rgba(143, 176, 255, 0.2);
+  --stack: #03101e;
   --cursor-fill: #ffffff;
   --cursor-ring: #8fb0ff;
   color-scheme: dark;
@@ -3764,6 +3770,50 @@ select {
 
 .presence {
   cursor: inherit;
+}
+
+/* ---------- frames: every panel is a drawing sheet ---------- */
+
+/* An inked border, a fine rule a few pixels inside it (the frame line of a
+ * drawing sheet), and a hard offset shadow: the sheet lying on a stack. */
+.rail,
+.inspector,
+.section-rail,
+.work-card,
+.composer,
+.queue-strip,
+.plan-card,
+.overlay-panel {
+  border: 1.5px solid var(--frame);
+  box-shadow:
+    inset 0 0 0 3px var(--sheet),
+    inset 0 0 0 4px var(--frame-rule),
+    5px 5px 0 -1px var(--stack);
+}
+
+.overlay-panel {
+  box-shadow:
+    inset 0 0 0 3px var(--sheet),
+    inset 0 0 0 4px var(--frame-rule),
+    7px 7px 0 -1px var(--stack),
+    0 30px 60px -30px rgba(15, 26, 51, 0.45);
+}
+
+/* The run on the board takes the pen's own colour. */
+.work-card {
+  border-color: var(--pen);
+}
+
+.approval-card {
+  box-shadow: 5px 5px 0 -1px var(--stack);
+}
+
+.composer:has(textarea:focus-visible) {
+  border-color: var(--pen);
+  box-shadow:
+    inset 0 0 0 3px var(--sheet),
+    inset 0 0 0 4px var(--pen),
+    5px 5px 0 -1px var(--stack);
 }
 
 /* ---------- life: small signs of what is going on (life.js) ---------- */
