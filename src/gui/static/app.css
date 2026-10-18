@@ -4512,45 +4512,66 @@ select {
   color: var(--tok-call);
 }
 
-/* A file name that opens in the Files view: a pen-blue dotted underline and
- * a small page mark, so it reads as a link wherever it sits. */
+/* A file name that opens in the Files view: a tinted chip with a page mark
+ * and an outward arrow, so it reads as "open this" wherever it sits; on
+ * hover it deepens and underlines like a link. */
 .file-ref {
   display: inline;
-  padding: 0 2px;
+  margin: 0 1px;
+  padding: 1px 6px 1px 5px;
   border: 0;
-  border-bottom: 1.5px dotted currentColor;
-  border-radius: 3px;
-  background: transparent;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--pen) 13%, transparent);
   color: var(--pen-deep);
   font: inherit;
+  font-weight: 600;
   text-align: left;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: background-color 120ms ease;
 }
 
 .file-ref::before {
   content: "";
   display: inline-block;
-  width: 7px;
-  height: 9px;
+  width: 0.85em;
+  height: 0.85em;
   margin-right: 4px;
-  border: 1.3px solid currentColor;
-  border-radius: 1.5px;
-  vertical-align: -0.5px;
+  vertical-align: -0.08em;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 1.5h5.5l3.5 3.5v9.5h-9z' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M8.8 1.5V5.2h3.7' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 1.5h5.5l3.5 3.5v9.5h-9z' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M8.8 1.5V5.2h3.7' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
-.file-ref:hover {
-  border-bottom-style: solid;
-  background: var(--pen-soft);
+.file-ref::after {
+  content: "↗";
+  margin-left: 3px;
+  font-size: 0.78em;
+  opacity: 0.6;
 }
 
-/* In the dark command boxes, the link is light. */
+.file-ref:hover,
+.file-ref:focus-visible {
+  background: color-mix(in srgb, var(--pen) 24%, transparent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.file-ref:hover::after,
+.file-ref:focus-visible::after {
+  opacity: 1;
+}
+
+/* In the dark command boxes, the chip is light on dark. */
 .approval-args .file-ref,
 .inbox-args .file-ref {
-  color: #a9c4ff;
+  background: rgba(137, 180, 250, 0.2);
+  color: #c6d0ff;
 }
 
 .approval-args .file-ref:hover,
 .inbox-args .file-ref:hover {
-  background: rgba(169, 196, 255, 0.16);
+  background: rgba(137, 180, 250, 0.34);
 }
 
 @media (max-width: 760px) {
