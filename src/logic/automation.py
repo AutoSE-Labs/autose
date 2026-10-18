@@ -40,7 +40,7 @@ import os
 import secrets
 import subprocess
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -698,6 +698,10 @@ class AutomationStore:
         #: raised: a broken file must not stop the dashboard from opening.
         self.problems: list[str] = []
         self._unreadable = False
+        #: The file as last read or written, so a change made outside this
+        #: store — a `git pull`, a hand edit — is read before it is acted on
+        #: instead of being overwritten by the next save.
+        self._seen: tuple[int, int] | None = None
         self._load()
 
     @property
@@ -711,26 +715,26 @@ class AutomationStore:
     # -- reading -----------------------------------------------------------------
 
     def schedules(self) -> list[Schedule]:
-        with self._lock:
+        with self._fresh():
             return [replace(item) for item in self._schedules.values()]
 
     def watchers(self) -> list[Watcher]:
-        with self._lock:
+        with self._fresh():
             return [replace(item) for item in self._watchers.values()]
 
     def schedule(self, schedule_id: str) -> Schedule:
-        with self._lock:
+        with self._fresh():
             return replace(self._schedule(schedule_id))
 
     def watcher(self, watcher_id: str) -> Watcher:
-        with self._lock:
+        with self._fresh():
             return replace(self._watcher(watcher_id))
 
     def trusted(self, watcher: Watcher) -> bool:
         return self._trust.allows(watcher.command)
 
     def payload(self) -> dict[str, Any]:
-        with self._lock:
+        with self._fresh():
             return {
                 "schedules": [item.to_dict() for item in self._schedules.values()],
                 "watchers": [
@@ -741,7 +745,7 @@ class AutomationStore:
             }
 
     def summary(self) -> dict[str, Any]:
-        with self._lock:
+        with self._fresh():
             runs = [
                 item.next_run_at
                 for item in self._schedules.values()
@@ -761,7 +765,7 @@ class AutomationStore:
 
     def due(self, now: float) -> Due:
         """What is due at *now*: schedules to run, watchers to check or retry."""
-        with self._lock:
+        with self._fresh():
             schedules = tuple(
                 replace(item)
                 for item in self._schedules.values()
@@ -788,7 +792,7 @@ class AutomationStore:
         values = _schedule_values(fields, required=True)
         schedule = Schedule(id=_new_id(), created_at=now, **values)
         schedule.refresh()
-        with self._lock:
+        with self._fresh():
             self._schedules[schedule.id] = schedule
             self._save()
             return replace(schedule)
@@ -797,7 +801,7 @@ class AutomationStore:
         self, schedule_id: str, fields: Mapping[str, Any], *, now: float
     ) -> Schedule:
         values = _schedule_values(fields, required=False)
-        with self._lock:
+        with self._fresh():
             schedule = self._schedule(schedule_id)
             cadence_changed = "every" in values and values["every"] != schedule.every
             enabling = values.get("enabled") is True and not schedule.enabled
@@ -814,7 +818,7 @@ class AutomationStore:
             return replace(schedule)
 
     def delete_schedule(self, schedule_id: str) -> None:
-        with self._lock:
+        with self._fresh():
             self._schedule(schedule_id)
             del self._schedules[schedule_id]
             self._save()
@@ -826,7 +830,7 @@ class AutomationStore:
         asleep all night runs an hourly schedule once on waking, not eight
         times.
         """
-        with self._lock:
+        with self._fresh():
             schedule = self._schedule(schedule_id)
             schedule.last_run_at = now
             schedule.last_session = session
@@ -837,7 +841,7 @@ class AutomationStore:
 
     def record_schedule_skipped(self, schedule_id: str, *, reason: str) -> Schedule:
         """The schedule was due but could not start; it stays due."""
-        with self._lock:
+        with self._fresh():
             schedule = self._schedule(schedule_id)
             schedule.last_outcome = f"skipped: {reason}"
             self._save()
@@ -848,7 +852,7 @@ class AutomationStore:
     def add_watcher(self, fields: Mapping[str, Any], *, now: float) -> Watcher:
         values = _watcher_values(fields, required=True)
         watcher = Watcher(id=_new_id(), created_at=now, **values)
-        with self._lock:
+        with self._fresh():
             self._trust.trust(watcher.command)
             self._watchers[watcher.id] = watcher
             self._save()
@@ -857,9 +861,14 @@ class AutomationStore:
     def update_watcher(
         self, watcher_id: str, fields: Mapping[str, Any], *, now: float
     ) -> Watcher:
-        """Change a watcher. Saving it here is also what trusts its command."""
+        """Change a watcher. Saving its command here is what trusts it.
+
+        Only a change that carries the command does: switching a watcher on
+        or renaming it must not quietly approve a command that arrived in a
+        pull and that nobody has looked at.
+        """
         values = _watcher_values(fields, required=False)
-        with self._lock:
+        with self._fresh():
             watcher = self._watcher(watcher_id)
             if "command" in values and values["command"] != watcher.command:
                 # A different command has no history to compare against.
@@ -872,12 +881,13 @@ class AutomationStore:
                 setattr(watcher, key, value)
             if not watcher.enabled:
                 watcher.pending_prompt = ""
-            self._trust.trust(watcher.command)
+            if "command" in values:
+                self._trust.trust(watcher.command)
             self._save()
             return replace(watcher)
 
     def delete_watcher(self, watcher_id: str) -> None:
-        with self._lock:
+        with self._fresh():
             self._watcher(watcher_id)
             del self._watchers[watcher_id]
             self._save()
@@ -895,7 +905,7 @@ class AutomationStore:
         The first check only records a baseline. The command runs outside the
         store's lock, so a slow probe never holds up the dashboard.
         """
-        with self._lock:
+        with self._fresh():
             watcher = replace(self._watcher(watcher_id))
         if not self._trust.allows(watcher.command):
             reason = (
@@ -940,7 +950,7 @@ class AutomationStore:
         )
 
     def record_watcher_started(self, watcher_id: str, *, now: float, session: str) -> Watcher:
-        with self._lock:
+        with self._fresh():
             watcher = self._watcher(watcher_id)
             watcher.pending_prompt = ""
             watcher.last_triggered_at = now
@@ -951,7 +961,7 @@ class AutomationStore:
 
     def record_watcher_skipped(self, watcher_id: str, *, reason: str) -> Watcher:
         """A triggered prompt could not start; it is kept to retry next tick."""
-        with self._lock:
+        with self._fresh():
             watcher = self._watcher(watcher_id)
             watcher.last_outcome = f"skipped: {reason}"
             self._save()
@@ -966,7 +976,7 @@ class AutomationStore:
         observation: Observation | None = None,
         pending_prompt: str = "",
     ) -> None:
-        with self._lock:
+        with self._fresh():
             watcher = self._watchers.get(snapshot.id)
             if watcher is None or watcher.command != snapshot.command:
                 # Deleted or rewritten while its old command ran: the result
@@ -995,7 +1005,27 @@ class AutomationStore:
             raise UnknownAutomationError(f"no watcher has the id '{watcher_id}'")
         return found
 
+    @contextlib.contextmanager
+    def _fresh(self) -> Iterator[None]:
+        """Hold the lock, having re-read the file if it changed underneath."""
+        with self._lock:
+            if self._stamp() != self._seen:
+                self._schedules.clear()
+                self._watchers.clear()
+                self.problems.clear()
+                self._unreadable = False
+                self._load()
+            yield
+
+    def _stamp(self) -> tuple[int, int] | None:
+        try:
+            stat = self._path.stat()
+        except OSError:
+            return None
+        return (stat.st_mtime_ns, stat.st_size)
+
     def _load(self) -> None:
+        self._seen = self._stamp()
         if not self._path.exists():
             return
         try:
@@ -1044,6 +1074,7 @@ class AutomationStore:
         atomic_write_text(
             self._path, json.dumps(document, ensure_ascii=False, indent=1), mode=0o600
         )
+        self._seen = self._stamp()
 
 
 # -- validation and (de)serialisation ------------------------------------------------------

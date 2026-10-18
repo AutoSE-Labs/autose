@@ -358,8 +358,13 @@ def test_a_watcher_command_that_arrived_in_the_file_does_not_run_until_saved_her
     assert runner.ran == []
     assert cloned.payload()["watchers"][0]["trusted"] is False
 
-    cloned.update_watcher(watcher.id, {}, now=2)
-    assert cloned.check_watcher(watcher.id, now=3, runner=runner).baseline is True
+    # Switching it on or renaming it is not looking at the command.
+    cloned.update_watcher(watcher.id, {"enabled": True, "name": "lint"}, now=2)
+    assert cloned.check_watcher(watcher.id, now=3, runner=runner).refused
+    assert runner.ran == []
+
+    cloned.update_watcher(watcher.id, {"command": "make lint"}, now=4)
+    assert cloned.check_watcher(watcher.id, now=5, runner=runner).baseline is True
     assert TrustFile(trust_path, workspace).allows("make lint")
 
 
@@ -395,3 +400,18 @@ def test_the_trust_file_is_private(tmp_path):
     TrustFile(path, tmp_path).trust("make test")
     if os.name == "posix":
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_a_change_to_the_file_made_elsewhere_is_read_not_overwritten(tmp_path):
+    """A `git pull` or a hand edit while the dashboard runs is kept."""
+    store = AutomationStore(tmp_path, trust=RememberedTrust())
+    store.add_schedule(_schedule(name="first"), now=0)
+
+    # Someone else adds a schedule to the same file.
+    other = AutomationStore(tmp_path, trust=RememberedTrust())
+    other.add_schedule(_schedule(name="from the pull"), now=1)
+
+    assert sorted(item.name for item in store.schedules()) == ["first", "from the pull"]
+    store.add_schedule(_schedule(name="third"), now=2)
+    reread = AutomationStore(tmp_path, trust=RememberedTrust())
+    assert sorted(item.name for item in reread.schedules()) == ["first", "from the pull", "third"]

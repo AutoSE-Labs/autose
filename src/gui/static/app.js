@@ -164,6 +164,7 @@ const overlays = {
   tips: el("tips-overlay"),
   context: el("context-overlay"),
   settings: el("settings-overlay"),
+  automation: el("automation-overlay"),
 };
 
 let state = null;
@@ -439,6 +440,18 @@ function handleFrame(frame) {
       planCards.delete(frame.id);
       if (state && isFocused(id)) renderConversation();
       renderRail();
+      break;
+    }
+    case "automation": {
+      // DR-047: the runner started or skipped something on its own.
+      const summary = automationFrameSummary(frame);
+      if (summary) {
+        toast(summary, (frame.skipped || []).length && !(frame.ran || []).length ? "bad" : "");
+        (frame.ran || []).forEach((item) =>
+          notifyAbout(item.session, { title: `${item.name} started`, body: summary, tag: `automation-${item.id}` })
+        );
+      }
+      if (!overlays.automation.hidden) loadAutomation();
       break;
     }
     case "allowances":
@@ -1045,7 +1058,7 @@ function openRowMarkup(entry) {
       <button class="session-item" type="button" data-focus="${escapeHtml(entry.session_id)}" title="${escapeHtml(entry.title)}">
         <span class="dot" data-status="${status}"></span>
         <span>${escapeHtml(entry.title)}</span>
-        <small>${escapeHtml(entry.tier || "")} · ${escapeHtml(detail)}</small>
+        <small>${entry.automation ? `${entry.automation.type === "watcher" ? "watcher" : "scheduled"} · ` : ""}${escapeHtml(entry.tier || "")} · ${escapeHtml(detail)}</small>
       </button>
       ${waiting ? `<span class="session-badge" title="This session is waiting for a decision">!</span>` : ""}
       <button class="session-close" type="button" data-close="${escapeHtml(entry.session_id)}" title="${entry.running ? "Stop it before closing it" : "Close this session — it stays on disk"}">−</button>
@@ -2156,8 +2169,106 @@ async function providerAction(button) {
   if (state) renderHeader();
 }
 
+/* ---------- schedules and watchers (DR-047) ---------- */
+
+let automation = null;
+const automationView = { editing: null };
+
+async function loadAutomation() {
+  try {
+    automation = await api("/api/automation");
+  } catch (error) {
+    toast(String(error.message || error), "bad");
+  }
+  renderAutomation();
+}
+
+function renderAutomation() {
+  // A form being typed into is not repainted from under the person.
+  if (automationView.editing && el("automation-body").querySelector("[data-auto-form]")) return;
+  const tiers = ((state && state.tiers) || []).map((tier) => tier.name);
+  el("automation-body").innerHTML = automationMarkup(automation, automationView, tiers);
+}
+
+async function openAutomation() {
+  overlays.automation.hidden = false;
+  automationView.editing = null;
+  renderAutomation();
+  await loadAutomation();
+}
+
+async function automationRequest(body, note) {
+  const result = await post("/api/automation", body, note);
+  if (result && result.automation) automation = result.automation;
+  return result;
+}
+
+async function automationClick(event) {
+  const target = event.target.closest("button");
+  if (!target) return;
+  const data = target.dataset;
+  if (data.autoNew) {
+    automationView.editing = { kind: data.autoNew, id: "" };
+  } else if (data.autoEdit) {
+    automationView.editing = { kind: data.autoEdit, id: data.id };
+  } else if (data.autoCancel) {
+    automationView.editing = null;
+  } else if (data.autoSave) {
+    const form = target.closest("[data-auto-form]");
+    const kind = data.autoSave;
+    const id = form.dataset.id;
+    const values = automationFormValues(form);
+    const result = await automationRequest(
+      { action: `${id ? "update" : "add"}_${kind}`, ...(id ? { id } : {}), ...values },
+      id ? "Saved." : `${kind === "schedule" ? "Schedule" : "Watcher"} added.`
+    );
+    if (!result) return;
+    automationView.editing = null;
+  } else if (data.autoToggle) {
+    const enabled = data.enabled !== "true";
+    await automationRequest({ action: `update_${data.autoToggle}`, id: data.id, enabled }, enabled ? "Resumed." : "Paused.");
+  } else if (data.autoAction === "trust") {
+    // Saving the command unchanged is what allows it on this machine.
+    const watcher = (automation.watchers || []).find((item) => item.id === data.id);
+    if (!watcher) return;
+    await automationRequest({ action: "update_watcher", id: data.id, command: watcher.command }, "Allowed on this machine.");
+  } else if (data.autoAction) {
+    const action = data.autoAction;
+    if (action.startsWith("delete_") && target.dataset.armed !== "1") {
+      target.dataset.armed = "1";
+      target.textContent = "Delete — sure?";
+      return;
+    }
+    const notes = { run_now: "Started. It runs in its own session.", check_now: "", delete_schedule: "Deleted.", delete_watcher: "Deleted." };
+    const result = await automationRequest({ action, id: data.id }, notes[action]);
+    if (result && action === "check_now" && result.check) {
+      const check = result.check;
+      toast(
+        check.refused
+          ? `Refused: ${check.output}`
+          : check.baseline
+            ? "First check: its output is the baseline to compare against."
+            : check.triggered
+              ? "It changed, so a run started."
+              : `No change (exit ${check.exit_code}).`,
+        check.refused ? "bad" : ""
+      );
+    }
+  } else {
+    return;
+  }
+  automationView.editing = automationView.editing && { ...automationView.editing };
+  const body = el("automation-body");
+  body.innerHTML = automationMarkup(automation, automationView, ((state && state.tiers) || []).map((tier) => tier.name));
+  const form = body.querySelector("[data-auto-form]");
+  if (form) {
+    form.scrollIntoView({ block: "nearest" });
+    form.querySelector("[data-field]").focus();
+  }
+}
+
 function closeOverlays() {
-  ["diff", "doctor", "tips", "context", "settings"].forEach((name) => {
+  ["diff", "doctor", "tips", "context", "settings", "automation"].forEach((name) => {
     overlays[name].hidden = true;
   });
 }
@@ -2301,6 +2412,9 @@ el("settings-body").addEventListener("click", (event) => {
 // The picker lists every provider's models; fetched once at load, in the
 // background — a slow hosted API must not hold up the first paint.
 loadProviders();
+el("open-automation").addEventListener("click", openAutomation);
+el("automation-close").addEventListener("click", closeOverlays);
+el("automation-body").addEventListener("click", automationClick);
 el("open-tips").addEventListener("click", () => {
   hideTipPopup();
   openTips();

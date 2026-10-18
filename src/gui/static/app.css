@@ -1497,6 +1497,137 @@ select {
   cursor: pointer;
 }
 
+/* ---------- schedules and watchers (DR-047) ---------- */
+
+.auto-section {
+  margin: 14px 0;
+}
+
+.auto-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.auto-section-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.auto-card {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--go);
+}
+
+.auto-card.off {
+  border-left-color: var(--slate);
+  opacity: 0.75;
+}
+
+.auto-card.untrusted {
+  border-left-color: var(--signal);
+}
+
+.auto-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.auto-name {
+  font-weight: 600;
+}
+
+.auto-when {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate);
+}
+
+.auto-command {
+  margin: 6px 0 2px;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.auto-prompt {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.auto-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--slate);
+}
+
+.auto-card .approval-actions {
+  margin-top: 8px;
+}
+
+.auto-trust {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  color: var(--signal-deep);
+  border: 1px dashed var(--signal-deep);
+}
+
+.auto-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+
+.auto-fields label {
+  display: grid;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--slate);
+}
+
+.auto-fields label.wide {
+  grid-column: 1 / -1;
+}
+
+.auto-fields input,
+.auto-fields select,
+.auto-fields textarea {
+  font: inherit;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  letter-spacing: 0;
+  color: var(--ink);
+  padding: 6px 8px;
+  background: var(--bone);
+  border: 1px solid var(--line);
+}
+
+.auto-fields input.mono {
+  font-family: var(--font-mono);
+}
+
+.warn-note {
+  color: var(--signal-deep);
+}
+
+@media (max-width: 720px) {
+  .auto-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---------- compact work card (DR-037) ---------- */
 
 .work-card.compact .thinking {

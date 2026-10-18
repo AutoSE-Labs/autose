@@ -90,7 +90,15 @@ applies:
   was saved through the dashboard on this machine; that record is kept in the
   user config directory (`trusted-watchers.json`, per workspace, 0600),
   outside any repository. An unrecognised command is reported as refused with
-  instructions to open and save it.
+  instructions to open and save it. Only a save that carries the command
+  trusts it: pausing, resuming or renaming a watcher does not, so switching
+  on a watcher that came in a pull never approves a command nobody read. The
+  dashboard shows such a watcher with its command and an explicit "Allow
+  this command".
+- **The file is re-read when it changes.** The store compares the file's
+  modification time and size before every read and write, so a `git pull` or
+  a hand edit while the dashboard runs is picked up instead of being
+  overwritten by the next save.
 
 The *session* a watcher or schedule starts is an ordinary agent run, and every
 tool call in it is gated as usual — see the next rule.
@@ -153,6 +161,17 @@ definition.
   `run_now` that cannot start (desk full) a 409.
 - `/api/state` carries `automation: {schedules, watchers, next_run_at,
   next_check_at, running}`.
+
+### In the dashboard
+
+"Schedules & watchers" in the rail opens a panel listing both, with when each
+runs next, what happened last, and Run now / Check now, Pause, Edit and Delete
+(Delete asks twice). It says plainly what happens to a run's shell and network
+calls: refused, unless the dashboard was started with `--yes`. A session the
+runner opened is tagged "scheduled" or "watcher" in the rail and never takes
+the focus. An `automation` frame becomes a toast, and a desktop notification
+(DR-043) for each run started while the person is elsewhere. The renderers are
+in `automation.js`, shared by both editions.
 
 ## Consequences
 
