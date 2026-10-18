@@ -53,6 +53,9 @@ from logic.automation import (
     run_watch_command,
 )
 from logic.common.allowances import Allowance, allowance_for_rule, offer_for
+from logic.common.browse import list_workspace, read_workspace_file
+from logic.common.workspace import Workspace
+from logic.errors import WorkspaceEscapeError
 from logic.common.approval import (
     APPROVAL_REQUIRED_TOOLS,
     EDIT_APPROVAL_TOOLS,
@@ -908,6 +911,28 @@ class SessionBridge:
             "added": added,
             "removed": removed,
         }
+
+    def files(self) -> dict[str, Any]:
+        """Every file in the workspace, for the Files view (DR-051)."""
+        workspace = Workspace.at(self._config.resolve_workspace_root())
+        files, truncated = list_workspace(workspace)
+        return {"root": str(workspace.root), "files": files, "truncated": truncated}
+
+    def file_text(self, path: str) -> dict[str, Any]:
+        """One workspace file's text, read-only (DR-051)."""
+        if not path:
+            raise BridgeError("which file? a path is required")
+        workspace = Workspace.at(self._config.resolve_workspace_root())
+        try:
+            return read_workspace_file(workspace, path).to_dict()
+        except WorkspaceEscapeError as error:
+            raise BridgeError(str(error), status=403) from error
+        except PermissionError as error:
+            raise BridgeError(str(error), status=403) from error
+        except FileNotFoundError as error:
+            raise BridgeError(str(error), status=404) from error
+        except OSError as error:
+            raise BridgeError(f"{path} could not be read: {error.strerror or error}") from error
 
     def doctor(self) -> dict[str, Any]:
         """What this machine can run — ``autose --doctor`` as a panel."""
