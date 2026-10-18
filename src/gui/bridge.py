@@ -1370,7 +1370,7 @@ class SessionBridge:
     def request_tier(
         self, tier: str, *, session_id: str | None = None
     ) -> dict[str, Any]:
-        """Ask for a tier. The session ratchet may return a higher one (DR-003)."""
+        """Use the tier the person picked, up or down (DR-049)."""
         with self._lock:
             live = self._target(session_id)
             if tier == "auto":
@@ -1379,7 +1379,7 @@ class SessionBridge:
             if not is_tier(tier):
                 raise BridgeError(f"'{tier}' is not a tier")
             live.session.auto_classify = False
-            live.session.request_tier(tier)
+            live.session.choose_tier(tier)
         return self._broadcast_state()
 
     def clear_history(self, session_id: str | None = None) -> dict[str, Any]:
