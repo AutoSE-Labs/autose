@@ -121,6 +121,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_false",
         help="with --web, print the URL instead of opening a browser",
     )
+    parser.add_argument(
+        "--service",
+        action="store_true",
+        help=(
+            "with --web (implied), run the dashboard as a long-lived service: no "
+            "browser, and a token that stays the same across restarts"
+        ),
+    )
+    parser.add_argument(
+        "--install-service",
+        dest="install_service",
+        action="store_true",
+        help=(
+            "write a systemd user unit that runs the dashboard as a service "
+            "(for --workspace, on --port), print how to enable it, and exit. "
+            "Linux only; it never starts anything itself."
+        ),
+    )
     parser.add_argument("--version", action="version", version=f"autose {__version__}")
     return parser.parse_args(argv)
 
@@ -138,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         return print_sessions(workspace=args.workspace)
 
     prompt = " ".join(args.prompt)
-    if args.web:
+    if args.web or args.service or args.install_service:
         if prompt:
             # Silently dropping a request the user typed would be worse than
             # refusing it: the dashboard takes its prompts in the browser.
@@ -215,6 +233,10 @@ def _run_dashboard(args: argparse.Namespace) -> int:
         forwarded += ["--port", str(args.port)]
     if not args.open_browser:
         forwarded.append("--no-browser")
+    if args.service:
+        forwarded.append("--service")
+    if args.install_service:
+        forwarded.append("--install-service")
     exit_code: int = import_module("gui.cli").main(forwarded)
     return exit_code
 

@@ -22,6 +22,7 @@
       <div class="session-list" id="session-list"></div>
       <div class="rail-foot">
         <button class="rail-link" id="open-settings" type="button">Providers &amp; keys</button>
+        <button class="rail-link" id="open-automation" type="button">Schedules &amp; watchers</button>
         <button class="rail-link" id="open-doctor" type="button">Machine check</button>
       </div>
     </aside>
@@ -223,6 +224,17 @@ ollama pull qwen3:8b</code></pre>
     </div>
   </div>
 
+  <div class="overlay" id="automation-overlay" hidden>
+    <div class="overlay-panel cropped wide-panel context-panel">
+      <span class="eyebrow"><span class="tick"></span>Automation</span>
+      <h2>Work that starts while you are away</h2>
+      <div id="automation-body"></div>
+      <div class="overlay-actions">
+        <button class="primary-button" id="automation-close" type="button">Done</button>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay" id="context-overlay" hidden>
     <div class="overlay-panel cropped wide-panel context-panel">
       <span class="eyebrow"><span class="tick"></span>Context window</span>
@@ -264,6 +276,7 @@ ollama pull qwen3:8b</code></pre>
   <script src="/inspector.js"></script>
   <script src="/settings.js"></script>
   <script src="/notify.js"></script>
+  <script src="/automation.js"></script>
   <script src="/app.js"></script>
 </body>
 

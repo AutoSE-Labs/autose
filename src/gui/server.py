@@ -56,6 +56,7 @@ _ASSETS: dict[str, tuple[str, str]] = {
     "/inspector.js": ("inspector.js", "text/javascript; charset=utf-8"),
     "/settings.js": ("settings.js", "text/javascript; charset=utf-8"),
     "/notify.js": ("notify.js", "text/javascript; charset=utf-8"),
+    "/automation.js": ("automation.js", "text/javascript; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
 }
 
@@ -180,6 +181,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ),
             "/api/doctor": self._bridge.doctor,
             "/api/providers": self._bridge.providers,
+            "/api/automation": self._bridge.automation,
         }
         reader = readers.get(path)
         if reader is None:
@@ -208,6 +210,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "/api/session": self._session,
             "/api/reload": self._reload,
             "/api/providers": self._providers,
+            "/api/automation": self._automation,
         }
         writer = writers.get(path)
         if writer is None:
@@ -314,6 +317,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return self._bridge.set_default(
             provider, model, base_url=_optional_url(body.get("base_url"))
         )
+
+    def _automation(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Schedules and watchers (DR-047): one route, an ``action`` per change.
+
+        A watcher's command runs without the per-call approval gate, because
+        the person typed it here. That is why this route takes nothing a page
+        did not send with the token, exactly like every other write.
+        """
+        action = str(body.get("action") or "").strip().lower()
+        fields = {key: value for key, value in body.items() if key != "action"}
+        return self._bridge.automation_action(action, fields)
 
     def _context(self, body: dict[str, Any]) -> dict[str, Any]:
         try:

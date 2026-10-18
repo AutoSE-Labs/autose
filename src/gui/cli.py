@@ -96,6 +96,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="print the URL instead of opening a browser",
     )
     parser.add_argument(
+        "--service",
+        action="store_true",
+        help=(
+            "run as a long-lived local service: never open a browser, and keep "
+            "one token across restarts (stored owner-only in your AutoSE config "
+            "directory) so bookmarks keep working"
+        ),
+    )
+    parser.add_argument(
+        "--install-service",
+        dest="install_service",
+        action="store_true",
+        help=(
+            "write a systemd user unit that runs this dashboard as a service "
+            "for --workspace on --port, print the command to enable it, and "
+            "exit. Linux only; nothing is started."
+        ),
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="log every HTTP request to stderr",
@@ -108,6 +127,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.install_service:
+        from .service import install_service
+
+        return install_service(
+            workspace=Path(args.workspace) if args.workspace is not None else Path.cwd(),
+            port=args.port,
+            host=args.host,
+        )
     try:
         config = load_config(args.config, workspace_root=args.workspace)
     except ConfigurationError as exc:
@@ -139,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         resume=args.resume,
         open_browser=args.open_browser,
         verbose=args.verbose,
+        service=args.service,
     )
 
 
@@ -152,8 +180,14 @@ def serve(
     resume: str | None = None,
     open_browser: bool = True,
     verbose: bool = False,
+    service: bool = False,
 ) -> int:
-    """Run the dashboard until interrupted. Returns a process exit code."""
+    """Run the dashboard until interrupted. Returns a process exit code.
+
+    With *service* (DR-047) the token is the stable one from the user config
+    directory and no browser is opened: nobody is sitting in front of a
+    service when it starts.
+    """
     # Imported here rather than at module scope so `--help` and a bad config
     # never pay for the session stack.
     from .bridge import SessionBridge
@@ -162,7 +196,13 @@ def serve(
     bridge = SessionBridge(
         config, config_path=config_path, default_tier=tier, resume=resume
     )
-    token = secrets.token_urlsafe(24)
+    if service:
+        from .service import stable_token
+
+        token = stable_token()
+        open_browser = False
+    else:
+        token = secrets.token_urlsafe(24)
     try:
         dashboard = create_dashboard(
             bridge, host=host, port=port, token=token, verbose=verbose
@@ -180,6 +220,8 @@ def serve(
             "  warning    this is reachable from the network. Anyone with the "
             "URL can drive an agent inside that workspace."
         )
+    if service:
+        print("  token      kept across restarts; delete the token file to rotate it")
     print("  stop       ctrl-c")
     # The URL carries the token, and it is the one line the operator cannot do
     # without. Piping this into a file or a log makes stdout block-buffered, so
@@ -196,6 +238,8 @@ def serve(
             target=webbrowser.open, args=(dashboard.url,), daemon=True
         ).start()
 
+    # Schedules and watchers tick from here on, for as long as it serves.
+    bridge.start_automation()
     try:
         dashboard.serve_forever()
     except KeyboardInterrupt:
