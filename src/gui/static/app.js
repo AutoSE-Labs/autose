@@ -1424,8 +1424,8 @@ function receiptMarkup(turn) {
       ${headline ? `<div class="receipt-headline">${escapeHtml(headline)}</div>` : ""}
       ${turn.answer ? `<div class="receipt-summary prose">${renderMarkdown(turn.answer)}</div>` : ""}
       ${why}
-      ${files ? revisionBlockMarkup([...changes, ...undone]) : ""}
-      ${changes.length ? `<div class="receipt-actions"><button class="inline-button" type="button" data-open-diff="1">See the diff</button></div>` : ""}
+      ${files ? revisionBlockMarkup([...changes, ...undone], turn.index) : ""}
+      ${changes.length ? `<div class="receipt-actions"><button class="inline-button" type="button" data-open-diff="1" data-turn="${turn.index}">See the diff</button></div>` : ""}
       ${notes}
     </div>
     ${titleBlockMarkup(cells)}`;
@@ -2212,46 +2212,7 @@ function renderNeedsYou() {
 
 /* ---------- overlays ---------- */
 
-async function openDiff() {
-  try {
-    const payload = await api("/api/changes");
-    const changes = payload.changes || [];
-    el("diff-stat").textContent = changes.length
-      ? `${plural(changes.length, "file")} · +${payload.added} −${payload.removed}`
-      : "";
-    el("diff-body").innerHTML = changes.length
-      ? changes.map(diffMarkup).join("")
-      : `<p class="panel-note">Nothing has been written in this session yet.</p>`;
-    el("diff-undo").disabled = !changes.length;
-    overlays.diff.hidden = false;
-  } catch (error) {
-    toast(String(error.message || error), "bad");
-  }
-}
-
-function diffMarkup(change) {
-  const rows = (change.diff || "")
-    .split("\n")
-    .map((line) => {
-      const kind = line.startsWith("+") && !line.startsWith("+++")
-        ? "add"
-        : line.startsWith("-") && !line.startsWith("---")
-          ? "del"
-          : line.startsWith("@@") || line.startsWith("+++") || line.startsWith("---")
-            ? "meta"
-            : "";
-      return `<span class="row ${kind}">${escapeHtml(line) || " "}</span>`;
-    })
-    .join("");
-  return `<div class="diff-file">
-      <div class="diff-head">
-        <span class="path">${escapeHtml(change.path)}</span>
-        <span class="meta">${escapeHtml(change.kind)}${change.tool ? ` · ${escapeHtml(change.tool)}` : ""}</span>
-        <span class="stat"><span class="added">+${change.added}</span> <span class="removed">−${change.removed}</span></span>
-      </div>
-      <pre class="diff-lines">${rows || `<span class="row meta">(no textual diff)</span>`}</pre>
-    </div>`;
-}
+/* The diff viewer lives in diff.js. */
 
 async function openDoctor() {
   el("doctor-body").innerHTML = `<p class="panel-note">Looking for runtimes…</p>`;
@@ -2701,7 +2662,7 @@ el("clear-history").addEventListener("click", () => {
   }
 });
 
-el("open-diff").addEventListener("click", openDiff);
+el("open-diff").addEventListener("click", () => openDiff());
 el("open-doctor").addEventListener("click", openDoctor);
 el("review-plans").addEventListener("change", (event) => {
   post(
@@ -2808,7 +2769,10 @@ dom.messages.addEventListener("click", (event) => {
     run.expanded = true;
     renderRun();
   } else if (target.dataset.openDiff) {
-    openDiff();
+    openDiff(
+      target.dataset.turn !== undefined ? Number(target.dataset.turn) : undefined,
+      target.dataset.path
+    );
   } else if (target.dataset.stop) {
     requestStop();
   } else if (target.dataset.planAction) {

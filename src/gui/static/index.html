@@ -161,11 +161,24 @@ ollama pull qwen3:8b</code></pre>
   </div>
 
   <div class="overlay" id="diff-overlay" hidden>
-    <div class="overlay-panel cropped wide-panel">
-      <span class="eyebrow"><span class="tick"></span>File changes</span>
-      <h2>What it wrote <em class="panel-stat" id="diff-stat"></em></h2>
-      <div id="diff-body" class="diff-body"></div>
+    <div class="overlay-panel diff-panel" role="dialog" aria-labelledby="diff-title">
+      <div class="diff-top">
+        <div class="diff-titles">
+          <span class="eyebrow"><span class="tick"></span>File changes</span>
+          <h2 id="diff-title">What it wrote <em class="panel-stat" id="diff-stat"></em></h2>
+        </div>
+        <select id="diff-run" aria-label="Which run's changes" hidden></select>
+        <button class="ghost-button small" id="diff-split" type="button" aria-pressed="false" title="Old and new side by side (s)">Side by side</button>
+      </div>
+      <div class="diff-main">
+        <nav class="diff-files" aria-label="Changed files">
+          <input type="search" id="diff-filter" placeholder="Filter files" aria-label="Filter files" />
+          <div class="diff-file-list" id="diff-file-list"></div>
+        </nav>
+        <div id="diff-body" class="diff-body" tabindex="0"></div>
+      </div>
       <div class="overlay-actions">
+        <span class="diff-keys"><kbd>j</kbd> <kbd>k</kbd> next / previous file · <kbd>s</kbd> side by side · <kbd>Esc</kbd> close</span>
         <button class="ghost-button" id="diff-close" type="button">Close</button>
         <button class="primary-button" id="diff-undo" type="button">Undo these changes</button>
       </div>
@@ -252,6 +265,7 @@ ollama pull qwen3:8b</code></pre>
   <script src="/automation.js"></script>
   <script src="/life.js"></script>
   <script src="/app.js"></script>
+  <script src="/diff.js"></script>
 </body>
 
 </html>

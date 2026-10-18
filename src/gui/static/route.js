@@ -231,14 +231,14 @@ function verdictStampMarkup(tone, word) {
 }
 
 /* Every file a run changed, as a revision schedule. */
-function revisionBlockMarkup(changes) {
+function revisionBlockMarkup(changes, turn) {
   if (!changes || !changes.length) return "";
   const rows = changes
     .map(
       (change, index) =>
         `<tr${change.reverted ? ` class="rev-undone" title="Undone: put back as it was"` : ""}>` +
         `<td class="rev-sym"><span>${String.fromCharCode(65 + (index % 26))}</span></td>` +
-        `<td class="rev-file">${escapeHtml(change.path)}</td>` +
+        `<td class="rev-file">${change.reverted || turn === undefined ? escapeHtml(change.path) : `<button type="button" class="rev-link" data-open-diff="1" data-turn="${turn}" data-path="${escapeHtml(change.path)}" title="Open this file's diff">${escapeHtml(change.path)}</button>`}</td>` +
         `<td class="rev-kind">${escapeHtml(change.reverted ? "undone" : { created: "new", deleted: "deleted" }[change.kind] || "edit")}</td>` +
         `<td class="rev-lines"><span class="added">+${change.added}</span> / <span class="removed">−${change.removed}</span></td>` +
         `</tr>`
