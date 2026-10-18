@@ -5793,6 +5793,62 @@ body.yolo .app-shell {
   overflow-wrap: anywhere;
 }
 
+/* ---------- the Changes tab: a diff in place, and a way to the viewer ---------- */
+
+.inspector-summary .added,
+.step-meta .added {
+  color: var(--go-text);
+}
+
+.inspector-summary .removed,
+.step-meta .removed {
+  color: var(--red-text);
+}
+
+.inline-diff {
+  max-height: 340px;
+  overflow: auto;
+  margin: 4px 0 0 6px;
+  border-radius: 8px;
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+.inline-diff .diff-table {
+  font-size: 11.5px;
+}
+
+.inline-diff .diff-table td.no {
+  min-width: 34px;
+  padding: 0 6px;
+}
+
+.inline-diff-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 10px 6px;
+}
+
+.inline-diff-actions .inline-button {
+  white-space: nowrap;
+}
+
+.inline-diff-hint {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.change-turn .step-head {
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  padding-left: 6px;
+}
+
+.change-turn .step-head .change-badge {
+  width: 22px;
+  height: 22px;
+}
+
 /* ---------- life: small signs of what is going on (life.js) ---------- */
 
 /* The run scrolls under soft edges instead of being cut by a ruler line. */
