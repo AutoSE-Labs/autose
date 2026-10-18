@@ -47,6 +47,7 @@ __all__ = [
     "DEFAULT_MAX_SNAPSHOT_BYTES",
     "DEFAULT_MAX_TRACKED_FILES",
     "track_changes",
+    "CHANGED_SINCE",
 ]
 
 #: Largest file either side of a change that is held in memory for undo. A
@@ -61,6 +62,11 @@ DEFAULT_MAX_TRACKED_FILES = 500
 #: starting with it means the handler did not change anything, which is how a
 #: refused write is told apart from an applied one.
 _ERROR_PREFIX = "Error:"
+
+#: Why a revert left a file alone: it no longer says what the journal wrote.
+#: Named so a caller that knows *what* changed it since — a later run, in
+#: DR-061's one-file undo — can say so instead of this general reason.
+CHANGED_SINCE = "it has changed since AutoSE wrote it"
 
 
 @dataclass(frozen=True)
@@ -343,7 +349,7 @@ class ChangeJournal:
         if not current_ok:
             return "it can no longer be read"
         if current != change.after:
-            return "it has changed since AutoSE wrote it"
+            return CHANGED_SINCE
 
         try:
             if change.before is None:
