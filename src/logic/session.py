@@ -637,7 +637,8 @@ class Session:
         return self._processes
 
     def close(self, *, wait: bool = True) -> None:
-        """Stop everything this session started in the background (DR-062).
+        """Stop everything this session started in the background, and let
+        nothing more start there (DR-062).
 
         What an Adapter calls when the session leaves it — closed on the
         dashboard, or the terminal app exiting. With *wait*, returns once

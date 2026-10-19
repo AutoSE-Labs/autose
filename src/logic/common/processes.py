@@ -477,6 +477,9 @@ class ProcessManager:
         self._max_running = max_running
         self._processes: dict[str, BackgroundProcess] = {}
         self._lock = threading.Lock()
+        #: Set by the first stop of everything: a run still going when its
+        #: session closes cannot start what nothing would stop any more.
+        self._closed = False
         _MANAGERS.add(self)
 
     # -- reading -------------------------------------------------------------
@@ -507,18 +510,25 @@ class ProcessManager:
                 "and stop it again; run it without the trailing '&' so it "
                 "finishes on its own"
             )
-        # Counted as `alive`: a command that exits but leaves its server
-        # running must not be a way past the limit.
-        if sum(1 for process in self.processes() if process.alive) >= self._max_running:
-            raise ProcessError(
-                f"{self._max_running} background commands are already running in "
-                "this session; stop one before starting another"
-            )
         process = BackgroundProcess(
             command, cwd=cwd, shown_cwd=shown_cwd, max_lines=self._max_lines
         )
-        process.launch()
+        # Checked, started and listed under one lock, so a close that comes
+        # at the same moment either finds it on the list or refuses it.
         with self._lock:
+            if self._closed:
+                raise ProcessError(
+                    "this session has been closed, so nothing more can be started "
+                    "in the background"
+                )
+            # Counted as `alive`: a command that exits but leaves its server
+            # running must not be a way past the limit.
+            if sum(1 for one in self._processes.values() if one.alive) >= self._max_running:
+                raise ProcessError(
+                    f"{self._max_running} background commands are already running in "
+                    "this session; stop one before starting another"
+                )
+            process.launch()
             self._processes[process.id] = process
         # Announced before its threads start, so an instant exit can never be
         # told before the start it ends.
@@ -545,8 +555,15 @@ class ProcessManager:
         return process
 
     def stop_all(self, *, wait: bool = True) -> None:
-        """Stop every process this manager started — what closing a session does."""
-        _stop_together(self.processes(), self._stop_grace, wait=wait)
+        """Stop every process this manager started, and start no more — what
+        closing a session does."""
+        _stop_together(self._close(), self._stop_grace, wait=wait)
+
+    def _close(self) -> tuple[BackgroundProcess, ...]:
+        """Refuse every later start, and return what there is to stop."""
+        with self._lock:
+            self._closed = True
+            return tuple(self._processes.values())
 
     def clear(self, process_id: str) -> None:
         """Take a finished process off the list. A running one must be stopped first."""
@@ -631,7 +648,7 @@ def stop_managers(managers: Iterable[ProcessManager], *, wait: bool = True) -> N
     What an Adapter closing several sessions at once calls — the dashboard
     shutting down — so six sessions' servers take one grace, not six.
     """
-    processes = [process for manager in managers for process in manager.processes()]
+    processes = [process for manager in managers for process in manager._close()]
     _stop_together(processes, STOP_GRACE_SECONDS, wait=wait)
 
 

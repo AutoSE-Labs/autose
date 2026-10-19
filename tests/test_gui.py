@@ -2379,3 +2379,37 @@ def test_processes_are_read_and_changed_over_http(served):
         served, "/api/processes", body={"action": "stop", "id": "p-none"}
     )
     assert status == 404
+
+
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+def test_a_run_still_going_at_shutdown_cannot_start_a_server_after_it(
+    scripted, tmp_path, monkeypatch
+):
+    """Shutdown stops what the sessions started; a turn still under way
+    (with auto-approve nothing waits on a person) must not start another
+    server once that has happened, or nothing would stop it."""
+    from dataclasses import replace
+
+    from logic.common.tools import background
+
+    monkeypatch.setattr(background, "FIRST_LOOK_SECONDS", 0.1)
+    hold = threading.Event()
+    slow = _Gated(
+        [calls(tool_call("run_command", command="sleep 30 &")), answer("x")], gate=hold
+    )
+    scripted["model"] = slow
+    config = replace(_config(tmp_path), auto_approve=True, auto_approve_authorized_by="test")
+    bridge = SessionBridge(config, default_tier="spark")
+    subscriber = bridge.subscribe()
+    bridge.submit("start the server")
+    assert slow.entered.wait(5.0)
+    session = bridge._target(None).session
+
+    bridge.shutdown()
+    hold.set()
+    _drain(subscriber, "turn")
+
+    try:
+        assert session.processes.processes() == ()
+    finally:
+        session.close()

@@ -323,6 +323,29 @@ def test_a_session_cannot_fill_the_machine_with_copies(tmp_path):
 
 
 @posix_only
+def test_a_closed_manager_starts_nothing_more(manager, workspace):
+    """A run still going when its session closes must not start a server
+    that nothing would stop any more."""
+    manager.stop_all()
+
+    with pytest.raises(ProcessError, match="closed"):
+        manager.start("sleep 30", cwd=workspace.root)
+    result = run_command("sleep 30 &", workspace=workspace, processes=manager)
+    assert result.startswith("Error:") and "closed" in result
+    assert manager.processes() == ()
+
+
+@posix_only
+def test_stopping_managers_together_closes_them_too(tmp_path):
+    first, second = ProcessManager(), ProcessManager()
+    stop_managers([first, second])
+
+    for closed in (first, second):
+        with pytest.raises(ProcessError, match="closed"):
+            closed.start("sleep 30", cwd=tmp_path)
+
+
+@posix_only
 def test_stopping_several_managers_shares_one_grace(tmp_path):
     first, second = ProcessManager(), ProcessManager()
     one = first.start("sleep 30", cwd=tmp_path)

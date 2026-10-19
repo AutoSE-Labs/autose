@@ -65,7 +65,9 @@ round and a stray process.
   DR-050 and DR-052 refuse is still refused (`rm … &`, a redirect, a `&` in
   the middle), and a rule written by hand names the command without the `&`.
 - **Nothing outlives what shows it.** `Session.close` stops everything the
-  session started. The dashboard calls it when a session is closed, when a
+  session started, and refuses any background command after it, so a run
+  still going when the dashboard shuts down cannot start one nothing would
+  stop. The dashboard calls it when a session is closed, when a
   config reload or an unattended run replaces sessions, and on shutdown; the
   terminal app and the headless runner call it on the way out. While they
   run, SIGTERM and SIGHUP become an ordinary exit so those paths run even on a
