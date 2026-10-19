@@ -1525,6 +1525,30 @@ out.prevented = press.prevented;
     assert out == {"open": opens, "prevented": opens}
 
 
+def test_the_row_enter_runs_is_on_screen_when_the_menu_opens():
+    """Before anything is typed Enter skips what waits, so with many calls
+    waiting the row it runs sits far down the list; it was scrolled to
+    while the window was still hidden, which does nothing, and then the list
+    was put back at the top, so Enter ran a row nobody could see."""
+    out = _run_palette(
+        r"""
+approvals = Array.from({ length: 12 }, (_, n) => ({ id: "a" + n, session: "s-1", tool: "run_command", arguments: { command: "pytest -q " + n }, allow: null }));
+const log = [];
+const list = el("palette-list");
+let top = 0;
+Object.defineProperty(list, "scrollTop", { get: () => top, set: (value) => { top = value; log.push("top:" + value); } });
+// A hidden window has no layout: scrolling a row into view there does nothing.
+for (let n = 0; n < 40; n += 1) el("palette-option-" + n).scrollIntoView = () => { if (!overlays.palette.hidden) log.push("row:" + n); };
+openPalette();
+out.active = paletteView.active;
+out.last = log[log.length - 1];
+"""
+    )
+
+    assert out["active"] > 0
+    assert out["last"] == f"row:{out['active']}"
+
+
 def test_the_command_menu_marks_the_letters_it_matched():
     """Matching counts UTF-16 units, as JavaScript strings do; the marking
     walked the label by characters, so after an emoji or another character

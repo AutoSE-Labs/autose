@@ -688,10 +688,12 @@ function renderPalette() {
     markup || `<p class="palette-empty">Nothing matches. Try fewer letters, a session's number or a file name.</p>`;
   // Enter before anything is typed answers nothing that waits and stops
   // nothing: a reflex Ctrl K, Enter must not run a command or end a run.
-  // Typed, the best fit is chosen.
+  // Typed, the best fit is chosen. From the top, so the list shows as much
+  // of what waits as fits above it, but never so the row Enter runs is out
+  // of sight.
   const first = paletteView.shown.findIndex((command) => !command.unavailable && (query || !command.deliberate));
-  setPaletteActive(first >= 0 ? first : 0);
   el("palette-list").scrollTop = 0;
+  setPaletteActive(first >= 0 ? first : 0);
 }
 
 function paletteItemMarkup(command, index, marks) {
@@ -769,8 +771,10 @@ function openPalette() {
   paletteView.commands = paletteCommands();
   const input = el("palette-input");
   input.value = "";
-  renderPalette();
+  // Shown first: a hidden window has no layout, so the row Enter runs could
+  // not be scrolled into view.
   overlays.palette.hidden = false;
+  renderPalette();
   input.focus();
   // The file index is fetched at load and after each run; if it is empty, a
   // name typed in a moment can still find its file.
