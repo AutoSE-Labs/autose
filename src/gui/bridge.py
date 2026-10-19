@@ -2190,17 +2190,25 @@ def _restore_queue(live: _Live) -> None:
     saved = live.session.queued
     if not saved:
         return
-    live.queue = [
-        {
-            # An id is the handle the page moves and removes an item by; one
-            # lost from a hand-edited file is replaced rather than left empty.
-            "id": item.id or secrets.token_hex(6),
-            "prompt": item.prompt,
-            "tier": item.tier if is_tier(item.tier) else "",
-            "queued_at": item.queued_at,
-        }
-        for item in saved
-    ]
+    restored: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in saved:
+        # An id is the handle the page moves and removes an item by; one lost
+        # from a hand-edited file, or repeated in it, is replaced, so a remove
+        # never takes two requests and a move never picks the wrong one.
+        handle = item.id
+        while not handle or handle in seen:
+            handle = secrets.token_hex(6)
+        seen.add(handle)
+        restored.append(
+            {
+                "id": handle,
+                "prompt": item.prompt,
+                "tier": item.tier if is_tier(item.tier) else "",
+                "queued_at": item.queued_at,
+            }
+        )
+    live.queue = restored
     live.queue_held = True
     live.queue_reopened = True
 

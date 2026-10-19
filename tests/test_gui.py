@@ -1377,6 +1377,27 @@ def test_a_reopened_queue_keeps_its_items_movable_by_id(scripted, tmp_path):
     assert _saved_queue(tmp_path, session_id) == ["two", "one"]
 
 
+def test_a_reopened_queue_with_a_repeated_id_removes_only_the_one_asked_for(
+    scripted, tmp_path
+):
+    """A hand-edited file can repeat an id; each request still has its own."""
+    from logic.persistence import FileSessionStore
+
+    session_id = _stored_with_queue(tmp_path, ["one", "two"])
+    path = FileSessionStore(tmp_path / ".autose" / "sessions").root / f"{session_id}.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["queue"][1]["id"] = document["queue"][0]["id"]
+    path.write_text(json.dumps(document), encoding="utf-8")
+    bridge = _bridge(scripted, tmp_path, [answer("hi")], resume=session_id)
+
+    queue = bridge.snapshot()["queue"]
+    assert len({item["id"] for item in queue}) == 2
+    left = bridge.queue_action("remove", item_id=queue[1]["id"])
+
+    assert [item["prompt"] for item in left["queue"]] == ["one"]
+    assert _saved_queue(tmp_path, session_id) == ["one"]
+
+
 def test_the_page_says_why_a_queue_waits_and_counts_a_closed_session_s_queue():
     script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
     rows = script[script.index("function storedRowMarkup") : script.index("function scheduleRailTicks")]
