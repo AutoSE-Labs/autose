@@ -590,6 +590,57 @@ class SessionBridge:
             self._resolve()
         return self._broadcast_state()
 
+    def connect(self, base_url: str, model: str = "") -> dict[str, Any]:
+        """Point AutoSE at an endpoint the user named, and remember it.
+
+        First-run escape hatch for a runtime discovery cannot find (Jan, a
+        remote server, any OpenAI-compatible URL). The endpoint is probed
+        before anything is written, so a typo is reported rather than saved.
+        With no model given, the endpoint's first model is used.
+        """
+        from logic.config import config_search_paths, find_config_file
+        from logic.inference.discovery import probe_runtime
+        from logic.inference.registry import get_provider
+
+        url = (base_url or "").strip()
+        if not url:
+            raise BridgeError("an endpoint address is required, e.g. http://localhost:1337/v1")
+        if "://" not in url:
+            url = "http://" + url
+        runtime = probe_runtime(get_provider("openai-compatible"), base_url=url)
+        if not runtime.reachable:
+            raise BridgeError(f"could not reach {url}: {runtime.error}")
+        chosen = (model or "").strip()
+        names = [m.name for m in runtime.models]
+        if chosen and names and chosen not in names:
+            match = [n for n in names if chosen.lower() in n.lower()]
+            if len(match) != 1:
+                raise BridgeError(
+                    f"{url} does not serve '{chosen}'. It serves: {', '.join(names)}"
+                )
+            chosen = match[0]
+        if not chosen:
+            if not names:
+                raise BridgeError(f"{url} is reachable but serves no models")
+            chosen = names[0]
+
+        import yaml
+
+        # The last search path is the workspace's own file; the one before it
+        # is the per-user location (or the AUTOSE_CONFIG override).
+        user_paths = config_search_paths()[:-1]
+        target = Path(self._config_path or find_config_file() or user_paths[0])
+        document: dict[str, Any] = {}
+        if target.is_file():
+            document = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+        inference = dict(document.get("inference") or {})
+        inference.update(provider="openai-compatible", base_url=runtime.base_url, model=chosen)
+        document["inference"] = inference
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+        self._config_path = target
+        return self.reload()
+
     def new_session(self) -> dict[str, Any]:
         """Open a fresh session beside whatever else is running (DR-031)."""
         with self._lock:

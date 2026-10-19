@@ -6207,3 +6207,7 @@ body.night::after {
     font-size: 24px;
   }
 }
+
+.setup-connect { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.setup-connect p { margin: 0; }
+.setup-connect input { padding: 8px 10px; font: inherit; }

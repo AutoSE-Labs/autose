@@ -230,6 +230,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "/api/clear": self._clear,
             "/api/session": self._session,
             "/api/reload": self._reload,
+            "/api/connect": lambda body: self._bridge.connect(
+                str(body.get("base_url") or ""), str(body.get("model") or "")
+            ),
             "/api/providers": self._providers,
             "/api/automation": self._automation,
         }

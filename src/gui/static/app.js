@@ -2887,6 +2887,10 @@ el("open-tips").addEventListener("focus", showTipPopup);
 el("open-tips").addEventListener("blur", hideTipPopup);
 el("setup-doctor").addEventListener("click", openDoctor);
 el("setup-retry").addEventListener("click", () => post("/api/reload", {}));
+el("setup-connect").addEventListener("submit", (event) => {
+  event.preventDefault();
+  post("/api/connect", { base_url: el("setup-url").value, model: el("setup-model").value }, "Connected");
+});
 el("doctor-refresh").addEventListener("click", openDoctor);
 el("diff-close").addEventListener("click", closeOverlays);
 el("doctor-close").addEventListener("click", closeOverlays);

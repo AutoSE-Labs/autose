@@ -166,6 +166,12 @@ ollama pull qwen3:8b</code></pre>
         <p>Any other OpenAI-compatible endpoint works too: set <code>AUTOSE_BASE_URL</code> and
           <code>AUTOSE_MODEL</code>, then look again.</p>
       </div>
+      <form class="setup-connect" id="setup-connect" autocomplete="off">
+        <p>Running something else (Jan, a remote server)? Enter its endpoint:</p>
+        <input id="setup-url" type="text" placeholder="localhost:1337/v1" aria-label="Model endpoint" />
+        <input id="setup-model" type="text" placeholder="Model name (optional, defaults to the first one served)" aria-label="Model name" />
+        <button class="primary-button" type="submit">Connect</button>
+      </form>
       <div class="overlay-actions">
         <button class="ghost-button" id="setup-doctor" type="button">Machine check</button>
         <button class="primary-button" id="setup-retry" type="button">Check again</button>
