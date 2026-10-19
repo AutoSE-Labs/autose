@@ -588,3 +588,17 @@ def test_a_session_that_went_back_carries_no_notice(world):
     state = bridge.resume(stored)
     entry = next(one for one in state["open"] if one["session_id"] == stored)
     assert entry["notice"] == ""
+
+
+def test_a_notice_is_dropped_once_the_session_is_moved_by_hand(world):
+    """The notice says what the session is on now; after a pick it would not be."""
+    bridge: SessionBridge = world["bridge"]
+    stored = _stored(bridge, "ollama-cloud", "gpt-oss:120b", "https://ollama.com")
+    bridge.resume(stored)
+    assert next(e for e in bridge.snapshot()["open"] if e["session_id"] == stored)["notice"]
+
+    bridge.save_key("ollama-cloud", _KEY)
+    bridge.select_model("gpt-oss:120b", provider="ollama-cloud", session_id=stored)
+
+    entry = next(e for e in bridge.snapshot()["open"] if e["session_id"] == stored)
+    assert entry["notice"] == ""

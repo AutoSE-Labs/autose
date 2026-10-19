@@ -1409,6 +1409,9 @@ class SessionBridge:
             except AutoSEError as exc:
                 raise BridgeError(str(exc)) from exc
             after = (session.inference.provider, session.inference.base_url)
+            # "It is on X now because ..." stops being true once the person
+            # has moved the session themselves (DR-058).
+            live.notice = ""
             on_default = (
                 setup is not None
                 and setup.inference is not None
