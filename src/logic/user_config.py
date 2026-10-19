@@ -198,7 +198,7 @@ def _means(text: str, expected: dict[str, Any]) -> bool:
     import yaml
 
     try:
-        return yaml.safe_load(text) == expected
+        return bool(yaml.safe_load(text) == expected)
     except yaml.YAMLError:
         return False
 
