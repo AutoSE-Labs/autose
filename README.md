@@ -123,6 +123,7 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-053](docs/DecisionRecords/DR-053-yolo-mode.md) | YOLO mode: a switch that lets everything run without asking |
 | [DR-054](docs/DecisionRecords/DR-054-forge-ships-in-the-free-edition.md) | `forge` ships in the free edition, without the decision record |
 | [DR-056](docs/DecisionRecords/DR-056-a-session-s-queue-is-saved-with-it.md) | A session's queue is saved with it and comes back held |
+| [DR-057](docs/DecisionRecords/DR-057-allow-rules-that-last.md) | Allow rules that last: saved with the session, and for a workspace |
 | [DR-058](docs/DecisionRecords/DR-058-a-session-keeps-its-provider-and-follows-its-key.md) | A reopened session goes back to its provider, and open sessions follow a rotated key |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
