@@ -558,3 +558,33 @@ def test_an_unattended_session_starts_on_a_key_edited_by_hand(tmp_path, world):
     _drain(subscriber, "turn")
 
     assert bridge._open[opened].session.inference.api_key == _ROTATED
+
+
+def test_a_session_resumed_at_start_that_cannot_go_back_still_says_so(world):
+    """With ``--resume`` the session is reopened before any page is connected,
+    so the notice has to reach the first page through the state it reads."""
+    stored = _stored(world["bridge"], "ollama-cloud", "gpt-oss:120b", "https://ollama.com")
+    bridge = SessionBridge(world["bridge"]._config, default_tier="spark", resume=stored)
+
+    (entry,) = bridge.snapshot()["open"]
+    assert entry["session_id"] == stored
+    assert entry["notice"] == (
+        "This session used ollama-cloud · gpt-oss:120b; it is on "
+        "test-settings · local-model now because no API key is saved for "
+        "ollama-cloud."
+    )
+
+    # Said until the session is used, then no more.
+    subscriber = bridge.subscribe()
+    bridge.submit("hello", session_id=stored)
+    _drain(subscriber, "turn")
+    assert bridge.snapshot()["open"][0]["notice"] == ""
+
+
+def test_a_session_that_went_back_carries_no_notice(world):
+    bridge: SessionBridge = world["bridge"]
+    CredentialStore().save("ollama-cloud", _KEY)
+    stored = _stored(bridge, "ollama-cloud", "gpt-oss:120b", "https://ollama.com")
+    state = bridge.resume(stored)
+    entry = next(one for one in state["open"] if one["session_id"] == stored)
+    assert entry["notice"] == ""

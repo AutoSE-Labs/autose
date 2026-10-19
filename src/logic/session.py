@@ -147,6 +147,8 @@ class RecordedModel:
     reason: str = ""
     #: The models the provider listed while it was checked, for a picker.
     models: tuple[ModelInfo, ...] = ()
+    #: The sentence ``provider_not_restored`` carried; empty when it went back.
+    notice: str = ""
 
 
 @dataclass(frozen=True)
@@ -849,17 +851,22 @@ class Session:
 
     def _stay(self, provider: str, model: str, reason: str) -> RecordedModel:
         current = self._inference
+        notice = (
+            f"This session used {provider} · {model}; it is on "
+            f"{current.provider} · {current.model} now because {reason}."
+        )
         self._emit(
             "provider_not_restored",
-            f"This session used {provider} · {model}; it is on "
-            f"{current.provider} · {current.model} now because {reason}.",
+            notice,
             provider=provider,
             model=model,
             reason=reason,
             current_provider=current.provider,
             current_model=current.model,
         )
-        return RecordedModel(provider, model, restored=False, reason=reason)
+        return RecordedModel(
+            provider, model, restored=False, reason=reason, notice=notice
+        )
 
     def refresh_api_key(self) -> bool:
         """Use the provider's current key from the next request on (DR-058).

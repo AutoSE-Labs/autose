@@ -489,7 +489,6 @@ function handleEvent(id, frame) {
       "tier_changed",
       "session_resumed",
       "context_window_changed",
-      "provider_not_restored",
     ].includes(frame.event)
   ) {
     // Events that belong to a turn we are not tracking (another tab started
@@ -740,11 +739,6 @@ function handleEvent(id, frame) {
     case "session_save_failed":
       toast(`This session could not be saved: ${frame.message}`, "bad");
       break;
-    case "provider_not_restored":
-      // A reopened session that could not go back to the provider and model
-      // it used: said once, and it carries on on the default (DR-058).
-      toast(frame.message, "", `restore-${id}-${frame.timestamp}`);
-      break;
     default:
       break;
   }
@@ -754,6 +748,13 @@ function handleEvent(id, frame) {
 
 function adoptState() {
   if (!state) return;
+  // A reopened session that could not go back to the provider and model it
+  // used says why, once per opening, until its next turn (DR-058). It comes
+  // with the state rather than as an event, so a session reopened when the
+  // dashboard started reaches the first page too.
+  (state.open || []).forEach((entry) => {
+    if (entry.notice) toast(entry.notice, "", `restore-${entry.session_id}-${entry.opened_at}`);
+  });
   // Sessions the server no longer has open cannot receive frames again, so
   // their cards are dropped rather than kept as a leak.
   const live = new Set((state.open || []).map((entry) => entry.session_id));

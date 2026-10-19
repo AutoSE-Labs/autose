@@ -333,6 +333,10 @@ class _Live:
         #: The schedule or watcher that opened it, and the name it shows.
         self.origin: dict[str, Any] | None = None
         self.title = ""
+        #: Why a reopened session is not on the provider it used (DR-058),
+        #: kept until its next turn: one reopened at start-up says so before
+        #: any page is there to hear the event.
+        self.notice = ""
 
     def queue_payload(self) -> dict[str, Any]:
         return {"queue": [dict(item) for item in self.queue], "held": self.queue_held}
@@ -579,10 +583,14 @@ class SessionBridge:
 
         The default for new sessions is left alone: reopening an old session
         is not a choice of what the next one starts on. When it cannot go back,
-        the session says so once (``provider_not_restored``) and stays here.
+        the session says so (``provider_not_restored``, and its ``notice``
+        until its next turn) and stays here.
         """
         outcome = live.session.return_to_recorded_model(record)
-        if outcome is None or not outcome.restored:
+        if outcome is None:
+            return
+        if not outcome.restored:
+            live.notice = outcome.notice
             return
         setup = self._setup
         inference = live.session.inference
@@ -970,6 +978,7 @@ class SessionBridge:
             "opened_at": live.opened_at,
             "focused": live.id == self._focus,
             "strip": live.strip_payload(),
+            "notice": live.notice,
         }
 
     def sessions(self) -> dict[str, Any]:
@@ -1087,6 +1096,7 @@ class SessionBridge:
                     status=409,
                 )
             live.running = True
+            live.notice = ""
             live.unattended = unattended
             live.reset_turn()
             live.mark("working")

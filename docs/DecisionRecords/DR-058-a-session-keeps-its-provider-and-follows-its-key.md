@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-18
 - **Decision owners:** AutoSE maintainers
-- **Scope:** `Session.return_to_recorded_model`, `Session.refresh_api_key`, the key check at the start of `Session.stream` and the optional `listed` argument of `Session.use_provider` in `src/logic/session.py`; `CredentialStore.stamp` and `ProviderKey` in `src/logic/credentials.py`; `SessionBridge._return_to_record` and `SessionBridge._pick_up_keys` and their callers in `src/gui/bridge.py`; the `provider_not_restored` notice in `src/gui/static/app.js`. **Refines DR-026 and DR-036.** Supersedes none.
+- **Scope:** `Session.return_to_recorded_model`, `Session.refresh_api_key`, the key check at the start of `Session.stream` and the optional `listed` argument of `Session.use_provider` in `src/logic/session.py`; `CredentialStore.stamp` and `ProviderKey` in `src/logic/credentials.py`; `SessionBridge._return_to_record` and `SessionBridge._pick_up_keys` and their callers in `src/gui/bridge.py`; the session's `notice` in the dashboard state and the toast `src/gui/static/app.js` shows for it. **Refines DR-026 and DR-036.** Supersedes none.
 
 ## Context
 
@@ -48,7 +48,10 @@ start), it builds it on the default as before and then calls
   "This session used *provider · model*; it is on *default provider · model*
   now because *reason*." The reasons are plain: the provider is not available
   here; no API key is saved for it; nothing answered at its address; it does
-  not offer that model now.
+  not offer that model now. The dashboard keeps the sentence as the open
+  session's `notice` in its state until the session's next turn, and the page
+  shows it once for each opening: a session reopened by `--resume` at start is
+  reopened before any page is connected to hear the event.
 
 Going back changes only that session. The default for new sessions is not
 touched: reopening an old session is not a choice of what the next one starts
@@ -114,9 +117,9 @@ tail, as DR-036 requires.
   provider's models while the dashboard waits, bounded by the discovery
   timeout (2 s by default). An address that drops packets rather than
   refusing costs that much once.
-- A session that cannot go back says so once, as a passing notice. A person
-  who missed it sees the model in the header and the session's history, but
-  not the reason.
+- A session that cannot go back says so as a passing notice, again on each
+  page load until its next turn. A person who missed it sees the model in the
+  header and the session's history, but not the reason.
 - A key set only in a provider's environment variable is not followed: a
   change there is not a file change, and is seen when a session next switches
   provider.
