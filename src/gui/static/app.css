@@ -5849,6 +5849,15 @@ body.yolo .app-shell {
   height: 22px;
 }
 
+/* ---------- a queue kept with its session (DR-056) ---------- */
+
+/* A closed session with requests still waiting in it: the count leads the
+ * row's line, in the pen, so it reads as something to come back to. */
+.sheet-state .stored-queued {
+  color: var(--pen-deep);
+  font-weight: 700;
+}
+
 /* ---------- life: small signs of what is going on (life.js) ---------- */
 
 /* The run scrolls under soft edges instead of being cut by a ruler line. */

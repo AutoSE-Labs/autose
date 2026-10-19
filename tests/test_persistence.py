@@ -462,3 +462,146 @@ def test_a_turn_s_route_round_trips_and_is_optional_on_read():
     older = record.to_dict()
     del older["route"]
     assert TurnRecord.from_dict(older).route == ()
+
+
+# -- DR-056: requests waiting in a session's queue are kept with it ----------
+
+
+def test_a_queue_round_trips_with_the_session(store):
+    from logic.persistence import QueuedRequest
+
+    queue = (
+        QueuedRequest(id="q1", prompt="add tests", tier="craft", queued_at=10.0),
+        QueuedRequest(id="q2", prompt="then tidy up"),
+    )
+    store.save(_record("s1", queue=queue))
+
+    assert store.load("s1").queue == queue
+
+
+def test_a_session_stored_before_queues_were_kept_still_loads(store):
+    older = _record("s1").to_dict()
+    del older["queue"]
+    (store.root).mkdir(parents=True, exist_ok=True)
+    (store.root / "s1.json").write_text(json.dumps(older), encoding="utf-8")
+
+    loaded = store.load("s1")
+
+    assert loaded is not None
+    assert loaded.queue == ()
+    assert loaded.turns[0].prompt == "do a thing"
+
+
+def test_a_queued_item_with_no_request_is_dropped_on_read():
+    document = _record("s1").to_dict()
+    document["queue"] = [{"id": "q1", "prompt": "  "}, "junk", {"id": "q2", "prompt": "real"}]
+
+    assert [item.prompt for item in SessionRecord.from_dict(document).queue] == ["real"]
+
+
+def test_a_queue_that_is_not_a_list_is_read_as_none_and_the_list_still_loads(store):
+    """A hand-edited file must not take the whole session list down with it."""
+    store.save(_record("good"))
+    broken = _record("bad").to_dict()
+    broken["queue"] = 5
+    (store.root / "bad.json").write_text(json.dumps(broken), encoding="utf-8")
+
+    assert store.load("bad").queue == ()
+    assert {record.id for record in store.list()} == {"good", "bad"}
+
+
+def test_a_kept_queue_is_saved_at_once_and_survives_the_next_turn(make_session, store):
+    from logic.persistence import QueuedRequest
+
+    session = make_session([answer("done")], store=store)
+    session.keep_queue([QueuedRequest(id="q1", prompt="next thing")])
+
+    assert [item.prompt for item in store.load(session.session_id).queue] == ["next thing"]
+
+    session.run("this thing")
+    stored = store.load(session.session_id)
+    assert [turn.prompt for turn in stored.turns] == ["this thing"]
+    assert [item.prompt for item in stored.queue] == ["next thing"]
+
+
+def test_a_resumed_session_carries_its_queue(make_session, store):
+    from logic.persistence import QueuedRequest
+
+    first = make_session([answer("hi")], store=store)
+    first.keep_queue([QueuedRequest(id="q1", prompt="one"), QueuedRequest(id="q2", prompt="two")])
+
+    second = make_session([answer("hi")], store=store)
+    second.restore(store.load(first.session_id))
+
+    assert [item.prompt for item in second.queued] == ["one", "two"]
+
+
+def test_a_queue_saved_beside_a_turn_never_overlaps_its_save(make_session):
+    """Two writes of one session file at once can leave neither on disk."""
+    import threading
+
+    from logic.persistence import QueuedRequest
+
+    class _Slow(NullSessionStore):
+        def __init__(self) -> None:
+            self.active = 0
+            self.most = 0
+            self.guard = threading.Lock()
+
+        def save(self, record):
+            with self.guard:
+                self.active += 1
+                self.most = max(self.most, self.active)
+            time.sleep(0.02)
+            with self.guard:
+                self.active -= 1
+
+    slow = _Slow()
+    session = make_session([answer("hi")], store=slow)
+
+    def turn_saves():
+        for _ in range(5):
+            session.persist()
+
+    worker = threading.Thread(target=turn_saves)
+    worker.start()
+    for index in range(5):
+        session.keep_queue([QueuedRequest(id=f"q{index}", prompt="later")])
+    worker.join(5.0)
+
+    assert slow.most == 1
+
+
+def test_an_unchanged_queue_is_not_written_again(make_session):
+    from logic.persistence import QueuedRequest
+
+    class _Counting(NullSessionStore):
+        def __init__(self) -> None:
+            self.saves = 0
+
+        def save(self, record):
+            self.saves += 1
+
+    counting = _Counting()
+    session = make_session([answer("hi")], store=counting)
+    session.keep_queue([])
+    assert counting.saves == 0
+    session.keep_queue([QueuedRequest(id="q1", prompt="one")])
+    session.keep_queue([QueuedRequest(id="q1", prompt="one")])
+    assert counting.saves == 1
+
+
+def test_a_queued_time_that_is_not_a_number_is_read_as_none():
+    """NaN and Infinity load from JSON but would stop the page parsing a payload."""
+    document = _record("s1").to_dict()
+    document["queue"] = [
+        {"id": "q1", "prompt": "one", "queued_at": float("nan")},
+        {"id": "q2", "prompt": "two", "queued_at": "inf"},
+    ]
+    document["updated_at"] = float("nan")
+
+    record = SessionRecord.from_dict(json.loads(json.dumps(document)))
+
+    assert [item.queued_at for item in record.queue] == [0.0, 0.0]
+    assert record.updated_at == 0.0
+    json.dumps(record.to_dict(), allow_nan=False)

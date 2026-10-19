@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import time
 import uuid
@@ -52,6 +53,7 @@ __all__ = [
     "TurnRecord",
     "SessionStore",
     "SessionStoreError",
+    "QueuedRequest",
     "FileSessionStore",
     "NullSessionStore",
     "SESSIONS_DIRECTORY",
@@ -176,6 +178,40 @@ class TurnRecord:
 
 
 @dataclass(frozen=True)
+class QueuedRequest:
+    """A request waiting to run in a session, as it goes to disk (DR-056).
+
+    What the person typed and the tier they chose, nothing the session made of
+    it: a queued request has not run, so there is no answer or change to keep,
+    and storing the person's own words crosses no boundary DR-004 draws. The id
+    is the one the Adapter gave it, kept so a reopened queue's items are still
+    moved and removed by the same handle.
+    """
+
+    id: str
+    prompt: str
+    tier: str = ""
+    queued_at: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "prompt": self.prompt,
+            "tier": self.tier,
+            "queued_at": self.queued_at,
+        }
+
+    @classmethod
+    def from_dict(cls, document: Mapping[str, Any]) -> QueuedRequest:
+        return cls(
+            id=str(document.get("id", "")),
+            prompt=str(document.get("prompt", "")),
+            tier=str(document.get("tier", "")),
+            queued_at=_float(document.get("queued_at")),
+        )
+
+
+@dataclass(frozen=True)
 class SessionRecord:
     """One session, as plain data."""
 
@@ -190,6 +226,9 @@ class SessionRecord:
     tier: str = ""
     #: A name the person gave it; the title falls back to the first request.
     name: str = ""
+    #: Requests waiting to run, in order (DR-056). Optional on read: a session
+    #: written before queues were kept simply has none.
+    queue: tuple[QueuedRequest, ...] = ()
     turns: tuple[TurnRecord, ...] = ()
     #: `SessionMemory`'s rolling compressed summary, and the exchanges it was
     #: still holding verbatim (DR-004).
@@ -233,6 +272,7 @@ class SessionRecord:
             "model": self.model,
             "tier": self.tier,
             "name": self.name,
+            "queue": [item.to_dict() for item in self.queue],
             "summary": self.summary,
             "verbatim": [list(pair) for pair in self.verbatim],
             "prompt_tokens": self.prompt_tokens,
@@ -252,6 +292,12 @@ class SessionRecord:
         identifier = str(document.get("id") or "")
         if not identifier:
             raise SessionStoreError("stored session has no id")
+        # DR-056: a hand-edited file may hold anything here; only a list is a
+        # queue, and anything else is read as none rather than failing the
+        # whole session list.
+        waiting = document.get("queue")
+        if not isinstance(waiting, list):
+            waiting = []
         return cls(
             id=identifier,
             workspace=str(document.get("workspace", "")),
@@ -262,6 +308,11 @@ class SessionRecord:
             model=str(document.get("model", "")),
             tier=str(document.get("tier", "")),
             name=str(document.get("name", "")),
+            queue=tuple(
+                QueuedRequest.from_dict(item)
+                for item in waiting
+                if isinstance(item, Mapping) and str(item.get("prompt", "")).strip()
+            ),
             summary=str(document.get("summary", "")),
             verbatim=tuple(
                 (str(pair[0]), str(pair[1]))
@@ -560,7 +611,10 @@ def _int(value: Any) -> int:
 
 
 def _float(value: Any) -> float:
+    # A hand-edited file can hold NaN or Infinity, which Python's json reads
+    # but the page cannot: one such time in a payload stops it loading.
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return 0.0
+    return number if math.isfinite(number) else 0.0

@@ -15,8 +15,9 @@ interfaces behaving identically.
 
 from __future__ import annotations
 
+import threading
 import time
-from collections.abc import Generator, Iterator, Mapping, Sequence
+from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from urllib.parse import urlsplit
 
@@ -57,6 +58,7 @@ from .inference.types import Usage
 from .limits import count_limit
 from .persistence import (
     NullSessionStore,
+    QueuedRequest,
     SessionRecord,
     SessionStore,
     TurnRecord,
@@ -451,6 +453,14 @@ class Session:
         # the session carries on.
         self._store: SessionStore = store or NullSessionStore()
         self._id = session_id or new_session_id()
+        # DR-056: one save at a time. An Adapter saves a changed queue from its
+        # own thread while a turn may be saving on another, and two writes of
+        # one session file at once can leave neither of them on disk.
+        self._save_lock = threading.Lock()
+        #: Requests waiting to run here, as the Adapter last handed them over
+        #: (DR-056). The Adapter decides when one starts; the session only
+        #: keeps them with its record, so a restart does not lose them.
+        self._queued: tuple[QueuedRequest, ...] = ()
         self._classifier = TaskClassifier(
             self._model,
             context_limit=self.context_limit(),
@@ -602,6 +612,7 @@ class Session:
             model=self._inference.model,
             tier=self._tier,
             name=self._name,
+            queue=self._queued,
             summary=self._memory.summary,
             verbatim=tuple(
                 (exchange.prompt, exchange.answer)
@@ -637,6 +648,7 @@ class Session:
         self._id = record.id
         self._created_at = record.created_at or self._created_at
         self._name = record.name
+        self._queued = record.queue
         self._turns = [
             Turn(
                 prompt=item.prompt,
@@ -683,9 +695,31 @@ class Session:
     def persist(self) -> None:
         """Write the session out. Never raises — a failed save is not a failed run."""
         try:
-            self._store.save(self.snapshot())
+            with self._save_lock:
+                self._store.save(self.snapshot())
         except Exception as exc:  # noqa: BLE001 - see docstring
             self._emit("session_save_failed", str(exc), error=str(exc))
+
+    @property
+    def queued(self) -> tuple[QueuedRequest, ...]:
+        """The requests waiting to run here, oldest first (DR-056)."""
+        return self._queued
+
+    def keep_queue(self, items: Iterable[QueuedRequest]) -> None:
+        """Hold what waits to run next, and save it with the session (DR-056).
+
+        Called by an Adapter every time its queue changes, so what is on disk
+        is never behind what is on screen. Safe beside a running turn: the
+        record written is the session as of its last finished turn, plus this
+        queue, and the turn's own save is serialised with it. An unchanged
+        queue (a clear of nothing, a resume with nothing waiting) writes
+        nothing, so a fresh session is not put on disk before it has run.
+        """
+        queued = tuple(items)
+        if queued == self._queued:
+            return
+        self._queued = queued
+        self.persist()
 
     @property
     def last_changes(self) -> tuple[FileChange, ...]:

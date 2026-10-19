@@ -1092,3 +1092,20 @@ def test_a_stop_where_signals_are_unavailable_is_a_no_op(monkeypatch):
     )
     with stop_on_interrupt(lambda: True):
         pass  # nothing installed, nothing raised, nothing restored
+
+
+def test_the_session_list_says_when_requests_wait_in_the_dashboard():
+    """DR-056: a resume from the terminal keeps them; the list says they are there."""
+    from logic.persistence import QueuedRequest, SessionRecord
+    from tui.render import session_table
+
+    waiting = SessionRecord(
+        id="s1",
+        queue=(QueuedRequest(id="q1", prompt="one"), QueuedRequest(id="q2", prompt="two")),
+    )
+    quiet = SessionRecord(id="s2")
+
+    output = _render(session_table((waiting, quiet)))
+
+    assert "2 queued in the dashboard" in output
+    assert output.count("queued") == 1

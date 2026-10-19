@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-18
 - **Decision owners:** AutoSE maintainers
-- **Scope:** the per-session queue in `src/gui/bridge.py` (`submit(queue=…)`, `queue_action`, the `queue` frame and snapshot fields) and `POST /api/queue` in `src/gui/server.py`; session tabs, the queue strip and the composer in `src/gui/static/{index.html,app.css,app.js}`. Builds on DR-030 (the user holds the stop) and DR-031 (several sessions, one turn each).
+- **Scope:** the per-session queue in `src/gui/bridge.py` (`submit(queue=…)`, `queue_action`, the `queue` frame and snapshot fields) and `POST /api/queue` in `src/gui/server.py`; session tabs, the queue strip and the composer in `src/gui/static/{index.html,app.css,app.js}`. Builds on DR-030 (the user holds the stop) and DR-031 (several sessions, one turn each). **Amended by [DR-056](DR-056-a-session-s-queue-is-saved-with-it.md): the queue below is now saved with the session on every change and comes back held when the session is reopened, so it survives a restart and closing the session.**
 
 ## Context
 
@@ -63,7 +63,8 @@ beside it now does something.
 ### Negative
 
 - The queue is in memory: it does not survive a dashboard restart, though the
-  sessions themselves do (DR-026).
+  sessions themselves do (DR-026). **Amended by DR-056:** it is now saved with
+  the session.
 - A queued prompt is run with the tier it was queued with, chosen before the
   previous turn's outcome was known.
 

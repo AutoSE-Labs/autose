@@ -1201,6 +1201,213 @@ def test_queued_prompts_can_be_reordered_and_removed(scripted, tmp_path):
     hold.set()
 
 
+# -- DR-056: the queue is saved with the session and comes back held ----------
+
+
+def _saved_queue(tmp_path, session_id: str) -> list[str]:
+    """The prompts waiting in a session's queue, as they are on disk."""
+    from logic.persistence import FileSessionStore
+
+    record = FileSessionStore(tmp_path / ".autose" / "sessions").load(session_id)
+    assert record is not None, "the session was never saved"
+    return [item.prompt for item in record.queue]
+
+
+def _stored_with_queue(tmp_path, prompts, *, turns=()):
+    """A session on disk with *prompts* waiting, as a restart would find it."""
+    from logic.persistence import (
+        FileSessionStore,
+        QueuedRequest,
+        SessionRecord,
+        TurnRecord,
+    )
+
+    record = SessionRecord(
+        id="20261018-090000-abcdef",
+        workspace=str(tmp_path),
+        tier="spark",
+        queue=tuple(
+            QueuedRequest(id=f"q{index}", prompt=prompt, tier="spark")
+            for index, prompt in enumerate(prompts)
+        ),
+        turns=tuple(TurnRecord(prompt=prompt, answer="done", tier="spark") for prompt in turns),
+    )
+    FileSessionStore(tmp_path / ".autose" / "sessions").save(record)
+    return record.id
+
+
+def test_the_queue_is_saved_with_the_session_on_every_change(scripted, tmp_path):
+    hold = threading.Event()
+    model = _Gated([answer("the first"), answer("the second")], gate=hold)
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    subscriber = bridge.subscribe()
+
+    session = bridge.submit("running")["session"]
+    assert model.entered.wait(5.0)
+    one = bridge.submit("one", queue=True)["id"]
+    assert _saved_queue(tmp_path, session) == ["one"]
+    two = bridge.submit("two", queue=True)["id"]
+    assert _saved_queue(tmp_path, session) == ["one", "two"]
+    bridge.queue_action("move", item_id=two, to=0)
+    assert _saved_queue(tmp_path, session) == ["two", "one"]
+    bridge.queue_action("remove", item_id=one)
+    assert _saved_queue(tmp_path, session) == ["two"]
+
+    hold.set()
+    _drain(subscriber, "turn", session=session)
+    # Started: off the queue on disk as well as on screen.
+    started = _drain(subscriber, "queue", session=session)
+    assert started["queue"] == []
+    assert _saved_queue(tmp_path, session) == []
+    assert _drain(subscriber, "turn", session=session)["turn"]["answer"] == "the second"
+    assert _saved_queue(tmp_path, session) == []
+
+
+def test_clearing_the_queue_clears_it_on_disk(scripted, tmp_path):
+    hold = threading.Event()
+    model = _Gated([answer("a")], gate=hold)
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    session = bridge.submit("running")["session"]
+    assert model.entered.wait(5.0)
+    bridge.submit("one", queue=True)
+    bridge.queue_action("clear")
+    assert _saved_queue(tmp_path, session) == []
+    hold.set()
+
+
+def test_the_session_the_dashboard_reopens_at_start_brings_its_queue_back_held(
+    scripted, tmp_path
+):
+    session_id = _stored_with_queue(tmp_path, ["one", "two"], turns=["earlier"])
+    bridge = _bridge(scripted, tmp_path, [answer("never")], resume="latest")
+
+    state = bridge.snapshot()
+    assert state["session_id"] == session_id
+    assert [item["prompt"] for item in state["queue"]] == ["one", "two"]
+    assert state["queue_held"] is True
+    assert state["queue_reopened"] is True
+    # Nothing starts by itself after a restart.
+    assert state["running"] is False
+    assert scripted["model"].requests == []
+    # Held, so it is listed under Needs you like any held queue.
+    (entry,) = state["open"]
+    assert entry["queue_held"] is True and entry["queued"] == 2
+
+
+def test_resuming_a_reopened_queue_runs_its_requests_in_order(scripted, tmp_path):
+    session_id = _stored_with_queue(tmp_path, ["one", "two"])
+    bridge = _bridge(
+        scripted, tmp_path, [answer("did one"), answer("did two")], resume=session_id
+    )
+    subscriber = bridge.subscribe()
+
+    resumed = bridge.queue_action("resume", session_id=session_id)
+    assert resumed["held"] is False and resumed["reopened"] is False
+    assert _drain(subscriber, "turn", session=session_id)["turn"]["answer"] == "did one"
+    assert _drain(subscriber, "turn", session=session_id)["turn"]["answer"] == "did two"
+
+    state = bridge.snapshot()
+    assert [turn["prompt"] for turn in state["history"]] == ["one", "two"]
+    assert state["queue"] == []
+    assert _saved_queue(tmp_path, session_id) == []
+
+
+def test_a_session_saved_before_queues_were_kept_reopens_with_none(scripted, tmp_path):
+    from logic.persistence import FileSessionStore
+
+    session_id = _stored_with_queue(tmp_path, [], turns=["earlier"])
+    path = FileSessionStore(tmp_path / ".autose" / "sessions").root / f"{session_id}.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    del document["queue"]
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    bridge = _bridge(scripted, tmp_path, [answer("hi")], resume=session_id)
+
+    state = bridge.snapshot()
+    assert state["session_id"] == session_id
+    assert state["queue"] == [] and state["queue_held"] is False
+    assert [turn["prompt"] for turn in state["history"]] == ["earlier"]
+
+
+def test_closing_a_session_keeps_its_queue_and_reopening_holds_it(scripted, tmp_path):
+    """Closing on purpose is not clearing: the requests come back, held."""
+    from logic.errors import InferenceError
+
+    hold = threading.Event()
+    model = _Gated([InferenceError("the runtime went away")], gate=hold)
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    subscriber = bridge.subscribe()
+    session = bridge.submit("first request")["session"]
+    assert model.entered.wait(5.0)
+    bridge.submit("one", queue=True)
+    bridge.submit("two", queue=True)
+    hold.set()
+    _drain(subscriber, "failed", session=session)
+    _drain(subscriber, "busy", session=session)
+    held = bridge.snapshot()
+    assert held["queue_held"] is True
+    # Held by a failure, not by a reopen: the page says the run stopped.
+    assert held["queue_reopened"] is False
+
+    bridge.close_session(session)
+    rows = {row["id"]: row for row in bridge.sessions()["sessions"]}
+    assert rows[session]["queued"] == 2
+    assert _saved_queue(tmp_path, session) == ["one", "two"]
+
+    bridge.resume(session)
+    state = bridge.snapshot()
+    assert state["session_id"] == session
+    assert [item["prompt"] for item in state["queue"]] == ["one", "two"]
+    assert state["queue_held"] is True and state["queue_reopened"] is True
+    assert state["running"] is False
+
+
+def test_a_reopened_queue_keeps_its_items_movable_by_id(scripted, tmp_path):
+    session_id = _stored_with_queue(tmp_path, ["one", "two"])
+    bridge = _bridge(scripted, tmp_path, [answer("hi")], resume=session_id)
+
+    moved = bridge.queue_action("move", item_id="q1", to=0)
+
+    assert [item["prompt"] for item in moved["queue"]] == ["two", "one"]
+    # Still held, and still for the same reason, after an edit.
+    assert moved["held"] is True and moved["reopened"] is True
+    assert _saved_queue(tmp_path, session_id) == ["two", "one"]
+
+
+def test_a_reopened_queue_with_a_repeated_id_removes_only_the_one_asked_for(
+    scripted, tmp_path
+):
+    """A hand-edited file can repeat an id; each request still has its own."""
+    from logic.persistence import FileSessionStore
+
+    session_id = _stored_with_queue(tmp_path, ["one", "two"])
+    path = FileSessionStore(tmp_path / ".autose" / "sessions").root / f"{session_id}.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["queue"][1]["id"] = document["queue"][0]["id"]
+    path.write_text(json.dumps(document), encoding="utf-8")
+    bridge = _bridge(scripted, tmp_path, [answer("hi")], resume=session_id)
+
+    queue = bridge.snapshot()["queue"]
+    assert len({item["id"] for item in queue}) == 2
+    left = bridge.queue_action("remove", item_id=queue[1]["id"])
+
+    assert [item["prompt"] for item in left["queue"]] == ["one"]
+    assert _saved_queue(tmp_path, session_id) == ["one"]
+
+
+def test_the_page_says_why_a_queue_waits_and_counts_a_closed_session_s_queue():
+    script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    rows = script[script.index("function storedRowMarkup") : script.index("function scheduleRailTicks")]
+    assert "storedQueueMarkup(record)" in rows
+    helper = script[script.index("function storedQueueMarkup") :]
+    assert "record.queued" in helper[: helper.index("\n}\n")]
+    strip = script[script.index("function queueNode") : script.index("function greetingNode")]
+    assert "queue_reopened" in strip
+
+
 # -- DR-043: desktop notifications ---------------------------------------------
 
 

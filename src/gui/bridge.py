@@ -72,7 +72,12 @@ from logic.errors import AutoSEError, ConfigurationError, WorkspaceEscapeError
 from logic.inference.catalog import ModelInfo
 from logic.inference.context_advice import advise_context, window_choices
 from logic.inference.registry import get_provider
-from logic.persistence import SESSIONS_DIRECTORY, FileSessionStore, SessionRecord
+from logic.persistence import (
+    SESSIONS_DIRECTORY,
+    FileSessionStore,
+    QueuedRequest,
+    SessionRecord,
+)
 from logic.session import (
     Session,
     SessionSetup,
@@ -316,6 +321,9 @@ class _Live:
         # failed, so a stop means "wait", not "skip to the next one".
         self.queue: list[dict[str, Any]] = []
         self.queue_held = False
+        # DR-056: held because the session was reopened with a saved queue,
+        # rather than because a run stopped; the page says which.
+        self.queue_reopened = False
         # DR-044, DR-048: what the person said may run unasked for the rest of
         # this session, by key: a command's leading words, a host, or a tool.
         # Per session, never global, and gone when the session closes.
@@ -339,7 +347,11 @@ class _Live:
         self.notice = ""
 
     def queue_payload(self) -> dict[str, Any]:
-        return {"queue": [dict(item) for item in self.queue], "held": self.queue_held}
+        return {
+            "queue": [dict(item) for item in self.queue],
+            "held": self.queue_held,
+            "reopened": self.queue_held and self.queue_reopened,
+        }
 
     def reset_turn(self) -> None:
         self.answer = []
@@ -571,6 +583,7 @@ class SessionBridge:
             return None
         live = _Live(session, events=events)
         holder.append(live)
+        _restore_queue(live)
         self._open[live.id] = live
         if focus or not self._focus:
             self._focus = live.id
@@ -740,6 +753,11 @@ class SessionBridge:
         carry on writing files with nothing on screen accounting for it. Stop
         it first. Closing the last one opens a fresh session, so the dashboard
         is never left with nothing to type into.
+
+        Its queue goes with it (DR-056): saved on every change, so closing on
+        purpose keeps the requests waiting, and they come back held when the
+        session is reopened. Dropping them is done in the queue, not by
+        closing.
         """
         with self._lock:
             live = self._open.get(session_id)
@@ -873,6 +891,7 @@ class SessionBridge:
                     "pending_approvals": [],
                     "queue": [],
                     "queue_held": False,
+                    "queue_reopened": False,
                     "allowances": [],
                     "review_plans": False,
                     "pending_plan": None,
@@ -915,6 +934,8 @@ class SessionBridge:
                 # DR-042: what waits for this session's running turn.
                 "queue": queued["queue"],
                 "queue_held": queued["held"],
+                # DR-056: held because the session was reopened, not stopped.
+                "queue_reopened": queued["reopened"],
                 "allowances": allowed,
                 "review_plans": review_plans,
                 "pending_plan": plan_waiting,
@@ -973,6 +994,7 @@ class SessionBridge:
             "queued": len(live.queue),
             "plan_waiting": live.plan_pending is not None,
             "queue_held": live.queue_held,
+            "queue_reopened": live.queue_held and live.queue_reopened,
             "turns": len(session.history),
             "total_tokens": session.usage.total_tokens,
             "opened_at": live.opened_at,
@@ -1087,6 +1109,7 @@ class SessionBridge:
                     "queued_at": time.time(),
                 }
                 live.queue.append(item)
+                _keep_queue(live)
                 self._publish_for(live, {"kind": "queue", **live.queue_payload()})
                 return {"queued": True, "id": item["id"], "session": live.id}
             if live.running:
@@ -1876,6 +1899,9 @@ class SessionBridge:
                         following = live.queue.pop(0)
                     else:
                         live.queue_held = True
+                        if not ended_cleanly:
+                            live.queue_reopened = False
+                    _keep_queue(live)
                     self._publish_for(live, {"kind": "queue", **live.queue_payload()})
             self._publish_for(live, {"kind": "busy", "running": False})
             self._broadcast_state()
@@ -1890,6 +1916,8 @@ class SessionBridge:
             with self._lock:
                 live.queue.insert(0, item)
                 live.queue_held = True
+                live.queue_reopened = False
+                _keep_queue(live)
                 self._publish_for(live, {"kind": "queue", **live.queue_payload()})
             self._publish_for(
                 live,
@@ -1933,6 +1961,9 @@ class SessionBridge:
                 raise BridgeError(f"'{action}' is not remove, move, clear or resume")
             if not live.queue:
                 live.queue_held = False
+            if not live.queue_held:
+                live.queue_reopened = False
+            _keep_queue(live)
             payload = live.queue_payload()
             self._publish_for(live, {"kind": "queue", **payload})
         if following is not None:
@@ -2128,6 +2159,58 @@ def _context_payload(session: Session) -> dict[str, Any] | None:
     )
     payload["gpu_fraction"] = info.gpu_fraction
     return payload
+
+
+def _keep_queue(live: _Live) -> None:
+    """Save a session's queue with it, after any change to it (DR-056).
+
+    Called with the bridge's lock held, so two changes in quick succession
+    reach the file in the order they were made; the session serialises the
+    write itself against a turn's own save. A failed save is reported by the
+    session and never fails the change.
+    """
+    live.session.keep_queue(
+        QueuedRequest(
+            id=str(item["id"]),
+            prompt=str(item["prompt"]),
+            tier=str(item.get("tier") or ""),
+            queued_at=float(item.get("queued_at") or 0.0),
+        )
+        for item in live.queue
+    )
+
+
+def _restore_queue(live: _Live) -> None:
+    """Put a reopened session's saved queue back, held (DR-056).
+
+    Held, never started: after a restart nobody has said "go", and the
+    requests were queued against a run that is no longer happening. The
+    person reads them and presses Resume.
+    """
+    saved = live.session.queued
+    if not saved:
+        return
+    restored: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in saved:
+        # An id is the handle the page moves and removes an item by; one lost
+        # from a hand-edited file, or repeated in it, is replaced, so a remove
+        # never takes two requests and a move never picks the wrong one.
+        handle = item.id
+        while not handle or handle in seen:
+            handle = secrets.token_hex(6)
+        seen.add(handle)
+        restored.append(
+            {
+                "id": handle,
+                "prompt": item.prompt,
+                "tier": item.tier if is_tier(item.tier) else "",
+                "queued_at": item.queued_at,
+            }
+        )
+    live.queue = restored
+    live.queue_held = True
+    live.queue_reopened = True
 
 
 def _allowances_payload(live: _Live) -> list[dict[str, str]]:
