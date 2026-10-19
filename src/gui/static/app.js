@@ -1428,6 +1428,7 @@ function renderConversation() {
   if (seat.run) renderRun();
   else renderInspector();
   if (pinned) scrollToBottom();
+  renderFollowUps();
 }
 
 /* ---------- a queue kept with its session (DR-056) ---------- */
@@ -2928,6 +2929,77 @@ function showTipPopup() {
 
 function hideTipPopup() {
   el("tip-popup").hidden = true;
+}
+
+/* ---------- suggested follow-ups (DR-063) ----------
+ *
+ * Up to three next requests, worked out by logic from how the latest run
+ * ended and sent with each turn. A chip fills the request box and never sends:
+ * the person reads it, edits it if they like, and presses Start. They show
+ * only for the focused session's latest finished run, and get out of the way
+ * as soon as the person types, a run starts, or the × puts them away. */
+
+const followUpsBox = el("follow-ups");
+/* Runs whose suggestions the × put away, by session, turn and request. */
+const followUpsDismissed = new Set();
+let followUpsShown = "";
+
+function followUpsKey(turn) {
+  return `${focusId()}\n${turn.index}\n${turn.prompt}`;
+}
+
+/* The run the suggestions answer, or null while there is none to answer. */
+function followUpsTurn() {
+  if (!state || state.running) return null;
+  const seat = desk(focusId());
+  if (seat.run) return null;
+  // A run that failed outright leaves a card but no turn, and the suggestions
+  // of the run before it would answer the wrong run.
+  if (seat.lastRun && seat.extras.includes(seat.lastRun.node)) return null;
+  const history = state.history || [];
+  return history.length ? history[history.length - 1] : null;
+}
+
+function renderFollowUps() {
+  if (!followUpsBox) return;
+  const turn = followUpsTurn();
+  const items = (turn && turn.follow_ups) || [];
+  const show = items.length > 0 && !dom.prompt.value.trim() && !followUpsDismissed.has(followUpsKey(turn));
+  followUpsBox.hidden = !show;
+  if (!show) return;
+  const key = `${followUpsKey(turn)}\n${items.map((item) => item.label).join("\n")}`;
+  if (key === followUpsShown) return;
+  followUpsShown = key;
+  followUpsBox.innerHTML =
+    `<span class="lbl follow-ups-label">Next</span>` +
+    items
+      .map(
+        (item, index) =>
+          `<button type="button" class="follow-up-chip" data-follow-up="${index}" title="${escapeHtml(item.prompt)}">${escapeHtml(item.label)}</button>`
+      )
+      .join("") +
+    `<button type="button" class="follow-ups-close" data-follow-ups-close="1" title="Hide these suggestions" aria-label="Hide these suggestions">×</button>`;
+}
+
+if (followUpsBox) {
+  followUpsBox.addEventListener("click", (event) => {
+    const turn = followUpsTurn();
+    if (!turn) return;
+    const chip = event.target.closest("[data-follow-up]");
+    if (chip) {
+      const item = (turn.follow_ups || [])[Number(chip.dataset.followUp)];
+      if (!item) return;
+      dom.prompt.value = item.prompt;
+      autosize();
+      dom.prompt.focus();
+      dom.prompt.setSelectionRange(item.prompt.length, item.prompt.length);
+    } else if (event.target.closest("[data-follow-ups-close]")) {
+      followUpsDismissed.add(followUpsKey(turn));
+      dom.prompt.focus();
+    }
+    renderFollowUps();
+  });
+  dom.prompt.addEventListener("input", renderFollowUps);
 }
 
 /* ---------- actions ---------- */
