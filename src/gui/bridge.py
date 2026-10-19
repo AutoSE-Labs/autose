@@ -61,6 +61,7 @@ from logic.common.approval import (
     CallbackApprovalGate,
 )
 from logic.common.browse import list_workspace, read_workspace_file
+from logic.common.changes import FileChange
 from logic.common.context import MIN_USABLE_CONTEXT_TOKENS
 from logic.common.events import CallbackEventSink, Event, EventSink
 from logic.common.processes import ProcessError, UnknownProcessError, stop_managers
@@ -1064,14 +1065,17 @@ class SessionBridge:
         the session with each state frame (DR-040).
         """
         session = self._target(session_id).session
+        undone: tuple[FileChange, ...] = ()
         if turn is None:
             changes = session.last_changes
         else:
+            # One snapshot for both lists: this reads without the lock, and a
+            # second read could find the run cleared away.
             history = session.history
             if not 0 <= turn < len(history):
                 raise BridgeError(f"there is no run {turn} in this session", status=404)
             changes = history[turn].changes
-        undone = () if turn is None else session.history[turn].undone
+            undone = history[turn].undone
         added = sum(change.stats[0] for change in changes)
         removed = sum(change.stats[1] for change in changes)
         return {

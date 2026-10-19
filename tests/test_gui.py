@@ -381,6 +381,24 @@ def test_a_file_changed_since_is_a_conflict_that_says_why(scripted, tmp_path):
     assert (tmp_path / "a.py").read_text() == "A = 9  # mine\n"
 
 
+def test_a_runs_changes_read_the_history_once(scripted, tmp_path, monkeypatch):
+    """`changes` takes no lock, so another thread may clear the history while
+    it reads. One snapshot answers both the run's changes and its undone
+    files; a second read could find the run gone and fail with a 500."""
+    from logic.session import Session
+
+    bridge = _two_file_bridge(scripted, tmp_path)
+    bridge.undo_file(0, "a.py")
+    snapshot = Session.history.fget(bridge._target(None).session)
+    reads = iter([snapshot])
+    monkeypatch.setattr(Session, "history", property(lambda self: next(reads, ())))
+
+    payload = bridge.changes(turn=0)
+
+    assert [change["path"] for change in payload["changes"]] == ["b.py"]
+    assert [change["path"] for change in payload["undone"]] == ["a.py"]
+
+
 def test_a_file_the_run_did_not_write_is_a_404(scripted, tmp_path):
     bridge = _two_file_bridge(scripted, tmp_path)
 
