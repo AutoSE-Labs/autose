@@ -3043,14 +3043,15 @@ function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   const button = el("toggle-theme");
   button.setAttribute("aria-pressed", String(theme === "dark"));
-  button.title = theme === "dark" ? "Switch to drafting paper" : "Switch to cyanotype";
+  button.title = theme === "dark" ? "Switch to the light theme" : "Switch to the dark theme";
 }
 
+// Light unless the person chose dark with the theme button: the system's
+// dark setting does not switch it, so a first start always looks the same.
 try {
-  const saved = localStorage.getItem("autose.theme");
-  applyTheme(saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+  applyTheme(localStorage.getItem("autose.theme") === "dark" ? "dark" : "light");
 } catch (error) {
-  applyTheme(matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  applyTheme("light");
 }
 
 el("toggle-theme").addEventListener("click", () => {
