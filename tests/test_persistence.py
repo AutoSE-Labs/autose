@@ -698,3 +698,20 @@ def test_a_rule_changed_while_saving_does_not_break_the_seal(make_session, store
     reopened.restore(record)
     assert [item.pattern for item in reopened.allowances] == ["pytest"]
     assert reopened.dropped_allowances == ()
+
+
+def test_a_rule_taken_back_after_clearing_the_history_stays_taken_back(make_session, store):
+    """Clearing leaves the session on disk with no turns; a rule taken back
+    then must be saved, or reopening would bring it back."""
+    from logic.common.allowances import Allowance
+
+    session = make_session([answer("done")], store=store)
+    session.run("run the tests")
+    session.keep_allowances([Allowance("run_command", "pytest")])
+    session.clear_history()
+    session.keep_allowances([])
+
+    assert store.load(session.session_id).allowances == ()
+    reopened = make_session([answer("later")], store=store)
+    reopened.restore(store.load(session.session_id))
+    assert reopened.allowances == ()

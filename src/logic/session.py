@@ -479,6 +479,10 @@ class Session:
         self._allowances: tuple[Allowance, ...] = ()
         self._dropped_allowances: tuple[str, ...] = ()
         self._allowance_file: AllowanceFile | None = None
+        #: Whether this session has a file on disk (saved, or reopened from
+        #: one): a change to its rules must then be saved at once, even when
+        #: it has no turns, or reopening would bring back a rule taken back.
+        self._on_disk = False
         # DR-030: one token for the session's lifetime, cleared at the start of
         # every turn. One rather than one-per-turn because an Adapter wires it
         # up once — the dashboard's Stop button holds a reference, the TUI's
@@ -666,6 +670,7 @@ class Session:
         self._created_at = record.created_at or self._created_at
         self._name = record.name
         self._queued = record.queue
+        self._on_disk = True
         # DR-057: only rules this machine sealed, and only those today's rules
         # would still offer.
         self._allowances, self._dropped_allowances = (
@@ -722,6 +727,7 @@ class Session:
         """Write the session out. Never raises — a failed save is not a failed run."""
         try:
             with self._save_lock:
+                self._on_disk = True
                 self._store.save(self.snapshot())
         except Exception as exc:  # noqa: BLE001 - see docstring
             self._emit("session_save_failed", str(exc), error=str(exc))
@@ -760,12 +766,12 @@ class Session:
     def keep_allowances(self, allowances: Iterable[Allowance]) -> None:
         """Hold *allowances* as this session's rules, and save them with it.
 
-        Saved at once when the session is already on disk. One with no
-        requests and no name has not been saved yet, and is not saved just for
-        this: its rules go with its first turn.
+        Saved at once when the session is already on disk, with or without
+        turns (clearing the history leaves the file). One never saved is not
+        saved just for this: its rules go with its first turn.
         """
         self._allowances = tuple({item.key: item for item in allowances}.values())
-        if self._turns or self._name:
+        if self._on_disk or self._turns or self._name:
             self.persist()
 
     def _allowances_file(self) -> AllowanceFile:
