@@ -813,7 +813,7 @@ def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
 
 def test_the_dashboard_fetches_nothing_from_the_network():
     """Local-first is a property of the page too, not only of inference."""
-    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js"):
+    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js", "palette.js"):
         # The SVG namespace inside an inline data: image is a name the SVG
         # parser requires, never a request, so it is the one URL allowed.
         source = (
@@ -1276,9 +1276,46 @@ def test_no_page_script_writes_inline_styles():
     """The CSP is default-src 'self' (DR-029), which drops inline style
     attributes without a word: a bar drawn with style="height:…" renders as
     nothing. Sizes go in SVG attributes or classes instead (DR-041)."""
-    for name in ("app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js"):
+    for name in ("app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js", "palette.js"):
         source = (STATIC_ROOT / name).read_text(encoding="utf-8")
         assert 'style="' not in source, f"{name} writes an inline style attribute"
+
+
+def test_every_script_the_page_loads_is_served():
+    """The assets are an allowlist, so a script added to the page but not to
+    _ASSETS is a 404 the browser reports only in its console, and every
+    feature in that file is silently missing."""
+    import re
+
+    from gui.server import _ASSETS
+
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    scripts = re.findall(r'<script src="(/[^"]+)"></script>', page)
+
+    assert "/palette.js" in scripts
+    assert [path for path in scripts if path not in _ASSETS] == []
+
+
+def test_the_command_menu_is_wired_into_the_page():
+    """Ctrl K (palette.js) reaches for its window by id when it loads, uses
+    app.js, diff.js and files.js globals, and is closed with the other
+    windows by Esc and closeOverlays()."""
+    import re
+
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    app = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    palette = (STATIC_ROOT / "palette.js").read_text(encoding="utf-8")
+    wanted = set(re.findall(r'\bel\("([^"]+)"\)', palette))
+    present = set(re.findall(r'\bid="([^"]+)"', page))
+
+    assert wanted <= present, f"palette.js reaches for missing element(s) {sorted(wanted - present)}"
+    order = re.findall(r'<script src="/([^"]+)"></script>', page)
+    assert order.index("palette.js") > max(order.index(name) for name in ("app.js", "diff.js", "files.js"))
+    assert 'palette: el("palette-overlay")' in app
+    closing = app.split("function closeOverlays()", 1)[1].split("\n}", 1)[0]
+    assert '"palette"' in closing
+    assert 'role="dialog"' in page.split('id="palette-overlay"', 1)[1].split("</div>", 1)[0]
+    assert any("Ctrl K" in tip for tip in re.findall(r'title: "([^"]+)"', app))
 
 
 # -- DR-042: a queue per session ---------------------------------------------------

@@ -163,6 +163,7 @@ const overlays = {
   context: el("context-overlay"),
   settings: el("settings-overlay"),
   automation: el("automation-overlay"),
+  palette: el("palette-overlay"),
 };
 
 let state = null;
@@ -2871,7 +2872,7 @@ async function automationClick(event) {
 }
 
 function closeOverlays() {
-  ["diff", "doctor", "tips", "context", "settings", "automation", "allowed", "files"].forEach((name) => {
+  ["diff", "doctor", "tips", "context", "settings", "automation", "allowed", "files", "palette"].forEach((name) => {
     overlays[name].hidden = true;
   });
 }
