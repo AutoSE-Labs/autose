@@ -1046,6 +1046,7 @@ def test_a_window_can_be_made_the_default_for_the_workspace(adjustable, tmp_path
     # This session uses it now, and the page knows it is the default.
     assert state["context_limit"] == 65536
     assert state["context_advice"]["default_window"] == 65536
+    assert state["context_advice"]["saves_default"] is True
     # A new session in this workspace starts with it, as a choice.
     state = adjustable.new_session()
     assert state["context_limit"] == 65536
@@ -1066,6 +1067,45 @@ def test_a_default_the_model_cannot_serve_is_refused_and_not_saved(adjustable, t
     with pytest.raises(BridgeError):
         adjustable.save_context_default(262144)
     assert not (tmp_path / ".autose" / "config.yaml").exists()
+
+
+def test_no_default_is_saved_from_a_session_on_another_provider(adjustable, tmp_path):
+    """The saved window would apply to the default provider, not this one."""
+
+    class _Catalog:
+        def __init__(self, settings):
+            pass
+
+        def list_models(self):
+            return (
+                ModelInfo(
+                    name="other:7b",
+                    context_length=32768,
+                    context_length_measured=True,
+                    max_context_length=262144,
+                    supports_tools=True,
+                ),
+            )
+
+    register_provider(
+        Provider(
+            name="test-window-elsewhere",
+            chat_model=lambda settings: ScriptedChatModel([answer("ok")]),
+            catalog=_Catalog,
+            default_base_url="http://elsewhere/v1",
+            is_local=True,
+            serves_requested_window=True,
+        ),
+        replace=True,
+    )
+    adjustable.select_model("other:7b", provider="test-window-elsewhere")
+    state = adjustable.snapshot()
+    assert state["context_advice"]["saves_default"] is False
+    with pytest.raises(BridgeError):
+        # 262144 is past the default model's maximum, and checked only here.
+        adjustable.save_context_default(262144)
+    assert not (tmp_path / ".autose" / "config.yaml").exists()
+    assert adjustable._config.inference.context_limit is None
 
 
 def test_a_fixed_window_runtime_has_no_default_to_save(served, tmp_path):

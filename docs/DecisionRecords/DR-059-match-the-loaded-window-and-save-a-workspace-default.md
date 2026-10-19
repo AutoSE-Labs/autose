@@ -68,7 +68,9 @@ no secret and may be committed. New sessions on the dashboard, and the next
 start of AutoSE in that workspace, begin with it as an explicit choice. The
 YAML it writes stays on show beneath the picker as reference. The action is
 refused, like any window change, while the session is running a turn and for a
-runtime that serves a fixed window.
+runtime that serves a fixed window; and, since a configured window belongs to
+the configured provider, for a session switched to another provider, where the
+button is not shown.
 
 ### Change settings in a YAML file without losing its comments
 

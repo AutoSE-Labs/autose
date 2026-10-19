@@ -970,7 +970,9 @@ class SessionBridge:
                 # DR-034: one verdict about the served window, so the page can
                 # tell a deliberate cap from a window that will hurt.
                 "context_advice": _context_payload(
-                    session, default_window=self._default_window(session)
+                    session,
+                    default_window=self._default_window(session),
+                    saves_default=self._on_default_provider(session),
                 ),
                 "model_info": model_payload(session.model_info),
                 "models": [
@@ -1770,10 +1772,17 @@ class SessionBridge:
 
     def _default_window(self, session: Session) -> int | None:
         """The window configured for new sessions on *session*'s provider (DR-059)."""
-        configured = self._config.inference
-        if configured.provider != session.inference.provider:
+        if not self._on_default_provider(session):
             return None
-        return configured.context_limit
+        return self._config.inference.context_limit
+
+    def _on_default_provider(self, session: Session) -> bool:
+        """Whether a window saved from *session* would apply to its provider.
+
+        ``inference.context_limit`` is read for the configured provider only
+        (DR-059), so a session switched to another one has no default to save.
+        """
+        return self._config.inference.provider == session.inference.provider
 
     def set_context_window(
         self, tokens: int, *, session_id: str | None = None
@@ -1805,6 +1814,12 @@ class SessionBridge:
                 raise BridgeError(
                     f"{live.session.inference.provider} serves the window it was "
                     "started with; there is no window for AutoSE to save"
+                )
+            if not self._on_default_provider(live.session):
+                raise BridgeError(
+                    "a saved window applies to "
+                    f"{self._config.inference.provider}, the default provider, "
+                    f"not {live.session.inference.provider}"
                 )
             try:
                 live.session.set_context_window(tokens)
@@ -2324,7 +2339,10 @@ def _apply_overrides(fresh: AutoSEConfig, previous: AutoSEConfig) -> AutoSEConfi
     )
 
 def _context_payload(
-    session: Session, *, default_window: int | None = None
+    session: Session,
+    *,
+    default_window: int | None = None,
+    saves_default: bool = False,
 ) -> dict[str, Any] | None:
     """DR-034's verdict plus, where AutoSE chooses the window, DR-035's choices.
 
@@ -2351,6 +2369,7 @@ def _context_payload(
     )
     payload["gpu_fraction"] = info.gpu_fraction
     payload["default_window"] = default_window
+    payload["saves_default"] = saves_default
     payload["matched_loaded"] = session.window_matched
     return payload
 

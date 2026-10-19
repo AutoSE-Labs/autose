@@ -2682,7 +2682,7 @@ async function copyContextRemedy() {
 function renderContextDefault() {
   const advice = (state && state.context_advice) || null;
   const save = el("context-save");
-  if (!advice || !advice.adjustable || !contextPick) {
+  if (!advice || !advice.adjustable || !advice.saves_default || !contextPick) {
     save.hidden = true;
     return;
   }
