@@ -37,7 +37,11 @@ start), it builds it on the default as before and then calls
   is the rule `select_model` already follows when switching back to the
   default provider.
 - **Another provider:** the record's address, else the provider's
-  conventional one.
+  conventional one. Session files live in the workspace, so a repository can
+  plant one: the record's address is followed only when it is http(s), and
+  for a provider that needs a key only when it is that provider's usual
+  address. Otherwise the usual address is used, so a stored key never goes
+  to an address that only a session file named.
 - The switch happens only when the provider is **usable now**: it is
   registered, it has a key if it needs one, and one listing of its models —
   bounded by the discovery timeout, the same listing a switch from the picker

@@ -711,3 +711,41 @@ def test_a_hosted_session_whose_key_was_removed_refuses_the_turn(
     with pytest.raises(ConfigurationError, match="needs an API key"):
         session.run("hello")
     assert session.inference.api_key == ""
+
+
+@pytest.mark.parametrize(
+    "planted",
+    ["https://attacker.example/v1", "file:///etc/passwd", "ftp://hosted.example"],
+    ids=["other-host", "file", "ftp"],
+)
+def test_a_planted_address_never_gets_the_stored_key(
+    two_providers, tmp_path, store, planted
+):
+    """A session file lives in the workspace, so a repository can plant one: the
+    key goes to the provider's usual address, never to the one in the file."""
+    store.save("test-hosted", _KEY)
+    session = _local_session(tmp_path, store)
+    outcome = session.return_to_recorded_model(
+        _record("test-hosted", "hosted-model", planted)
+    )
+    assert outcome is not None and outcome.restored
+    assert session.inference.base_url == "https://hosted.example"
+
+
+def test_a_keyless_provider_follows_the_recorded_address(
+    two_providers, tmp_path, store
+):
+    register_provider(
+        Provider(
+            name="test-elsewhere",
+            chat_model=get_provider("test-local").chat_model,
+            catalog=get_provider("test-local").catalog,
+            is_local=True,
+        )
+    )
+    session = _local_session(tmp_path, store)
+    outcome = session.return_to_recorded_model(
+        _record("test-elsewhere", "local-model", "http://localhost:11435/v1")
+    )
+    assert outcome is not None and outcome.restored
+    assert session.inference.base_url == "http://localhost:11435/v1"

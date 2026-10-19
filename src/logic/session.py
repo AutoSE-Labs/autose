@@ -18,6 +18,7 @@ from __future__ import annotations
 import time
 from collections.abc import Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from urllib.parse import urlsplit
 
 from .classifier import Classification, TaskClassifier
 from .common.approval import (
@@ -48,6 +49,7 @@ from .inference.registry import (
     available_providers,
     create_chat_model,
     create_model_catalog,
+    get_provider,
     local_providers,
 )
 from .inference.settings import InferenceSettings
@@ -830,7 +832,7 @@ class Session:
                 current,
                 provider,
                 model,
-                base_url=None if same else (record.base_url or None),
+                base_url=None if same else _recorded_address(provider, record.base_url),
                 credentials=self._credentials,
             )
         except ConfigurationError as exc:
@@ -1386,3 +1388,25 @@ def _no_runtime_message(runtimes: tuple[DetectedRuntime, ...]) -> str:
         f"{probed}. Start one (e.g. `ollama serve`), or configure a different "
         "endpoint with AUTOSE_BASE_URL or a config file."
     )
+
+
+def _recorded_address(provider: str, recorded: str | None) -> str | None:
+    """The address in a session record, when it is safe to follow (DR-058).
+
+    Session files live in the workspace, so a repository can plant one. Its
+    address is followed only when it is http(s) and, for a provider that needs
+    a key, only when it is that provider's usual address: otherwise the stored
+    key would go wherever the file says. ``None`` means the usual address.
+    """
+    url = (recorded or "").strip()
+    if not url or urlsplit(url).scheme not in ("http", "https"):
+        return None
+    try:
+        registered = get_provider(provider)
+    except ConfigurationError:
+        return None
+    if registered.requires_api_key and url.rstrip("/") != (
+        registered.default_base_url.rstrip("/")
+    ):
+        return None
+    return url
