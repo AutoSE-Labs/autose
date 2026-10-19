@@ -1536,6 +1536,7 @@ function receiptMarkup(turn) {
       ${turn.answer ? `<div class="receipt-summary prose">${renderMarkdown(turn.answer)}</div>` : ""}
       ${why}
       ${files ? revisionBlockMarkup([...changes, ...undone], turn.index) : ""}
+      ${!turn.succeeded && turn.stop_reason !== "cancelled" ? retryMarkup(turn.prompt) : ""}
       ${changes.length ? `<div class="receipt-actions"><button class="inline-button" type="button" data-open-diff="1" data-turn="${turn.index}">See the diff</button></div>` : ""}
       ${notes}
     </div>`;
@@ -2044,6 +2045,13 @@ function finishRun(id, turn) {
   }
 }
 
+/* A run that stopped on a runtime error (a 500, a dropped connection) can be
+ * sent again as it was, instead of retyping it. */
+function retryMarkup(prompt) {
+  if (!prompt) return "";
+  return `<div class="receipt-actions"><button class="inline-button" type="button" data-retry="${escapeHtml(prompt)}">Try again</button></div>`;
+}
+
 function failRun(id, title, message) {
   const seat = desk(id);
   const run = seat.run;
@@ -2059,6 +2067,7 @@ function failRun(id, title, message) {
       <div class="receipt">
         <div class="receipt-headline">${escapeHtml(title)}</div>
         <div class="receipt-summary prose">${renderMarkdown(message)}</div>
+        ${retryMarkup(run.prompt)}
       </div>`;
     // Nothing landed in history, so the card has to be kept deliberately or
     // the next repaint would erase the only account of what happened.
@@ -2936,9 +2945,13 @@ dom.messages.addEventListener("click", (event) => {
   // place, so the <details> element survives a paint and the browser keeps its
   // own open state.
   const target = event.target.closest(
-    "[data-starter], [data-expand], [data-open-diff], [data-stop], [data-details], [data-queue], [data-decide], [data-decide-all], [data-plan-action]"
+    "[data-starter], [data-expand], [data-open-diff], [data-stop], [data-details], [data-queue], [data-decide], [data-decide-all], [data-plan-action], [data-retry]"
   );
   if (!target) return;
+  if (target.dataset.retry !== undefined) {
+    post("/api/prompt", { prompt: target.dataset.retry, session: focusId(), queue: Boolean(state && state.running) });
+    return;
+  }
   if (target.dataset.starter !== undefined) {
     dom.prompt.value = STARTERS[Number(target.dataset.starter)].text;
     dom.prompt.focus();
