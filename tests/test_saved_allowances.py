@@ -215,3 +215,15 @@ def test_losing_the_file_means_saved_rules_ask_again(tmp_path):
     rules.path.unlink()
 
     assert rules.restore("s1", [("run_command", "pytest")], seal)[0] == ()
+
+
+@pytest.mark.parametrize("seal", ["é" * 64, "\udcff", "00" * 31 + "é"])
+def test_a_seal_that_is_not_plain_text_is_refused_not_raised(tmp_path, seal):
+    """A session file in the workspace can carry any seal; opening it must not fail."""
+    rules = _file(tmp_path)
+    rules.seal("s1", (PYTEST,))
+
+    kept, dropped = rules.restore("s1", [("run_command", "pytest")], seal)
+
+    assert kept == ()
+    assert "not restored" in dropped[0]

@@ -190,7 +190,11 @@ class AllowanceFile:
             if key
             else ""
         )
-        if not seal or not expected or not hmac.compare_digest(expected, seal):
+        # As bytes: the seal comes from a file in the workspace, and comparing
+        # str with anything but ASCII in it raises rather than failing.
+        if not seal or not expected or not hmac.compare_digest(
+            expected.encode("utf-8"), seal.encode("utf-8", "surrogatepass")
+        ):
             return (), (
                 f"{len(pairs)} saved rule(s) were not restored: they were not saved "
                 "for this folder by AutoSE on this computer",
