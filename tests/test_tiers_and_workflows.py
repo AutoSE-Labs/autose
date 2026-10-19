@@ -6,8 +6,8 @@ import pytest
 
 from logic.tiers import (
     CRAFT,
-    FORGE,
     DEFAULT_TIER,
+    FORGE,
     SPARK,
     TIER_RANK,
     TIER_SPECS,
