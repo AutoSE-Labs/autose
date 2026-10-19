@@ -44,6 +44,11 @@ _MAX_REQUIREMENTS = 2
 _LABEL_CHARS = 56
 
 _STOPPED_BY_PERSON = frozenset({"cancelled"})
+#: What "carry on" puts before the request it restates.
+_CARRY_ON = (
+    "Carry on with this request from where the last run stopped. Some of it "
+    "may already be done, so look at the files first.\n\n"
+)
 #: DR-009/DR-030: a bound that ended the run. A new run starts with a fresh
 #: budget, so carrying on is a real option, unlike retrying a fault.
 _STOPPED_BY_LIMIT = frozenset({"round_cap", "attempts_exhausted", "time_budget_exhausted"})
@@ -122,7 +127,8 @@ def suggest_follow_ups(turn: Turn) -> tuple[FollowUp, ...]:
 
     In order of how much they matter: how the run ended, the checks it did not
     pass, the files it changed, then what its answer offered. Never a
-    duplicate, never an empty label or prompt, never a decision-record number.
+    duplicate, never an empty label or prompt, never a decision-record number
+    on a label.
     """
     return _pick(
         (
@@ -143,12 +149,10 @@ def _after_a_stop(turn: Turn) -> Iterator[FollowUp]:
         return
     reason = turn.stop_reason
     if reason in _STOPPED_BY_PERSON or reason in _STOPPED_BY_LIMIT:
-        yield FollowUp(
-            "Carry on from where it stopped",
-            "Carry on with this request from where the last run stopped. Some "
-            "of it may already be done, so look at the files first.\n\n"
-            + turn.prompt,
-        )
+        # A carried-on run that stops again restates the original request,
+        # not the request with the preamble on it once more for each stop.
+        request = turn.prompt.removeprefix(_CARRY_ON)
+        yield FollowUp("Carry on from where it stopped", _CARRY_ON + request)
         return
     # A fault, not a choice: the same request again is the retry.
     yield FollowUp(f"Try again: {_what_failed(turn)}", turn.prompt)
@@ -258,7 +262,10 @@ def _pick(candidates: Iterable[FollowUp]) -> tuple[FollowUp, ...]:
     seen: set[str] = set()
     for candidate in candidates:
         label = _shorten(_without_record_numbers(candidate.label), _LABEL_CHARS)
-        prompt = _without_record_numbers(candidate.prompt).strip()
+        # The request is never rewritten: it is the person's own words, or
+        # the plan's, and a project of theirs may well have records named
+        # "DR-12". Only the chip's label is the app speaking.
+        prompt = candidate.prompt.strip()
         if not label or not prompt:
             continue
         keys = {label.casefold(), prompt.casefold()}

@@ -227,14 +227,36 @@ def test_a_long_requirement_is_shortened_on_the_chip_but_not_in_the_request():
     assert description in item.prompt
 
 
-def test_no_suggestion_shows_a_decision_record_number():
+def test_no_label_shows_a_decision_record_number():
     turn = _turn(
         requirements=(_requirement("R1", "Failed", "write DR-063 for the change"),),
         changes=(_change("docs/DecisionRecords/DR-063-x.md"),),
         stop_reason="attempts_exhausted",
     )
     for item in suggest_follow_ups(turn):
-        assert not re.search(r"DR-\d", item.label + item.prompt), item
+        assert not re.search(r"DR-\d", item.label), item
+
+
+@pytest.mark.parametrize("reason", ["stage_failed", "cancelled"])
+def test_the_request_is_never_rewritten(reason):
+    """The person's words go back as they wrote them, record numbers and all.
+
+    Their project may name its own records "DR-12": rewriting that to "the
+    decision record" would send a different request from the one retried.
+    """
+    request = "Fix the approval bug described in DR-012 and update docs/DR-012-gate.md"
+    item = suggest_follow_ups(_turn(prompt=request, stop_reason=reason))[0]
+
+    assert item.prompt.endswith(request)
+    assert "DR-" not in item.label
+
+
+def test_carrying_on_twice_restates_the_request_once():
+    first = suggest_follow_ups(_turn(stop_reason="cancelled"))[0]
+    again = suggest_follow_ups(_turn(prompt=first.prompt, stop_reason="round_cap"))[0]
+
+    assert again.prompt == first.prompt
+    assert again.prompt.count("Carry on with this request") == 1
 
 
 def test_a_stored_turn_gets_the_same_suggestions_as_a_live_one():

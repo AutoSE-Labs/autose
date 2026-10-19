@@ -42,9 +42,12 @@ can differ between the dashboard and the terminal.
     classifier.py", "Show where ratchet is used"). Nothing at all is better
     than a vague suggestion.
 - Never more than three, no repeats, no empty label or request, and no
-  decision-record number. A chip shows a short label; the request behind it is
+  decision-record number on a label. The request is never rewritten: it holds
+  the person's or the plan's own words, which may name their project's own
+  records. A chip shows a short label; the request behind it is
   complete on its own, because an unfinished run never reaches the model's
-  memory (DR-004), so "carry on" must restate what to carry on with.
+  memory (DR-004), so "carry on" must restate what to carry on with, once,
+  however many times the run has been carried on.
 - The turn payload sends them as `follow_ups: [{label, prompt}]`, worked out
   each time and never stored.
 - The dashboard shows them as pill chips above the request box, for the
