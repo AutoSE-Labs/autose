@@ -312,8 +312,8 @@ class App:
                 self.console.print(
                     warning_text(
                         "you stopped this run. What it had already produced is "
-                        "above and in the session history — ask a follow-up to "
-                        "carry on from here."
+                        "above, but the model will not remember it — /next 1 "
+                        "puts the request back to carry on from here."
                     )
                 )
         if turn.usage.total_tokens:

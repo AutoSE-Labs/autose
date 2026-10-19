@@ -391,3 +391,21 @@ def test_carrying_on_again_from_the_terminal_restates_the_request_once():
 
     assert again.prompt.count("Carry on with this request") == 1
     assert again.prompt.endswith("Fix mul and div in ops.py")
+
+
+def test_the_terminal_does_not_tell_a_person_who_stopped_to_just_ask_again():
+    """A stopped run is kept out of the model's memory (DR-004).
+
+    Advising "ask a follow-up to carry on" would send a request the model has
+    no context for; the advice points at the suggestion that restates it.
+    """
+    from tui.commands import dispatch
+
+    app = _terminal(_turn(stop_reason="cancelled"))
+    app._render_outcome(app.session.history[-1])
+    shown = " ".join(app.console.file.getvalue().split())
+
+    assert "ask a follow-up" not in shown
+    assert "/next 1" in shown
+    dispatch(app, "/next 1")
+    assert app._take_carried().startswith("Carry on with this request")
