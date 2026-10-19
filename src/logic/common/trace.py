@@ -257,6 +257,7 @@ class _Kept:
             self.tail.append(item)
 
     def last(self, match: Callable[[dict[str, Any]], bool]) -> dict[str, Any] | None:
+        item: dict[str, Any]
         for item in reversed(self.tail):
             if match(item):
                 return item
