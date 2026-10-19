@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import atexit
 import codecs
+import contextlib
 import itertools
 import os
 import re
@@ -35,7 +36,7 @@ import threading
 import time
 import weakref
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,7 @@ __all__ = [
     "background_form",
     "stop_every_process",
     "stop_managers",
+    "exit_cleanly_on_termination",
     "MAX_OUTPUT_LINES",
     "MAX_RUNNING_PER_SESSION",
     "STOP_GRACE_SECONDS",
@@ -536,3 +538,33 @@ def stop_every_process() -> None:
 
 
 atexit.register(stop_every_process)
+
+
+@contextlib.contextmanager
+def exit_cleanly_on_termination() -> Iterator[None]:
+    """While inside, SIGTERM and SIGHUP end AutoSE as an ordinary exit.
+
+    Each background command runs in its own session, so neither signal
+    reaches it: a closed terminal window (SIGHUP) or a plain ``kill``
+    (SIGTERM) would end AutoSE at once and leave every server it started
+    running with nobody to stop it. Raising ``SystemExit`` instead lets the
+    Adapter's ``finally`` close its sessions, and ``atexit`` catch the rest.
+
+    Wrapped around an Adapter's main loop, in the main thread; the previous
+    handlers come back on the way out. A signal that already has a handler
+    of its own is left alone.
+    """
+    installed: dict[int, Any] = {}
+    if threading.current_thread() is threading.main_thread():
+        for signum in (signal.SIGTERM, getattr(signal, "SIGHUP", None)):
+            if signum is not None and signal.getsignal(signum) is signal.SIG_DFL:
+                installed[signum] = signal.signal(signum, _exit_on_signal)
+    try:
+        yield
+    finally:
+        for signum, previous in installed.items():
+            signal.signal(signum, previous)
+
+
+def _exit_on_signal(signum, frame) -> None:
+    raise SystemExit(128 + signum)

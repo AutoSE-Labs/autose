@@ -387,3 +387,28 @@ def test_a_run_starts_a_server_and_closing_the_session_stops_it(scripted, tmp_pa
 
     assert process.status == STOPPED
     assert session.processes.running() == ()
+
+
+# -- the app going away ------------------------------------------------------------
+
+
+def test_sigterm_becomes_an_ordinary_exit_so_cleanup_runs():
+    """A `kill` would otherwise skip every `finally` that stops processes."""
+    import os
+    import signal
+
+    from logic.common.processes import exit_cleanly_on_termination
+
+    if signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL:
+        pytest.skip("something else already handles SIGTERM here")
+    cleaned = []
+    with pytest.raises(SystemExit) as stopped:
+        try:
+            with exit_cleanly_on_termination():
+                os.kill(os.getpid(), signal.SIGTERM)
+                time.sleep(1)
+        finally:
+            cleaned.append(True)
+
+    assert stopped.value.code == 128 + signal.SIGTERM and cleaned
+    assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL

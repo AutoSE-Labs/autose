@@ -20,6 +20,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from logic import __version__
+from logic.common.processes import exit_cleanly_on_termination
 from logic.config import AutoSEConfig, load_config
 from logic.errors import ConfigurationError
 from logic.tiers import TIERS
@@ -241,7 +242,10 @@ def serve(
     # Schedules and watchers tick from here on, for as long as it serves.
     bridge.start_automation()
     try:
-        dashboard.serve_forever()
+        # DR-062: a `kill` or a closed terminal still reaches the `finally`,
+        # which stops what the runs started in the background.
+        with exit_cleanly_on_termination():
+            dashboard.serve_forever()
     except KeyboardInterrupt:
         print()
     finally:

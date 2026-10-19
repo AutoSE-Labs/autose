@@ -28,6 +28,7 @@ from typing import Any, TextIO
 
 from logic import __version__
 from logic.common.events import CallbackEventSink, Event, EventSink
+from logic.common.processes import exit_cleanly_on_termination
 from logic.config import load_config
 from logic.errors import AutoSEError, ConfigurationError
 from logic.persistence import SESSIONS_DIRECTORY, FileSessionStore, SessionRecord
@@ -140,7 +141,8 @@ def run_headless(
         # `result` line (with `stop_reason: cancelled` and whatever was
         # changed), so a script can act on a stopped run instead of parsing a
         # broken stream. A second SIGINT falls through to the abort below.
-        with stop_on_interrupt(session.request_stop):
+        # DR-062: a `kill` still reaches the `finally` that stops what it started.
+        with stop_on_interrupt(session.request_stop), exit_cleanly_on_termination():
             turn = session.run(prompt, tier=tier)
     except AutoSEError as exc:
         write({"type": "error", "error": str(exc), "kind": type(exc).__name__})
