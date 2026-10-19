@@ -902,6 +902,26 @@ def test_the_page_offers_two_ways_to_stop_a_run():
     assert "dom.send.disabled = !state.ready;" in script
 
 
+def test_the_page_offers_to_undo_one_file_where_files_are_listed():
+    """DR-061: the diff viewer, the Changes tab and a finished run's card.
+
+    All three draw the one button, and one handler asks first, naming the
+    file, then posts the run and the path to the undo endpoint.
+    """
+    script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    for name in ("diff.js", "inspector.js", "route.js"):
+        source = (STATIC_ROOT / name).read_text(encoding="utf-8")
+        assert "undoFileButtonMarkup(" in source, f"{name} offers no file undo"
+    route = (STATIC_ROOT / "route.js").read_text(encoding="utf-8")
+    card = route.split("function revisionBlockMarkup(", 1)[1].split("\nfunction ", 1)[0]
+    assert "undoFileButtonMarkup(" in card
+
+    handler = script.split("async function undoFile(", 1)[1].split("\n}\n", 1)[0]
+    assert "window.confirm(" in handler
+    assert handler.index("window.confirm(") < handler.index('"/api/undo"')
+    assert "{ session: focusId(), turn, path }" in handler
+
+
 def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
     """Why the Stop button was invisible until it did.
 

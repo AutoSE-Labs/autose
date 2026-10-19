@@ -246,9 +246,11 @@ function reqStampMarkup(item, index) {
 
 /* ---------- changes (DR-040) ---------- */
 
-/* `view`: { turns: [{index, prompt, files: [{path, kind, added, removed}],
- * added, removed, undoable}], liveEdits, diffs: Map(index -> [change]),
- * open: Set("index:path") }. Newest turn first. */
+/* `view`: { turns: [{index, prompt, files: [{path, kind, added, removed,
+ * restorable, undone}], added, removed, undoable}], liveEdits, idle,
+ * diffs: Map(index -> [change]), open: Set("index:path") }. Newest turn
+ * first. While the session is idle each file offers "Undo this file"
+ * (DR-061), shown when the row is hovered, focused or open. */
 function changesPanelMarkup(view) {
   const live = view.liveEdits
     ? `<div class="step note"><span class="act-icon">✎</span><span>This run has made ${view.liveEdits} edit${view.liveEdits === 1 ? "" : "s"} so far; its diff appears here when it finishes.</span></div>`
@@ -308,7 +310,7 @@ function changesPanelMarkup(view) {
             symbol +
             `<span class="step-title mono">${escapeHtml(elideMiddle(file.path, 46))}</span>` +
             `<span class="step-meta"><span class="added">+${file.added}</span> <span class="removed">−${file.removed}</span>${file.kind && file.kind !== "modified" ? ` · ${escapeHtml(file.kind)}` : ""}</span>` +
-            `</button>${body}</div>`
+            `</button>${view.idle ? undoFileButtonMarkup(turn.index, file, "change-file-undo") : ""}${body}</div>`
           );
         })
         .join("");

@@ -6487,6 +6487,112 @@ body.yolo .app-shell {
   }
 }
 
+/* ---------- undo one file (DR-061): diff head, Changes tab, a run's files ---------- */
+
+.undo-file {
+  padding: 3px 10px;
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* In the diff viewer it sits at the end of the sticky head, always shown. */
+.diff-head .diff-undo-file {
+  flex: none;
+}
+
+/* In the Changes tab it takes the place of the row's line counts while the
+ * row is hovered, focused or open: the row wraps so the file's head and the
+ * button sit side by side, and the open diff below spans both. */
+.change-turn .step.tool:has(.change-file-undo) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.change-turn .step.tool:has(.change-file-undo) > * {
+  flex: 1 0 100%;
+  min-width: 0;
+}
+
+.change-turn .step.tool:has(.change-file-undo) > .step-head {
+  flex: 1 1 0;
+}
+
+.change-turn .step.tool > .change-file-undo {
+  display: none;
+  flex: none;
+  margin-right: 6px;
+}
+
+.change-turn .step.tool:is(:hover, :focus-within, .open) > .change-file-undo {
+  display: inline-block;
+}
+
+.change-turn .step.tool:is(:hover, :focus-within, .open):has(.change-file-undo) .step-meta {
+  display: none;
+}
+
+/* On a finished run's card it waits on the row's line counts, covering
+ * them on hover and focus, so nothing shifts when it appears. */
+.rev-lines {
+  position: relative;
+}
+
+.rev-undo {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.revision-block tr:hover .rev-undo,
+.revision-block tr:focus-within .rev-undo {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* No hover on a touch screen: always shown there. */
+@media (hover: none) {
+  .rev-undo {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .change-turn .step.tool > .change-file-undo {
+    display: inline-block;
+  }
+
+  .change-turn .step.tool:has(.change-file-undo) .step-meta {
+    display: none;
+  }
+}
+
+/* A file put back on its own, in the diff viewer: struck through, like the
+ * card and the Changes tab draw it. */
+.diff-kind.undone {
+  color: var(--text-2);
+}
+
+.diff-file-row.undone .diff-name,
+.diff-file.undone .diff-head .path {
+  color: var(--text-2);
+  text-decoration: line-through;
+}
+
+.diff-file-row.undone .diff-counts {
+  visibility: hidden;
+}
+
+.diff-fold-gap {
+  flex: none;
+  width: 24px;
+}
+
 /* ---------- life: small signs of what is going on (life.js) ---------- */
 
 /* The run scrolls under soft edges instead of being cut by a ruler line. */
