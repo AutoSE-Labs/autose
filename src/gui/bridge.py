@@ -2091,7 +2091,8 @@ class SessionBridge:
         rows.sort(key=lambda row: row["started_at"], reverse=True)
         payload: dict[str, Any] = {
             "processes": rows,
-            "running": sum(1 for row in rows if row["status"] == "running"),
+            # What is still running, a command's leftovers included (`alive`).
+            "running": sum(1 for row in rows if row["alive"]),
         }
         if process_id:
             _, process = self._process(process_id)

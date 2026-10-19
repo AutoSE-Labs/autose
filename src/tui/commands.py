@@ -240,7 +240,7 @@ def _terminals(app: App, argument: str) -> bool:
     action, _, rest = argument.partition(" ")
     if action == "stop":
         process = manager.get(rest.strip())
-        if not process.running:
+        if not process.alive:
             app.console.print(
                 Text(f"  {process.id} has already ended ({process.describe()})", style=THEME.muted)
             )

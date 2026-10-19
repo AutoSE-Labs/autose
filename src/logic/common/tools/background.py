@@ -69,10 +69,15 @@ def start_in_background(
     seen = process.tail(_FIRST_LOOK_LINES)
     shown = "\n".join(seen) if seen else "(no output yet)"
     head = f"Started in the background as process {process.id}: {command}"
-    if exited:
+    if exited and not process.alive:
         return f"{head}\nIt ended within {settle:g} s: {_said(process)}. Its output:\n{shown}"
+    state = (
+        f"After {settle:g} s it {_said(process)}"
+        if exited
+        else f"Still running after {settle:g} s"
+    )
     return (
-        f"{head}\nStill running after {settle:g} s. Its output so far:\n{shown}\n\n"
+        f"{head}\n{state}. Its output so far:\n{shown}\n\n"
         f'Read more later with process_output(process_id="{process.id}"); stop it '
         f'with stop_process(process_id="{process.id}"). It is stopped when this '
         "session ends."
@@ -122,7 +127,7 @@ def stop_process(
         process = processes.get(process_id)
     except ProcessError as exc:
         return f"Error: {exc}. {_listing(processes)}"
-    if not process.running:
+    if not process.alive:
         return f"Process {process.id} has already ended ({_said(process)}); nothing to stop."
     processes.stop(process.id)
     tail = process.tail(10)
@@ -144,7 +149,9 @@ def _said(process) -> str:
     """Its status as a phrase: "running", "exited with code 1", "stopped"."""
     status = process.status
     if status == "exited":
-        return f"exited with code {process.exit_code}"
+        # The command ended, but something it started still holds its output.
+        left = ", but what it started is still running" if process.alive else ""
+        return f"exited with code {process.exit_code}{left}"
     return status
 
 

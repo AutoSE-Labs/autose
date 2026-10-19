@@ -27,7 +27,10 @@ round and a stray process.
   exited with a code, or stopped. Stopping sends SIGTERM to the whole group
   and SIGKILL after two seconds. One session may have eight running at once,
   so a model that starts its server again every round cannot fill the
-  machine.
+  machine. A command that exits but leaves something running in its group
+  that still holds its output (`./start.sh` that runs `node server.js &`)
+  still counts as running: it can be stopped, and it cannot be cleared from
+  the list until it has been, or nothing would reach what it left behind.
 - **What counts as "meant to keep running".** A command ending in a lone `&`
   (optionally starting with `nohup`), or any command called with the new
   `background: true` argument. Both, because the model already writes `&`
@@ -101,6 +104,9 @@ round and a stray process.
   read-only call by the stall checks of DR-030: a model that polls it forever
   is not stopped for stalling, only by the person or its other bounds.
 - A process that double-forks into a new session of its own escapes its
-  group and is not reached by a stop.
+  group and is not reached by a stop. So does one a command leaves running
+  with its output sent elsewhere (`server > log &` inside a script) once the
+  command itself has ended: nothing holds the pipe, so it is not known to be
+  there.
 - Killing AutoSE with SIGKILL, or a crash in the interpreter, still leaves
   processes running; only an orderly exit can stop them.

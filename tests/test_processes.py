@@ -189,6 +189,51 @@ def test_a_running_process_cannot_be_cleared_and_a_finished_one_can(manager, tmp
         manager.get(process.id)
 
 
+def test_what_an_ended_command_left_running_can_be_stopped_and_is_not_cleared(
+    manager, workspace, monkeypatch
+):
+    """`./start.sh` that runs a server with `&` and exits has "exited 0" while
+    the server goes on; it must stay stoppable, and on the list so closing the
+    session still reaches it."""
+    # Past the half second an exit waits for the last of the output.
+    monkeypatch.setattr(background_tools, "FIRST_LOOK_SECONDS", 1.0)
+    (workspace.root / "start.sh").write_text(
+        f"{LOOP} &\necho started\n", encoding="utf-8"
+    )
+    first_look = run_command(
+        "sh start.sh", background=True, workspace=workspace, processes=manager
+    )
+    (process,) = manager.processes()
+    assert _until(lambda: not process.running)
+    assert process.alive and process.to_dict()["alive"] is True
+    assert "what it started is still running" in first_look
+    assert _until(lambda: process.line_count >= 3)  # the server is still printing
+    with pytest.raises(ProcessError, match="still running"):
+        manager.clear(process.id)
+
+    stopped = stop_process(process.id, workspace=workspace, processes=manager)
+
+    assert stopped.startswith(f"Stopped process {process.id}")
+    assert _until(lambda: not process.alive)
+    settled = process.line_count
+    time.sleep(0.2)
+    assert process.line_count == settled  # nothing in its group prints any more
+    manager.clear(process.id)
+    assert manager.processes() == ()
+
+
+def test_closing_reaches_what_an_ended_command_left_running(manager, workspace):
+    (workspace.root / "start.sh").write_text(
+        f"{LOOP} &\necho started\n", encoding="utf-8"
+    )
+    process = manager.start("sh start.sh", cwd=workspace.root)
+    assert _until(lambda: not process.running and process.line_count >= 3)
+
+    manager.stop_all()
+
+    assert _until(lambda: not process.alive)
+
+
 def test_a_session_cannot_fill_the_machine_with_copies(tmp_path):
     capped = ProcessManager(max_running=1)
     capped.start("sleep 30", cwd=tmp_path)

@@ -192,6 +192,24 @@ class BackgroundProcess:
         return self.status == RUNNING
 
     @property
+    def alive(self) -> bool:
+        """Whether anything it started may still be running.
+
+        The command itself, or something it left behind in its group that
+        still holds its output open — ``./start.sh`` that runs ``node
+        server.js &`` and exits has "exited 0" while the server it started
+        goes on printing. Such a process can still be stopped, and is not
+        cleared from the list until it has been, or nothing could stop it.
+        """
+        with self._lock:
+            return self._alive()
+
+    def _alive(self) -> bool:
+        return self._status == RUNNING or (
+            self._popen is not None and not self._drained.is_set()
+        )
+
+    @property
     def line_count(self) -> int:
         with self._lock:
             return self._total
@@ -200,7 +218,8 @@ class BackgroundProcess:
         """Its status in a few words: "running", "exited 1", "stopped"."""
         status = self.status
         if status == EXITED:
-            return f"exited {self.exit_code}"
+            left = ", what it started still runs" if self.alive else ""
+            return f"exited {self.exit_code}{left}"
         return status
 
     def to_dict(self) -> dict[str, Any]:
@@ -215,6 +234,7 @@ class BackgroundProcess:
                 "started_at": self.started_at,
                 "ended_at": self.ended_at,
                 "lines": self._total,
+                "alive": self._alive(),
             }
 
     # -- output ------------------------------------------------------------
@@ -466,6 +486,12 @@ class ProcessManager:
         process = self.get(process_id)
         if process.running:
             raise ProcessError(f"{process.id} is still running; stop it before clearing it")
+        if process.alive:
+            # Off the list, nothing — not even closing the session — would
+            # reach what it left running.
+            raise ProcessError(
+                f"what {process.id} started is still running; stop it before clearing it"
+            )
         with self._lock:
             self._processes.pop(process.id, None)
         self._emit("process_cleared", process.command, id=process.id)

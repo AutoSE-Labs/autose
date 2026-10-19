@@ -110,7 +110,7 @@ function startTerminalPolling() {
     }
     const chosen = terminals.list.find((item) => item.id === terminals.selected);
     // A finished command's output no longer changes once it has been read.
-    if (chosen && (chosen.status === "running" || chosen.lines > terminals.cursor)) {
+    if (chosen && (chosen.status === "running" || chosen.alive || chosen.lines > terminals.cursor)) {
       await readTerminalOutput();
     }
     renderTerminals();
@@ -128,6 +128,8 @@ function renderTerminalBadge() {
 
 function terminalStatus(item) {
   if (item.status === "running") return { tone: "running", text: "running" };
+  // The command ended, but something it started is still going.
+  if (item.alive) return { tone: "running", text: `exited ${item.exit_code}, still running` };
   if (item.status === "stopped") return { tone: "stopped", text: "stopped" };
   return { tone: item.exit_code === 0 ? "ok" : "failed", text: `exited ${item.exit_code}` };
 }
@@ -174,7 +176,7 @@ function renderTerminalView() {
   }
   output.hidden = false;
   const actions =
-    item.status === "running"
+    item.status === "running" || item.alive
       ? `<button type="button" class="ghost-button small danger" data-term-action="stop">Stop</button>`
       : `<button type="button" class="ghost-button small" data-term-action="clear">Clear</button>`;
   setHtml(
