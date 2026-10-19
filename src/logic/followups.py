@@ -151,7 +151,12 @@ def _after_a_stop(turn: Turn) -> Iterator[FollowUp]:
     if reason in _STOPPED_BY_PERSON or reason in _STOPPED_BY_LIMIT:
         # A carried-on run that stops again restates the original request,
         # not the request with the preamble on it once more for each stop.
-        request = turn.prompt.removeprefix(_CARRY_ON)
+        # The terminal puts a request on one line, so the blank line after the
+        # preamble may have become a space: match it without its whitespace.
+        request = turn.prompt
+        lead = _CARRY_ON.rstrip()
+        while request.startswith(lead):
+            request = request[len(lead) :].lstrip()
         yield FollowUp("Carry on from where it stopped", _CARRY_ON + request)
         return
     # A fault, not a choice: the same request again is the retry.

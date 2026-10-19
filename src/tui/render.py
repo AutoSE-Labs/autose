@@ -809,13 +809,20 @@ def outcome_panel(
 def follow_ups_line(follow_ups: tuple[FollowUp, ...]) -> RenderableType | None:
     """What to ask next, as one dim line under the result (DR-063).
 
-    A hint rather than a menu: the terminal has nothing to click, so it names
-    the requests and the person types the one they want. Dim, because it is
-    the least important thing on the screen once a run has ended.
+    The terminal has nothing to click, so each is numbered and ``/next <n>``
+    puts its whole request on the next line to edit or send. Typing the label
+    instead would not do: "Carry on from where it stopped" means nothing to a
+    model that never saw the stopped run (DR-004). Dim, because it is the
+    least important thing on the screen once a run has ended.
     """
     if not follow_ups:
         return None
     line = Text(style=THEME.muted)
     line.append("  next: ")
-    line.append(f"  {THEME.bullet}  ".join(item.label for item in follow_ups))
+    line.append(
+        f"  {THEME.bullet}  ".join(
+            f"{number} {item.label}" for number, item in enumerate(follow_ups, 1)
+        )
+    )
+    line.append(f"  {THEME.bullet}  /next {1 if len(follow_ups) == 1 else '<n>'} to use one")
     return line

@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-18
 - **Decision owners:** AutoSE maintainers
-- **Scope:** `src/logic/followups.py` (`suggest_follow_ups`, `FollowUp`); `turn_payload` (`src/gui/payloads.py`); the follow-up chips above the request box (`index.html`, `app.js`, `app.css`); `follow_ups_line` (`src/tui/render.py`) and `App._render_outcome` (`src/tui/app.py`). Reads DR-004, DR-024, DR-030 and DR-038; changes none of them.
+- **Scope:** `src/logic/followups.py` (`suggest_follow_ups`, `FollowUp`); `turn_payload` (`src/gui/payloads.py`); the follow-up chips above the request box (`index.html`, `app.js`, `app.css`); `follow_ups_line` (`src/tui/render.py`), `App._render_outcome` and `App.follow_ups` (`src/tui/app.py`) and `/next` (`src/tui/commands.py`). Reads DR-004, DR-024, DR-030 and DR-038; changes none of them.
 
 ## Context
 
@@ -55,7 +55,11 @@ can differ between the dashboard and the terminal.
   box and never sends. They hide while the box has text, while a run is going,
   after a run that failed without a turn, and for that run once the × is
   pressed.
-- The terminal prints them as one dim "next:" line after the result.
+- The terminal prints them, numbered, as one dim "next:" line after the
+  result, and `/next <n>` puts that request on the next line to edit or send,
+  as a chip does. Typing the label would not do: "Carry on from where it
+  stopped" means nothing to a model that never saw the stopped run. After a
+  run that ended with no turn, `/next` offers nothing.
 
 ## Consequences
 

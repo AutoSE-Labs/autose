@@ -285,11 +285,109 @@ def test_the_terminal_names_them_on_one_line_after_the_result():
     app._render_outcome(_turn(tier="spark", changes=(_change("ops.py"),)))
     last = console.file.getvalue().rstrip().splitlines()[-1]
 
-    assert last.startswith("  next: Add tests for ops.py")
-    assert "Run the tests" in last and "Explain what you changed in ops.py" in last
+    assert last.startswith("  next: 1 Add tests for ops.py")
+    assert "2 Run the tests" in last and "3 Explain what you changed in ops.py" in last
+    assert "/next <n>" in last
+
+
+class _History:
+    """The one part of a session ``/next`` reads."""
+
+    def __init__(self, *turns) -> None:
+        self.history = turns
+
+
+def _terminal(*turns):
+    import io
+
+    from rich.console import Console
+
+    from tui.activity import ActivityIndicator
+    from tui.app import App
+
+    console = Console(file=io.StringIO(), width=120, force_terminal=False, highlight=False)
+    return App(_History(*turns), console=console, approval_gate=None, activity=ActivityIndicator(console))
+
+
+def test_next_puts_the_whole_request_on_the_line_not_the_label():
+    """Typing "Carry on from where it stopped" would mean nothing to the model.
+
+    A stopped run never reaches its history (DR-004), so the terminal hands
+    over the request that restates it, as a chip does, and never sends it.
+    """
+    from tui.commands import dispatch
+
+    stopped = _turn(stop_reason="cancelled", changes=(_change("ops.py"),))
+    app = _terminal(stopped)
+
+    assert dispatch(app, "/next") is True
+    carried = app._take_carried()
+    assert carried.startswith("Carry on with this request")
+    assert carried.endswith("Fix mul and div in ops.py")
+    assert "\n" not in carried  # the line editor holds one line
+
+    dispatch(app, "/next 2")
+    assert app._take_carried() == "Explain what you changed in ops.py, and why."
+
+
+def test_next_refuses_a_number_it_does_not_have():
+    from tui.commands import dispatch
+
+    app = _terminal(_turn(stop_reason="cancelled"))
+    dispatch(app, "/next 4")
+
+    assert app._take_carried() == ""
+    assert "from 1 to 1" in app.console.file.getvalue()
+
+
+def test_next_offers_nothing_after_a_run_that_left_no_turn():
+    """An error after a good run must not offer that run's suggestions."""
+    from logic.errors import AutoSEError
+    from tui.commands import dispatch
+
+    app = _terminal(_turn(tier="spark", changes=(_change("ops.py"),)))
+    assert app.follow_ups()  # the good run's, until another run is asked for
+
+    def fails(prompt):
+        raise AutoSEError("the model went away")
+
+    app.session.stream = fails
+    app.session.request_stop = lambda: None
+    app._turn("and now this")
+    dispatch(app, "/next")
+
+    assert app._take_carried() == ""
+    assert "no suggestion" in app.console.file.getvalue()
+
+
+def test_next_reflects_an_undo_since_the_run_ended():
+    from tui.commands import dispatch
+
+    undone = _turn(tier="spark", changes=(), undone=(_change("ops.py"),))
+    app = _terminal(undone)
+    dispatch(app, "/next")
+
+    assert app._take_carried() == ""
 
 
 def test_the_terminal_prints_no_hint_when_there_is_nothing_to_suggest():
     from tui.render import follow_ups_line
 
     assert follow_ups_line(()) is None
+
+
+def test_carrying_on_again_from_the_terminal_restates_the_request_once():
+    """``/next`` puts the request on one line, so the preamble arrives flattened.
+
+    Stopping that run again must still offer the original request with the
+    preamble once, not the preamble twice.
+    """
+    from tui.commands import dispatch
+
+    app = _terminal(_turn(prompt="Fix mul\nand div in ops.py", stop_reason="cancelled"))
+    dispatch(app, "/next")
+    typed = app._take_carried()
+    again = suggest_follow_ups(_turn(prompt=typed, stop_reason="cancelled"))[0]
+
+    assert again.prompt.count("Carry on with this request") == 1
+    assert again.prompt.endswith("Fix mul and div in ops.py")

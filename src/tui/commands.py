@@ -294,6 +294,24 @@ def _clear(app: App, argument: str) -> bool:
     return True
 
 
+def _next(app: App, argument: str) -> bool:
+    """Put a suggested next request on the line, to edit or send (DR-063)."""
+    follow_ups = app.follow_ups()
+    if not follow_ups:
+        app.console.print(
+            Text("  there is no suggestion for the last run", style=THEME.muted)
+        )
+        return True
+    choice = argument.strip() or "1"
+    if not choice.isdigit() or not 1 <= int(choice) <= len(follow_ups):
+        app.console.print(
+            warning_text(f"pick a suggestion from 1 to {len(follow_ups)}, as in /next 1")
+        )
+        return True
+    app.offer(follow_ups[int(choice) - 1].prompt)
+    return True
+
+
 def _status(app: App, argument: str) -> bool:
     app.print_status()
     return True
@@ -444,6 +462,7 @@ COMMANDS: dict[str, Command] = {
         ),
         Command("status", "show the current model, tier, workspace and usage", _status),
         Command("config", "write this workspace's config file, at its defaults", _config),
+        Command("next", "put a suggested next request on the line: /next 2", _next),
         Command("clear", "forget the conversation history", _clear),
         Command("quit", "exit AutoSE", _quit),
     )
