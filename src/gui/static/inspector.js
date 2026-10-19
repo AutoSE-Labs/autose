@@ -114,6 +114,8 @@ function toolStepMarkup(step, run) {
   const args = Object.entries(step.args || {})
     .map(([key, value]) => `<div><span class="arg-key">${escapeHtml(key)}</span> ${escapeHtml(String(value))}</div>`)
     .join("");
+  // DR-062: a command sent to the background says so, and links to its terminal.
+  const verb = step.background ? "Started in the background:" : spec.verb;
   const body = open
     ? `<div class="step-body">` +
       (args ? `<div class="step-args">${args}</div>` : "") +
@@ -130,9 +132,11 @@ function toolStepMarkup(step, run) {
     `<button type="button" class="step-head" data-toggle-step="${escapeHtml(step.id)}" aria-expanded="${Boolean(open)}">` +
     `<span class="step-dot" aria-hidden="true"></span>` +
     `<span class="act-icon">${spec.icon}</span>` +
-    `<span class="step-title">${escapeHtml(spec.verb)}${target ? ` <span class="mono">${escapeHtml(elideMiddle(target, 48))}</span>` : ""}</span>` +
+    `<span class="step-title">${escapeHtml(verb)}${target ? ` <span class="mono">${escapeHtml(elideMiddle(target, 48))}</span>` : ""}</span>` +
     `<span class="step-meta">${escapeHtml(meta)}</span>` +
-    `</button>${body}</div>`
+    `</button>` +
+    (step.background ? `<div class="step-link">${terminalLink(step.background)}</div>` : "") +
+    `${body}</div>`
   );
 }
 
