@@ -128,6 +128,7 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-058](docs/DecisionRecords/DR-058-a-session-keeps-its-provider-and-follows-its-key.md) | A reopened session goes back to its provider, and open sessions follow a rotated key |
 | [DR-059](docs/DecisionRecords/DR-059-match-the-loaded-window-and-save-a-workspace-default.md) | A window nobody chose matches the loaded model, and a chosen one can be saved for the workspace |
 | [DR-060](docs/DecisionRecords/DR-060-a-command-menu.md) | A command menu in the dashboard |
+| [DR-061](docs/DecisionRecords/DR-061-undo-one-file-of-one-run.md) | Undo one file of one run |
 | [DR-062](docs/DecisionRecords/DR-062-commands-that-keep-running-are-managed.md) | Commands that keep running (servers, watchers) are started, watched and stopped by AutoSE |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
