@@ -14,6 +14,11 @@ base64-decoded path all reach the shell unexamined. That is acceptable only
 because approval is the real gate and a human has read the command. Anything
 stronger needs OS-level confinement, which is a separate decision from this
 one.
+
+A command meant to keep running — one ending in ``&``, or called with
+``background`` — is not run here to completion: it is handed to the session's
+process manager and the call returns after a short look at it (DR-062). The
+same confinement checks apply to it first, to the command as written.
 """
 
 from __future__ import annotations
@@ -23,7 +28,9 @@ import subprocess
 
 from ...errors import WorkspaceEscapeError
 from ...limits import describe_limit, duration_limit
+from ..processes import ProcessManager, background_form
 from ..workspace import Workspace
+from .background import start_in_background
 
 __all__ = ["run_command", "refuse_escaping_command", "COMMAND_TIMEOUT_SECONDS"]
 
@@ -48,14 +55,22 @@ _HOME_VAR = re.compile(r"\$\{?HOME\}?\b")
 def run_command(
     command: str,
     cwd: str = ".",
+    background: bool | str = False,
     *,
     workspace: Workspace,
     timeout: float | None = COMMAND_TIMEOUT_SECONDS,
+    processes: ProcessManager | None = None,
 ) -> str:
     """Run *command* inside the workspace and return combined output plus exit code.
 
     A *timeout* of ``-1``, ``0`` or ``None`` waits as long as the command takes
     (DR-030); ``subprocess`` reads that as ``None`` too, so the two agree.
+
+    A command ending in ``&`` (``nohup`` optional), or any command with
+    *background* set, starts through *processes* instead and returns at once
+    with its first output (DR-062). Without a manager to hold it, it is
+    refused: run to completion, it would hang until the timeout and then be
+    left running with nobody able to see or stop it.
     """
     limit = duration_limit(timeout)
     refusal = refuse_escaping_command(command)
@@ -67,6 +82,20 @@ def run_command(
         return f"Error: {exc}"
     if not resolved_cwd.is_dir():
         return f"Error: working directory not found: {cwd}"
+
+    kept_running = background_form(command)
+    if kept_running is not None or _wanted(background):
+        if processes is None:
+            return (
+                "Error: this run cannot keep a command running in the background. "
+                "Run it without the trailing '&' so it finishes on its own."
+            )
+        return start_in_background(
+            kept_running or command.strip(),
+            processes=processes,
+            cwd=resolved_cwd,
+            shown_cwd=cwd,
+        )
 
     try:
         completed = subprocess.run(  # noqa: S602 - shell is the point of this tool
@@ -89,6 +118,13 @@ def run_command(
         parts.append("STDERR:\n" + completed.stderr)
     parts.append(f"Exit code: {completed.returncode}")
     return "\n".join(parts).strip()
+
+
+def _wanted(flag: bool | str) -> bool:
+    """Whether a model-supplied boolean says yes; models send ``"true"`` too."""
+    if isinstance(flag, str):
+        return flag.strip().lower() in {"true", "yes", "1"}
+    return bool(flag)
 
 
 def refuse_escaping_command(command: str) -> str | None:

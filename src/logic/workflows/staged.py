@@ -629,6 +629,7 @@ class StagedWorkflow:
             system_prompt_template=resolve_prompt(
                 stage.name, stage.system_prompt, request.prompt_overrides
             ),
+            processes=request.processes,
         )
         if stage.can_write and stage.name != VALIDATE:
             # Validate's scratch scripts are not changes to the work.

@@ -41,8 +41,9 @@ __all__ = ["ToolExecutor", "ToolResult"]
 
 #: Keyword arguments the executor injects itself. A model-supplied value for
 #: one of these is dropped before dispatch, so a hallucinated (or deliberate)
-#: ``workspace`` argument can never redirect a tool outside its sandbox.
-_RESERVED_ARGUMENT_NAMES = frozenset({"workspace"})
+#: ``workspace`` argument can never redirect a tool outside its sandbox. The
+#: same goes for ``processes``, the session's background commands (DR-062).
+_RESERVED_ARGUMENT_NAMES = frozenset({"workspace", "processes"})
 
 
 class ToolResult:

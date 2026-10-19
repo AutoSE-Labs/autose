@@ -34,6 +34,7 @@ from .common.changes import ChangeJournal, FileChange, RevertReport
 from .common.context import MIN_USABLE_CONTEXT_TOKENS
 from .common.events import CompositeEventSink, Event, EventSink, NullEventSink
 from .common.memory import SessionMemory
+from .common.processes import ProcessManager
 from .common.trace import RunTrace, TraceRecorder
 from .common.workspace import Workspace
 from .config import AutoSEConfig
@@ -509,6 +510,10 @@ class Session:
         self._cancel = CancelToken()
         #: When False, every prompt uses the session's current tier as-is.
         self.auto_classify = auto_classify
+        # DR-062: what this session's runs started in the background. One per
+        # session, telling the session's own sink, so an Adapter attributes a
+        # process to the session that started it and `close` stops it.
+        self._processes = ProcessManager(events=self._events)
 
     # -- construction ---------------------------------------------------
 
@@ -625,6 +630,21 @@ class Session:
     @property
     def store(self) -> SessionStore:
         return self._store
+
+    @property
+    def processes(self) -> ProcessManager:
+        """The commands this session's runs started in the background (DR-062)."""
+        return self._processes
+
+    def close(self, *, wait: bool = True) -> None:
+        """Stop everything this session started in the background (DR-062).
+
+        What an Adapter calls when the session leaves it — closed on the
+        dashboard, or the terminal app exiting. With *wait*, returns once
+        every process has gone; without, the SIGKILL that follows a slow
+        SIGTERM happens on its own thread. Safe to call more than once.
+        """
+        self._processes.stop_all(wait=wait)
 
     def snapshot(self) -> SessionRecord:
         """This session as plain data, ready to store (DR-026).
@@ -1335,6 +1355,7 @@ class Session:
             tuning=self._tuning,
             prompt_overrides=self._prompt_overrides or {},
             plan_review=self._plan_review,
+            processes=self._processes,
         )
         self._emit("turn_started", prompt, tier=tier, prompt_text=prompt)
         try:

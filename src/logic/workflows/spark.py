@@ -21,7 +21,9 @@ from ..common.agent import BaseAgent
 from ..common.changes import track_changes
 from ..common.context import ContextBudget
 from ..common.tool_output import BoundedToolOutput, FileToolOutputStore
-from ..common.tools import READ_ONLY_TOOL_NAMES, catalog_subset
+from ..common.tools import BACKGROUND_TOOL_NAMES, READ_ONLY_TOOL_NAMES, catalog_subset
+from ..common.tools.background import process_output as _process_output
+from ..common.tools.background import stop_process as _stop_process
 from ..common.tools.editing import edit_file as _edit
 from ..common.tools.shell import run_command as _run_command
 from ..inference.types import Usage
@@ -35,7 +37,7 @@ __all__ = ["SparkAgent", "SparkWorkflow", "SPARK_TOOL_NAMES"]
 SPARK_TOOL_NAMES: tuple[str, ...] = READ_ONLY_TOOL_NAMES + (
     "run_command",
     "edit_file",
-)
+) + BACKGROUND_TOOL_NAMES
 
 _SYSTEM_PROMPT = """\
 You are AutoSE running in `spark` mode: the fast, lightweight tier.
@@ -130,8 +132,13 @@ class SparkWorkflow:
             ),
             tool_overrides={
                 "run_command": partial(
-                    _run_command, timeout=tuning.shell.command_timeout_seconds
+                    _run_command,
+                    timeout=tuning.shell.command_timeout_seconds,
+                    processes=request.processes,
                 ),
+                # DR-062: the session's background commands, and only those.
+                "process_output": partial(_process_output, processes=request.processes),
+                "stop_process": partial(_stop_process, processes=request.processes),
                 "edit_file": partial(
                     _edit, max_edits_per_call=tuning.editing.max_edits_per_call
                 ),

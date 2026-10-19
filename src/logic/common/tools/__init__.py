@@ -20,6 +20,12 @@ from collections.abc import Mapping
 from types import MappingProxyType
 
 from ..tool import Tool
+from .background import (
+    OUTPUT_DEFAULT_LINES,
+    OUTPUT_MAX_LINES,
+    process_output,
+    stop_process,
+)
 from .editing import MAX_EDITS_PER_CALL, edit_file
 from .filesystem import find_files, list_files, read_file, search_files, write_file
 from .git import GIT_LOG_DEFAULT_COUNT, GIT_LOG_MAX_COUNT, git_diff, git_log, git_status
@@ -33,6 +39,7 @@ __all__ = [
     "NETWORK_TOOL_NAMES",
     "GIT_TOOL_NAMES",
     "KNOWLEDGE_TOOL_NAMES",
+    "BACKGROUND_TOOL_NAMES",
     "catalog_subset",
 ]
 
@@ -262,7 +269,12 @@ _RUN_COMMAND = Tool(
         "tools cannot give you (git log/status/diff, a test or linter run, an "
         "installed package version). Prefer the file tools for reading files. "
         "Requires explicit user approval before it executes, and the command is "
-        "shown to the user verbatim — keep it minimal and non-destructive."
+        "shown to the user verbatim — keep it minimal and non-destructive. "
+        "For something that keeps running — a dev server, a watcher — end the "
+        "command with ' &' or pass background=true: it starts in the "
+        "background and the call returns after about two seconds with a "
+        "process id and its first output. Read more of its output with "
+        "process_output and end it with stop_process."
     ),
     parameters={
         "command": {"type": "string", "description": "Shell command to execute."},
@@ -270,9 +282,57 @@ _RUN_COMMAND = Tool(
             "type": "string",
             "description": "Working directory relative to the workspace (default '.').",
         },
+        "background": {
+            "type": "boolean",
+            "description": (
+                "Keep the command running in the background instead of waiting "
+                "for it to finish (default false; a trailing ' &' does the same)."
+            ),
+        },
     },
     required=["command"],
     fn=run_command,
+)
+
+_PROCESS_OUTPUT = Tool(
+    name="process_output",
+    description=(
+        "Read the latest output of a command started in the background with "
+        "run_command, and whether it is still running. Needs no approval. "
+        "Call it with no process_id to list every background process in this "
+        "session."
+    ),
+    parameters={
+        "process_id": {
+            "type": "string",
+            "description": "The id run_command returned, such as 'p3'.",
+        },
+        "lines": {
+            "type": "integer",
+            "description": (
+                f"How many of the latest lines to return (default "
+                f"{OUTPUT_DEFAULT_LINES}, max {OUTPUT_MAX_LINES})."
+            ),
+        },
+    },
+    required=[],
+    fn=process_output,
+)
+
+_STOP_PROCESS = Tool(
+    name="stop_process",
+    description=(
+        "Stop a command this session started in the background, and everything "
+        "it started. Needs no approval. Stop a server once you are done with it."
+    ),
+    parameters={
+        "process_id": {
+            "type": "string",
+            "description": "The id run_command returned, such as 'p3'.",
+        },
+    },
+    required=["process_id"],
+    fn=stop_process,
 )
 
 _WEB_SEARCH = Tool(
@@ -327,6 +387,8 @@ BUILTIN_TOOLS: Mapping[str, Tool] = MappingProxyType(
             _GIT_DIFF,
             _GIT_LOG,
             _RUN_COMMAND,
+            _PROCESS_OUTPUT,
+            _STOP_PROCESS,
             _WEB_SEARCH,
             _FETCH_URL,
         )
@@ -349,6 +411,12 @@ READ_ONLY_TOOL_NAMES: tuple[str, ...] = (
 #: `READ_ONLY_TOOL_NAMES` because it is the one group whose availability
 #: depends on the workspace being a repository at all.
 GIT_TOOL_NAMES: tuple[str, ...] = ("git_status", "git_diff", "git_log")
+
+#: Tools for the commands ``run_command`` started in the background (DR-062).
+#: Every registry with ``run_command`` has these too: a stage that can start
+#: a server must be able to read it and stop it. Ungated, because they reach
+#: only what this session's own approved commands started.
+BACKGROUND_TOOL_NAMES: tuple[str, ...] = ("process_output", "stop_process")
 
 #: Tools that mutate the workspace. Never present in a validation stage's
 #: registry — not merely discouraged there (DR-008).
