@@ -525,6 +525,11 @@ class SessionBridge:
         emits carries the id of the session it came from. Without that a second
         run's activity would land in the first run's card.
         """
+        # DR-058: every way a session opens (a schedule, closing the last one,
+        # a retry) starts it on the file's current key. A session built on a
+        # key the file no longer holds would take it for one given elsewhere
+        # and keep it — through a later removal, too.
+        self._pick_up_keys()
         setup = self._setup
         assert setup is not None  # only called once a ready setup exists
         holder: list[_Live] = []
@@ -673,7 +678,6 @@ class SessionBridge:
             if self._setup is None or not self._setup.is_ready:
                 raise BridgeError("there is no runtime to start a session against")
             self._require_desk_room()
-            self._pick_up_keys()
             if self._open_session(None) is None:
                 raise BridgeError(self._problem or "could not start a session")
         return self._broadcast_state()
@@ -706,7 +710,6 @@ class SessionBridge:
             if self._setup is None or not self._setup.is_ready:
                 raise BridgeError("there is no runtime to resume against")
             self._require_desk_room()
-            self._pick_up_keys()
             if self._open_session(record) is None:
                 raise BridgeError(self._problem or "could not resume that session")
         return self._broadcast_state()

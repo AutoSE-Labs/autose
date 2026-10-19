@@ -515,3 +515,46 @@ def test_a_new_session_starts_on_a_default_key_edited_by_hand(tmp_path, world):
     assert bridge._open[state["focus"]].session.inference.api_key == _ROTATED
     assert bridge._setup.inference.api_key == _ROTATED
     assert _ROTATED not in json.dumps(state)
+
+
+
+def _on_a_cloud_default(tmp_path) -> SessionBridge:
+    CredentialStore().save("ollama-cloud", _KEY)
+    config = AutoSEConfig(
+        inference=InferenceSettings(
+            base_url="https://ollama.com",
+            provider="ollama-cloud",
+            model="gpt-oss:120b",
+            api_key=_KEY,
+        ),
+        workspace_root=tmp_path,
+    )
+    return SessionBridge(config, default_tier="spark")
+
+
+def test_a_session_opened_after_a_hand_edit_follows_the_file(tmp_path, world):
+    """Closing the last session opens a fresh one with no turn in between: it
+    must not start on the key the file no longer holds, and then keep it — nor
+    bring it back when the new key is removed."""
+    bridge = _on_a_cloud_default(tmp_path)
+    CredentialStore().save("ollama-cloud", _ROTATED)
+
+    fresh = bridge.close_session(bridge.snapshot()["focus"])["focus"]
+    session = bridge._open[fresh].session
+    assert session.inference.api_key == _ROTATED
+
+    bridge.delete_key("ollama-cloud")
+    assert session.inference.api_key == ""
+
+
+def test_an_unattended_session_starts_on_a_key_edited_by_hand(tmp_path, world):
+    bridge = _on_a_cloud_default(tmp_path)
+    CredentialStore().save("ollama-cloud", _ROTATED)
+    subscriber = bridge.subscribe()
+
+    opened = bridge.start_unattended(
+        title="nightly", prompt="hello", tier="spark", origin={"kind": "schedule"}
+    )
+    _drain(subscriber, "turn")
+
+    assert bridge._open[opened].session.inference.api_key == _ROTATED
