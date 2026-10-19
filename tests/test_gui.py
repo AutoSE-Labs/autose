@@ -1147,6 +1147,26 @@ def test_two_saves_at_once_leave_the_file_and_the_default_agreeing(
     assert adjustable.snapshot()["context_advice"]["default_window"] == on_disk
 
 
+def test_the_context_panel_shows_the_setting_only_where_it_applies():
+    """A saved window is for the default provider only (DR-059).
+
+    On a session switched to another provider that AutoSE also chooses the
+    window for, the panel used to show the YAML snippet under "To change it",
+    a setting that would not apply to that session at all. Where AutoSE
+    chooses the window, the snippet is shown only beside the save button.
+    """
+    script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    body = script.split("function openContext()", 1)[1].split("\nfunction ", 1)[0]
+    assert "const remedy = (advice && !advice.adjustable && advice.remedy)" in body
+    default = script.split("function renderContextDefault()", 1)[1].split(
+        "\nasync function ", 1
+    )[0]
+    assert "!advice.saves_default" in default
+    # The default may come from the person's own file or the environment,
+    # so the panel does not claim it is kept in the workspace's file.
+    assert "kept in .autose/config.yaml" not in default
+
+
 def test_a_fixed_window_runtime_has_no_default_to_save(served, tmp_path):
     status, payload = _request(
         served, "/api/context", body={"tokens": 65536, "action": "save_default"}

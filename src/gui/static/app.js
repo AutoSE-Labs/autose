@@ -2598,9 +2598,10 @@ function openContext() {
     renderContextChoices();
   }
   // Where AutoSE chooses the window, the default is saved with a button and
-  // the setting it writes is shown for reference (renderContextDefault);
-  // elsewhere it is how to restart the runtime (DR-034).
-  const remedy = (advice && advice.remedy) || "";
+  // the setting it writes is shown for reference (renderContextDefault), and
+  // only where it would apply: a saved window is for the default provider
+  // (DR-059). Elsewhere the remedy is how to restart the runtime (DR-034).
+  const remedy = (advice && !advice.adjustable && advice.remedy) || "";
   el("context-remedy").hidden = !remedy;
   el("context-remedy-label").textContent = advice && advice.level === "info"
     ? "Optional — if you want more room"
@@ -2691,7 +2692,7 @@ function renderContextDefault() {
   save.disabled = Boolean(state && state.running);
   el("context-remedy").hidden = false;
   el("context-remedy-label").textContent = isDefault
-    ? `${formatWindow(contextPick)} is the default for this workspace, kept in .autose/config.yaml as:`
+    ? `${formatWindow(contextPick)} is already the default for new sessions here. The setting for it:`
     : "Making it the default writes this to .autose/config.yaml, keeping the rest of the file:";
   el("context-remedy-code").textContent = `inference:\n  context_limit: ${contextPick}`;
   el("context-copy").hidden = !navigator.clipboard;
