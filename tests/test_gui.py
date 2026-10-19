@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pytest
 
+from logic.common.approval import ApprovalRequest
+
 gui = pytest.importorskip("gui", reason="the GUI adapter is a Pro-edition build")
 
 from gui.bridge import MAX_OPEN_SESSIONS, BridgeError, SessionBridge  # noqa: E402
@@ -786,11 +788,13 @@ def test_the_page_offers_two_ways_to_stop_a_run():
 
     assert 'id="stop-button"' in page, "the composer needs a stop control"
     assert 'data-stop="1"' in script, "the live card needs a stop control"
-    # Both reach the one endpoint, and Stop stands in the send button's place
-    # rather than beside a disabled one.
+    # Both reach the one endpoint, and Stop never stands beside a dead,
+    # disabled send button: while a run works, that button queues the next
+    # request instead (DR-042).
     assert script.count("requestStop()") >= 2
     assert "/api/interrupt" in script
-    assert "dom.send.hidden = Boolean(state.running)" in script
+    assert 'state.running ? "Queue" : "Start"' in script
+    assert "dom.send.disabled = !state.ready;" in script
 
 
 def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
@@ -809,8 +813,14 @@ def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
 
 def test_the_dashboard_fetches_nothing_from_the_network():
     """Local-first is a property of the page too, not only of inference."""
-    for name in ("index.html", "app.css", "app.js"):
-        source = (STATIC_ROOT / name).read_text(encoding="utf-8")
+    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js"):
+        # The SVG namespace inside an inline data: image is a name the SVG
+        # parser requires, never a request, so it is the one URL allowed.
+        source = (
+            (STATIC_ROOT / name)
+            .read_text(encoding="utf-8")
+            .replace("xmlns='http://www.w3.org/2000/svg'", "")
+        )
         for marker in ("http://", "https://", "//cdn", "fonts.googleapis"):
             assert marker not in source, f"{name} reaches out to {marker}"
 
@@ -847,3 +857,653 @@ def test_the_page_keeps_one_live_card_per_session():
     assert "const desks = new Map()" in script
     # And only the focused session is painted; the rest accumulate in memory.
     assert "isFocused(run.session)" in script
+
+
+# -- DR-033: a page opened mid-turn sees what the turn has already done --------
+
+
+class _PausesBeforeRound(ScriptedChatModel):
+    """Runs its first round, then parks the next one until the test says go."""
+
+    def __init__(self, script, *, pause_at: int) -> None:
+        super().__init__(script)
+        self.pause_at = pause_at
+        self.calls_seen = 0
+        self.paused = threading.Event()
+        self.go = threading.Event()
+
+    def stream(self, messages, **kwargs):
+        self.calls_seen += 1
+        if self.calls_seen == self.pause_at:
+            self.paused.set()
+            self.go.wait(5.0)
+        return super().stream(messages, **kwargs)
+
+
+def test_a_snapshot_taken_mid_turn_carries_the_turn_so_far(scripted, tmp_path):
+    """DR-033: a reloaded page used to show a bare "Thinking" card.
+
+    The stream had already delivered the tool calls; a page that connected
+    afterwards streams only from its snapshot onwards, so unless the snapshot
+    carries the turn so far, everything before the reload is gone.
+    """
+    (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
+    model = _PausesBeforeRound(
+        [calls(tool_call("read_file", path="notes.txt")), answer("read it")],
+        pause_at=2,
+    )
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    subscriber = bridge.subscribe()
+    bridge.submit("read the notes")
+    assert model.paused.wait(5.0)
+
+    current = bridge.snapshot()["current"]
+    kinds = [frame["event"] for frame in current["timeline"]]
+    assert "tool_called" in kinds
+    assert "round_usage" in kinds
+    # Deltas are summarised by their tail, not replayed one by one.
+    assert "agent_reasoning_delta" not in kinds
+    assert "stage_output_delta" not in kinds
+
+    model.go.set()
+    _drain(subscriber, "turn")
+    # A new turn starts from an empty timeline.
+    assert bridge.snapshot()["current"] is None
+
+
+def test_the_snapshot_and_the_stream_never_both_carry_one_event(scripted, tmp_path):
+    """DR-033: replay the timeline, then stream from the snapshot's sequence.
+
+    Every event the timeline holds must be at or before that sequence, or the
+    page would draw it twice.
+    """
+    (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
+    model = _PausesBeforeRound(
+        [calls(tool_call("read_file", path="notes.txt")), answer("read it")],
+        pause_at=2,
+    )
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    bridge.submit("read the notes")
+    assert model.paused.wait(5.0)
+
+    state = bridge.snapshot()
+    after = bridge.subscribe(since=state["sequence"])
+    model.go.set()
+    streamed = []
+    while True:
+        _, frame = after.frames.get(timeout=5.0)
+        if frame.get("kind") == "turn":
+            break
+        if frame.get("kind") == "event":
+            streamed.append((frame["event"], frame["timestamp"]))
+    replayed = {(f["event"], f["timestamp"]) for f in state["current"]["timeline"]}
+    assert not replayed & set(streamed)
+
+
+def test_the_snapshot_explains_the_served_context_window(scripted, tmp_path):
+    """DR-034: the page shows a verdict, not a raw pair of numbers."""
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    advice = bridge.snapshot()["context_advice"]
+    assert advice["level"] in {"ok", "info", "warning", "blocking"}
+    assert advice["served"] == 32768
+
+
+# -- DR-035: choosing the context window from the dashboard ---------------------
+
+
+@pytest.fixture
+def adjustable(tmp_path):
+    """A runtime that, like Ollama, serves the window each request asks for."""
+    holder: dict = {}
+    model = ModelInfo(
+        name="qwen3.5:9b",
+        context_length=32768,
+        context_length_measured=True,
+        max_context_length=131072,
+        supports_tools=True,
+    )
+
+    class _Catalog:
+        def __init__(self, settings):
+            pass
+
+        def list_models(self):
+            return (model,)
+
+    register_provider(
+        Provider(
+            name="test-window-dashboard",
+            chat_model=lambda settings: holder.setdefault(
+                "model", ScriptedChatModel([answer("ok")])
+            ),
+            catalog=_Catalog,
+            is_local=True,
+            serves_requested_window=True,
+        ),
+        replace=True,
+    )
+    config = AutoSEConfig(
+        inference=InferenceSettings(
+            base_url="http://test/v1",
+            model=model.name,
+            provider="test-window-dashboard",
+        ),
+        workspace_root=tmp_path,
+    )
+    return SessionBridge(config, default_tier="spark")
+
+
+def test_the_dashboard_offers_windows_where_autose_chooses_them(adjustable):
+    advice = adjustable.snapshot()["context_advice"]
+    assert advice["adjustable"]
+    tokens = [choice["tokens"] for choice in advice["choices"]]
+    assert tokens == [8192, 16384, 32768, 65536, 131072]
+    assert next(choice for choice in advice["choices"] if choice["current"])["tokens"] == 32768
+
+
+def test_choosing_a_window_changes_what_the_session_asks_for(adjustable):
+    state = adjustable.set_context_window(65536)
+    assert state["context_limit"] == 65536
+    assert state["context_advice"]["served"] == 65536
+
+
+def test_a_window_the_model_cannot_serve_is_refused(adjustable):
+    with pytest.raises(BridgeError):
+        adjustable.set_context_window(262144)
+
+
+def test_a_runtime_with_a_fixed_window_offers_no_choices(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    advice = bridge.snapshot()["context_advice"]
+    assert advice["adjustable"] is False
+    assert advice["choices"] == []
+    with pytest.raises(BridgeError):
+        bridge.set_context_window(65536)
+
+
+def test_a_window_that_is_not_a_number_is_refused_over_http(served):
+    status, payload = _request(served, "/api/context", body={"tokens": "lots"})
+    assert status == 400
+    assert "whole number" in json.dumps(payload)
+
+
+# -- DR-037: the inspector ----------------------------------------------------
+
+
+def test_the_inspector_script_is_served_with_the_page(served):
+    port = served.server_address[1]
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{port}/inspector.js", timeout=5
+    ) as response:
+        assert response.status == 200
+        assert "activityPanelMarkup" in response.read().decode("utf-8")
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    # Before app.js, which calls into it from its first paint.
+    assert page.index("/inspector.js") < page.index("/app.js")
+
+
+def test_the_inspector_has_the_elements_it_is_drawn_into():
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    for element in ('id="inspector"', 'id="inspector-tabs"', 'id="inspector-body"', 'id="toggle-inspector"'):
+        assert element in page
+
+
+# -- DR-036: the settings page ---------------------------------------------------
+
+
+def test_the_settings_script_is_served_and_loaded_before_the_page_script(served):
+    port = served.server_address[1]
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{port}/settings.js", timeout=5
+    ) as response:
+        assert response.status == 200
+        assert "providerCardMarkup" in response.read().decode("utf-8")
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    assert page.index("/settings.js") < page.index("/app.js")
+
+
+def test_a_key_is_only_ever_typed_into_a_password_field():
+    """DR-036: what is drawn on the settings page is the masked tail, never the key."""
+    script = (STATIC_ROOT / "settings.js").read_text(encoding="utf-8")
+    import re
+
+    assert 'type="password"' in script
+    assert "masked_key" in script
+    # The renderer never reads a raw key field off the payload.
+    assert not re.search(r"\.api_key\b|\[\s*[\"']api_key[\"']\s*\]", script)
+
+
+
+# -- DR-040: any turn's diffs, on demand -----------------------------------------
+
+
+def test_an_earlier_turn_s_diffs_can_be_read_by_its_index(scripted, tmp_path):
+    (tmp_path / "notes.txt").write_text("draft\n")
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(
+                tool_call(
+                    "edit_file",
+                    path="notes.txt",
+                    edits=[{"old_str": "draft", "new_str": "first"}],
+                )
+            ),
+            answer("wrote it"),
+            answer("nothing to write this time"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("write the notes")
+    _drain(subscriber, "turn")
+    bridge.submit("say something")
+    _drain(subscriber, "turn")
+
+    first = bridge.changes(turn=0)
+    assert first["turn"] == 0
+    (change,) = first["changes"]
+    assert change["path"] == "notes.txt"
+    assert "+first" in change["diff"]
+    # The latest turn wrote nothing; asking for it by index says so.
+    assert bridge.changes(turn=1)["changes"] == []
+
+
+def test_a_turn_that_does_not_exist_is_a_404(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    with pytest.raises(BridgeError) as caught:
+        bridge.changes(turn=7)
+    assert caught.value.status == 404
+
+
+def test_a_turn_index_that_is_not_a_number_is_refused_over_http(served):
+    status, _payload = _request(served, "/api/changes?turn=latest")
+    assert status == 400
+
+
+def test_no_page_script_writes_inline_styles():
+    """The CSP is default-src 'self' (DR-029), which drops inline style
+    attributes without a word: a bar drawn with style="height:…" renders as
+    nothing. Sizes go in SVG attributes or classes instead (DR-041)."""
+    for name in ("app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js"):
+        source = (STATIC_ROOT / name).read_text(encoding="utf-8")
+        assert 'style="' not in source, f"{name} writes an inline style attribute"
+
+
+# -- DR-042: a queue per session ---------------------------------------------------
+
+
+def test_a_queued_prompt_starts_when_the_running_turn_ends(scripted, tmp_path):
+    hold = threading.Event()
+    model = _Gated([answer("the first"), answer("the second")], gate=hold)
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    subscriber = bridge.subscribe()
+
+    session = bridge.submit("first request")["session"]
+    assert model.entered.wait(5.0)
+    queued = bridge.submit("second request", queue=True)
+    assert queued["queued"] is True
+    assert [item["prompt"] for item in bridge.snapshot()["queue"]] == ["second request"]
+
+    hold.set()
+    assert _drain(subscriber, "turn", session=session)["turn"]["answer"] == "the first"
+    assert _drain(subscriber, "turn", session=session)["turn"]["answer"] == "the second"
+    assert bridge.snapshot()["queue"] == []
+
+
+def test_a_turn_that_fails_holds_the_queue_until_resumed(scripted, tmp_path):
+    """DR-042: after a failure — or a stop — the next prompt waits for the user."""
+    from logic.errors import InferenceError
+
+    hold = threading.Event()
+    model = _Gated([InferenceError("the runtime went away"), answer("the second")], gate=hold)
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    subscriber = bridge.subscribe()
+
+    session = bridge.submit("first request")["session"]
+    assert model.entered.wait(5.0)
+    bridge.submit("second request", queue=True)
+    hold.set()
+    _drain(subscriber, "failed", session=session)
+    _drain(subscriber, "busy", session=session)
+
+    state = bridge.snapshot()
+    assert state["queue_held"] is True
+    assert [item["prompt"] for item in state["queue"]] == ["second request"]
+    assert not state["running"]
+
+    bridge.queue_action("resume", session_id=session)
+    assert _drain(subscriber, "turn", session=session)["turn"]["answer"] == "the second"
+
+
+def test_queued_prompts_can_be_reordered_and_removed(scripted, tmp_path):
+    hold = threading.Event()
+    model = _Gated([answer("a"), answer("b"), answer("c")], gate=hold)
+    scripted["model"] = model
+    bridge = SessionBridge(_config(tmp_path), default_tier="spark")
+    bridge.submit("running")
+    assert model.entered.wait(5.0)
+    first = bridge.submit("one", queue=True)["id"]
+    second = bridge.submit("two", queue=True)["id"]
+
+    moved = bridge.queue_action("move", item_id=second, to=0)
+    assert [item["prompt"] for item in moved["queue"]] == ["two", "one"]
+    removed = bridge.queue_action("remove", item_id=first)
+    assert [item["prompt"] for item in removed["queue"]] == ["two"]
+    with pytest.raises(BridgeError) as caught:
+        bridge.queue_action("remove", item_id="nope")
+    assert caught.value.status == 404
+    bridge.queue_action("clear")
+    hold.set()
+
+
+# -- DR-043: desktop notifications ---------------------------------------------
+
+
+def test_notifications_are_opt_in_and_never_leave_the_machine(served):
+    """DR-043: raised only after the person turns them on and the browser
+    grants permission, through the browser itself — no server endpoint."""
+    port = served.server_address[1]
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/notify.js", timeout=5) as response:
+        script = response.read().decode("utf-8")
+    assert 'Notification.permission === "granted"' in script
+    assert "notifyWanted()" in script
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    assert page.index("/notify.js") < page.index("/app.js")
+    assert 'id="toggle-notify"' in page
+
+
+def test_an_approval_is_always_announced_when_the_window_is_elsewhere():
+    script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    block = script[script.index('case "approval":') : script.index('case "approval_closed":')]
+    assert "notifyAbout(" in block and "urgent: true" in block
+
+
+
+# -- DR-044: allow a tool for the rest of the session ---------------------------
+
+
+def test_allowing_a_tool_for_the_session_stops_asking_about_it(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(tool_call("run_command", command="echo one")),
+            calls(tool_call("run_command", command="echo two")),
+            answer("ran both"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run two commands")
+    first = _drain(subscriber, "approval")["request"]
+    assert bridge.resolve_approval(first["id"], approved=True, scope="session")["scope"] == "session"
+    turn = _drain(subscriber, "turn")["turn"]
+    assert turn["answer"] == "ran both"
+    # Only the first call was put to the person; the second ran on the allowance.
+    asked = [
+        frame
+        for _, frame in bridge.subscribe(since=0).frames.queue
+        if frame.get("kind") == "approval"
+    ]
+    assert len(asked) == 1
+    assert [item["label"] for item in bridge.snapshot()["allowances"]] == ["echo … commands"]
+    assert first["allow"]["label"] == "echo … commands"
+
+
+def test_an_allowance_can_be_taken_back(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command="echo one")), answer("done"), answer("x")],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run it")
+    request = _drain(subscriber, "approval")["request"]
+    bridge.resolve_approval(request["id"], approved=True, scope="session")
+    _drain(subscriber, "turn")
+    assert bridge.revoke_allowance("run_command:echo")["allowances"] == []
+    with pytest.raises(BridgeError) as caught:
+        bridge.revoke_allowance("run_command:echo")
+    assert caught.value.status == 404
+
+
+def test_a_rule_added_by_hand_answers_the_calls_it_covers(scripted, tmp_path):
+    """DR-050: a rule added in the dashboard works as one given from a card."""
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command="echo one 2>&1 | tail -1")), answer("done")],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run it")
+    _drain(subscriber, "approval")
+    added = bridge.add_allowance("run_command", "echo")
+    assert added["added"]["label"] == "echo … commands"
+    assert _drain(subscriber, "turn")["turn"]["answer"] == "done"
+    with pytest.raises(BridgeError):
+        bridge.add_allowance("run_command", "rm")
+
+
+def test_an_allowance_for_one_command_still_asks_about_another(scripted, tmp_path):
+    """DR-048: allowing `echo` is not allowing every shell command."""
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(tool_call("run_command", command="echo one")),
+            calls(tool_call("run_command", command="ls")),
+            answer("done"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run two different commands")
+    first = _drain(subscriber, "approval")["request"]
+    bridge.resolve_approval(first["id"], approved=True, scope="session")
+    second = _drain(subscriber, "approval")["request"]
+    assert second["arguments"]["command"] == "ls"
+    bridge.resolve_approval(second["id"], approved=False)
+    _drain(subscriber, "turn")
+
+
+def test_a_chain_that_writes_a_file_cannot_be_allowed_for_the_session(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command="echo hi > notes.txt && echo there")), answer("done")],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run it")
+    request = _drain(subscriber, "approval")["request"]
+    assert request["allow"] is None
+    assert "writes to a file" in request["allow_note"]
+    with pytest.raises(BridgeError) as caught:
+        bridge.resolve_approval(request["id"], approved=True, scope="session")
+    assert "only be allowed once" in str(caught.value)
+    # Still waiting: refusing the wider yes did not answer the call.
+    bridge.resolve_approval(request["id"], approved=True)
+    assert _drain(subscriber, "turn")["turn"]["answer"] == "done"
+
+
+def test_allowing_a_chain_allows_each_of_its_parts(scripted, tmp_path):
+    """DR-052: `cd app && echo …` is a yes for echo; a later echo runs unasked."""
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(tool_call("run_command", command="cd . && echo one 2>&1 | tail -1")),
+            calls(tool_call("run_command", command="echo two")),
+            answer("ran both"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run two commands")
+    first = _drain(subscriber, "approval")["request"]
+    assert first["allow"]["patterns"] == ["echo"]
+    bridge.resolve_approval(first["id"], approved=True, scope="session")
+    assert _drain(subscriber, "turn")["turn"]["answer"] == "ran both"
+    asked = [
+        frame
+        for _, frame in bridge.subscribe(since=0).frames.queue
+        if frame.get("kind") == "approval"
+    ]
+    assert len(asked) == 1
+
+
+def test_allowing_for_the_session_answers_matching_calls_already_waiting(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    live = bridge._target(None)
+    from gui.bridge import _Pending
+
+    first = _Pending(ApprovalRequest("run_command", {"command": "pytest -q"}))
+    second = _Pending(ApprovalRequest("run_command", {"command": "pytest tests/x.py"}))
+    other = _Pending(ApprovalRequest("run_command", {"command": "ls"}))
+    for item in (first, second, other):
+        live.pending[item.id] = item
+    bridge.resolve_approval(first.id, approved=True, scope="session")
+    assert second.answered.is_set() and second.decision.approved
+    assert not other.answered.is_set()
+
+
+def test_an_unknown_approval_scope_is_refused(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    with pytest.raises(BridgeError):
+        bridge.resolve_approval("nope", approved=True, scope="forever")
+
+
+# -- DR-045: plan review in the dashboard ----------------------------------------
+
+
+def _ledger(kind: str, *ids: str) -> str:
+    status = {"plan": "Not Started", "execute": "Implemented", "validate": "Verified"}[kind]
+    lines = "\n".join(f"- {rid} [{status}] — Requirement {rid} — Evidence: x" for rid in ids)
+    tail = "\n\nVERDICT: PASS" if kind == "validate" else ""
+    return f"Text.\n\n## REQUIREMENTS STATUS\n{lines}{tail}"
+
+
+def test_a_plan_waits_for_the_person_when_review_is_on(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [answer(_ledger("plan", "R1")), answer(_ledger("execute", "R1")), answer(_ledger("validate", "R1"))],
+    )
+    bridge.set_plan_review(True)
+    subscriber = bridge.subscribe()
+    bridge.submit("add a helper", tier="craft")
+
+    review = _drain(subscriber, "plan_review")["review"]
+    assert "REQUIREMENTS STATUS" in review["plan"]
+    assert bridge.snapshot()["pending_plan"]["id"] == review["id"]
+
+    bridge.resolve_plan(review["id"], action="approve")
+    assert _drain(subscriber, "turn")["turn"]["succeeded"] is True
+    assert bridge.snapshot()["pending_plan"] is None
+
+
+def test_a_revise_without_saying_what_is_refused(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    with pytest.raises(BridgeError):
+        bridge.resolve_plan("any", action="revise", feedback="  ")
+    with pytest.raises(BridgeError):
+        bridge.resolve_plan("any", action="approve-ish")
+
+
+# -- the rail's strips: stage, counts, context and a state timeline ---------------
+
+
+def test_a_strip_records_when_the_session_worked_and_waited(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command="echo one")), answer("done")],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("run it")
+    request = _drain(subscriber, "approval")["request"]
+    bridge.resolve_approval(request["id"], approved=True)
+    _drain(subscriber, "turn")
+    _drain(subscriber, "busy")
+    strip = bridge.snapshot()["open"][0]["strip"]
+    states = [status for _, status in strip["lane"]]
+    assert states == ["idle", "working", "waiting", "working", "idle"]
+    times = [at for at, _ in strip["lane"]]
+    assert times == sorted(times)
+
+
+def test_a_strip_lane_keeps_only_the_last_half_hour():
+    from gui.bridge import LANE_SECONDS, _Live
+
+    live = _Live.__new__(_Live)
+    live.lane = [(0.0, "idle")]
+    live.mark("working", at=10.0)
+    live.mark("idle", at=20.0)
+    live.mark("working", at=20.0 + LANE_SECONDS + 5)
+    # The state in force when the window opens is kept; older ones are not.
+    assert [status for _, status in live.lane] == ["idle", "working"]
+
+
+# -- renaming a session ------------------------------------------------------------
+
+
+def test_a_session_can_be_renamed_open_or_stored(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("hello")])
+    subscriber = bridge.subscribe()
+    first = bridge.snapshot()["session_id"]
+    bridge.submit("say hello")
+    _drain(subscriber, "turn")
+    bridge.rename_session(first, "  Greeting   test ")
+    open_row = next(item for item in bridge.snapshot()["open"] if item["session_id"] == first)
+    assert open_row["title"] == "Greeting test" and open_row["named"]
+    stored = next(item for item in bridge.sessions()["sessions"] if item["id"] == first)
+    assert stored["name"] == "Greeting test"
+    # An empty name goes back to the first request.
+    bridge.rename_session(first, "")
+    open_row = next(item for item in bridge.snapshot()["open"] if item["session_id"] == first)
+    assert open_row["title"] == "say hello" and not open_row["named"]
+    with pytest.raises(BridgeError):
+        bridge.rename_session("no-such-session", "x")
+
+
+# -- DR-053: YOLO mode -------------------------------------------------------------
+
+
+def test_yolo_mode_answers_what_waits_and_asks_nothing_after(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(tool_call("run_command", command="echo one")),
+            calls(tool_call("run_command", command="rm -rf build")),
+            answer("ran both"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    assert bridge.snapshot()["yolo"] is False
+    bridge.submit("run two commands")
+    _drain(subscriber, "approval")
+    assert bridge.set_yolo(True)["yolo"] is True
+    assert _drain(subscriber, "turn")["turn"]["answer"] == "ran both"
+    asked = [
+        frame
+        for _, frame in bridge.subscribe(since=0).frames.queue
+        if frame.get("kind") == "approval"
+    ]
+    assert len(asked) == 1  # only the call that was already waiting
+
+
+def test_turning_yolo_off_asks_again(scripted, tmp_path):
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command="echo one")), answer("done")],
+    )
+    subscriber = bridge.subscribe()
+    bridge.set_yolo(True)
+    bridge.set_yolo(False)
+    bridge.submit("run it")
+    request = _drain(subscriber, "approval")["request"]
+    bridge.resolve_approval(request["id"], approved=True)
+    assert _drain(subscriber, "turn")["turn"]["answer"] == "done"

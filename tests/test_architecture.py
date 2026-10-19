@@ -130,3 +130,57 @@ def test_the_gui_adapter_is_separable_from_logic_and_tui():
                 f"{path.relative_to(SRC)} imports gui, so a public build could not "
                 "exclude src/gui/"
             )
+
+
+# -- Decision Record numbers are for developers, not for people using AutoSE --
+
+
+def _code_without_comments(text: str) -> str:
+    import re
+
+    text = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
+    text = re.sub(r"<!--.*?-->", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
+    return "\n".join(re.sub(r"(^|\s)//.*$", "", line) for line in text.splitlines())
+
+
+def test_the_dashboard_never_shows_a_decision_record_number():
+    """"(DR-024)" means something to a contributor reading the code and nothing
+    to someone using the app. DR numbers belong in comments and docs only."""
+    import re
+
+    static = SRC / "gui" / "static"
+    if not static.exists():
+        return
+    for path in sorted(static.glob("*.*")):
+        if path.suffix not in {".js", ".html", ".css"}:
+            continue
+        visible = _code_without_comments(path.read_text(encoding="utf-8"))
+        found = re.findall(r"DR-\d{3}", visible)
+        assert not found, f"{path.name} shows {sorted(set(found))} to users"
+
+
+def test_no_message_or_generated_file_mentions_a_decision_record_number():
+    """Errors, warnings, terminal output and the config file AutoSE writes are
+    read by users. Docstrings and comments are where DR numbers belong."""
+    import ast
+    import re
+
+    pattern = re.compile(r"DR-\d{3}")
+    offenders = []
+    for path in sorted(SRC.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.body:
+                first = node.body[0]
+                if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+                    docstrings.add(id(first.value))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and id(node) not in docstrings
+                and pattern.search(node.value)
+            ):
+                offenders.append(f"{path.relative_to(SRC)}:{node.lineno}")
+    assert not offenders, f"user-visible text mentions decision records: {offenders}"

@@ -55,6 +55,7 @@ from ..prompt_overrides import resolve_prompt
 from ..requirements import (
     Requirement,
     RequirementsFormatError,
+    as_payload,
     format_requirements,
     parse_requirements,
     require_same_ids,
@@ -64,6 +65,7 @@ from ..requirements import (
 from ..tuning import Tuning
 from . import stages as _stages
 from .base import WorkflowOutcome, WorkflowRequest
+from .review import PlanDecision, PlanReview
 from .stages import (
     EXECUTE,
     PLAN,
@@ -255,6 +257,7 @@ class StagedWorkflow:
         # an earlier pass had confirmed (a second \multicolumn in a row stopped
         # parsing) with no pass noticing.
         earlier_checks: dict[str, str] = {}
+        plan_passes = 0
         emit = _Emitter(request.events, self._tier)
 
         emit.workflow_started(self._stages, bounds)
@@ -280,6 +283,21 @@ class StagedWorkflow:
                         _keep_checks(request.workspace, earlier_checks)
                         _remove_scratch(request.workspace)
                 feedback = ""
+
+                if stage.name == PLAN and request.plan_review is not None:
+                    plan_passes += 1
+                    revision = self._review_plan(stage, request, memory, emit, plan_passes)
+                    if revision:
+                        # Sent back by the reviewer: Plan again, with what they
+                        # asked for, before anything is changed (DR-045). The
+                        # person asked for a different plan, so its ledger may
+                        # differ too; the old one is not a contract to keep.
+                        memory.requirements = ()
+                        feedback = (
+                            "The person reviewing the plan asked for changes "
+                            f"before anything is done: {revision}"
+                        )
+                        continue
 
                 if stage.name == VALIDATE:
                     verdict = self._judge(result.content, memory)
@@ -338,6 +356,8 @@ class StagedWorkflow:
                 artifacts=memory.artifacts,
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
+                requirements=as_payload(memory.requirements),
+                route=tuple(emit.route),
             )
         except RunCancelled as exc:
             # DR-030: stopping on purpose is not a failure, and everything the
@@ -354,6 +374,8 @@ class StagedWorkflow:
                 artifacts=memory.artifacts,
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
+                requirements=as_payload(memory.requirements),
+                route=tuple(emit.route),
             )
         except (IterationBudgetExhausted, TimeBudgetExhausted) as exc:
             # DR-009: a bound being hit is its own outcome, never a success.
@@ -367,6 +389,8 @@ class StagedWorkflow:
                 artifacts=memory.artifacts,
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
+                requirements=as_payload(memory.requirements),
+                route=tuple(emit.route),
             )
         except StageExecutionError as exc:
             emit.workflow_finished("stage_failed", clock.elapsed, detail=str(exc))
@@ -379,9 +403,59 @@ class StagedWorkflow:
                 artifacts=memory.artifacts,
                 files_changed=memory.files_changed,
                 changes=_recorded_changes(request),
+                requirements=as_payload(memory.requirements),
+                route=tuple(emit.route),
             )
 
     # -- one stage ----------------------------------------------------------
+
+    def _review_plan(
+        self,
+        stage: StageSpec,
+        request: WorkflowRequest,
+        memory: RequestMemory,
+        emit: _Emitter,
+        pass_number: int,
+    ) -> str:
+        """Put the plan to the reviewer (DR-045); return feedback to revise with.
+
+        An edited plan is adopted through the same checks as the model's own,
+        and a reviewer whose edit fails them is asked again with the reason.
+        "Stop" ends the run as a stop does (DR-030): the work so far is kept.
+        """
+        gate = request.plan_review
+        assert gate is not None
+        problem = ""
+        while True:
+            plan = memory.artifacts.get(stage.artifact or PLAN, "")
+            if memory.requirements:
+                plan = f"{plan.rstrip()}\n\n{format_requirements(memory.requirements)}"
+            review = PlanReview(
+                plan=plan,
+                requirements=as_payload(memory.requirements),
+                pass_number=pass_number,
+                problem=problem,
+            )
+            emit.plan_review_requested(review)
+            decision = gate.review(review)
+            emit.plan_reviewed(decision, pass_number)
+            if decision.action == "approve":
+                return ""
+            if decision.action == "revise":
+                return decision.feedback.strip() or "revise the plan"
+            if decision.action == "stop":
+                raise RunCancelled(
+                    "Stopped at plan review, before anything was changed. "
+                    + (decision.feedback.strip() or "The plan was not accepted."),
+                    stage=PLAN,
+                    reason=decision.feedback.strip() or "plan not accepted",
+                )
+            try:
+                self._adopt(stage, decision.plan, memory, rescope=True)
+            except (RequirementsFormatError, ArtifactTooLargeError) as exc:
+                problem = str(exc)
+                continue
+            return ""
 
     def _run_stage(
         self,
@@ -563,19 +637,28 @@ class StagedWorkflow:
             _track_changes(agent, memory, request.journal)
         return agent
 
-    def _adopt(self, stage: StageSpec, content: str, memory: RequestMemory) -> None:
+    def _adopt(
+        self,
+        stage: StageSpec,
+        content: str,
+        memory: RequestMemory,
+        *,
+        rescope: bool = False,
+    ) -> None:
         """Make a stage's output canonical, or refuse it.
 
         Parsing happens *before* the artifact is stored, so a malformed ledger
         blocks that output from becoming canonical state rather than corrupting
-        it (DR-005).
+        it (DR-005). *rescope* lets the requirement IDs change: only for a plan
+        the reviewing person wrote or asked to have rewritten (DR-045) — a
+        model may not drop or invent requirements on its own.
         """
         requirements: list[Requirement] | None = None
         if stage.owns_ledger:
             requirements = parse_requirements(
                 content, allowed_statuses=stage.allowed_statuses
             )
-            if memory.requirements:
+            if memory.requirements and not rescope:
                 require_same_ids(list(memory.requirements), requirements)
 
         if stage.artifact:
@@ -815,6 +898,8 @@ class _Emitter:
         from ..inference.types import Usage
 
         self.usage = Usage()
+        #: The run's route as it happens (see ``WorkflowOutcome.route``).
+        self.route: list[dict[str, str]] = []
 
     def add_usage(self, usage) -> None:
         from ..inference.types import Usage
@@ -839,6 +924,7 @@ class _Emitter:
         )
 
     def stage_started(self, stage: StageSpec, *, iteration: int) -> None:
+        self.route.append({"kind": "stage", "stage": stage.name, "title": stage.title})
         self._emit(
             "stage_started",
             stage.label,
@@ -880,15 +966,7 @@ class _Emitter:
             stage=stage.name,
             artifact=stage.artifact,
             content=memory.get(stage.artifact) if stage.artifact else "",
-            requirements=[
-                {
-                    "id": item.id,
-                    "status": item.status,
-                    "description": item.description,
-                    "evidence": item.evidence,
-                }
-                for item in memory.requirements
-            ],
+            requirements=list(as_payload(memory.requirements)),
             tokens=result.usage.total_tokens,
         )
 
@@ -913,7 +991,34 @@ class _Emitter:
             number=number,
         )
 
+    def plan_review_requested(self, review: PlanReview) -> None:
+        self._emit(
+            "plan_review_requested",
+            "waiting for the plan to be reviewed",
+            tier=self._tier,
+            pass_number=review.pass_number,
+            problem=review.problem,
+        )
+
+    def plan_reviewed(self, decision: PlanDecision, pass_number: int) -> None:
+        self._emit(
+            "plan_reviewed",
+            decision.action,
+            tier=self._tier,
+            action=decision.action,
+            pass_number=pass_number,
+            feedback=decision.feedback,
+        )
+
     def loopback(self, verdict: Verdict, used: int, cap: int | None) -> None:
+        self.route.append(
+            {
+                "kind": "loopback",
+                "stage": verdict.target,
+                "detail": verdict.feedback,
+                "unmet": ", ".join(verdict.unmet),
+            }
+        )
         self._emit(
             "loopback",
             f"back to {verdict.target} ({used}/{describe_limit(cap)})",

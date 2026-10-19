@@ -33,6 +33,7 @@ __all__ = [
     "VALIDATE_LEDGER_INSTRUCTION",
     "parse_requirements",
     "require_same_ids",
+    "as_payload",
     "format_requirements",
     "strip_requirements_section",
     "unverified_ids",
@@ -225,6 +226,19 @@ def strip_requirements_section(text: str) -> str:
 def unverified_ids(requirements: Sequence[Requirement]) -> list[str]:
     """IDs that are not ``Verified`` — the reason a claimed pass gets overridden."""
     return [item.id for item in requirements if not item.is_verified]
+
+
+def as_payload(requirements: Sequence[Requirement]) -> tuple[dict[str, str], ...]:
+    """The ledger as plain data, for events, the session file and adapters (DR-038)."""
+    return tuple(
+        {
+            "id": item.id,
+            "status": item.status,
+            "description": item.description,
+            "evidence": item.evidence,
+        }
+        for item in requirements
+    )
 
 
 def summarise(requirements: Sequence[Requirement]) -> str:

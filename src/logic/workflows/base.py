@@ -25,6 +25,7 @@ from ..errors import AutoSEError
 from ..inference.base import ChatModel
 from ..inference.types import Usage
 from ..tuning import Tuning
+from .review import PlanReviewGate
 
 __all__ = [
     "WorkflowRequest",
@@ -77,6 +78,9 @@ class WorkflowRequest:
     #: this via `logic.prompt_overrides.resolve_prompt` rather than assuming
     #: any name is present.
     prompt_overrides: Mapping[str, str] = field(default_factory=dict)
+    #: Asked to approve, revise or replace the plan before Execute (DR-045).
+    #: ``None`` — the default — runs straight from Plan to Execute.
+    plan_review: PlanReviewGate | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +103,16 @@ class WorkflowOutcome:
     #: `files_changed` remains the bare path list an Adapter can render
     #: without reasoning about content.
     changes: tuple[FileChange, ...] = ()
+    #: The requirements ledger as it stood when the run ended (DR-005), as
+    #: plain data — what a reviewer reads to see why the run counts as done,
+    #: or what was left unverified (DR-038). Empty for tiers without one.
+    requirements: tuple[dict[str, str], ...] = ()
+    #: The way the run went, in order: one ``{"kind": "stage", "stage",
+    #: "title"}`` per stage pass and one ``{"kind": "loopback", "stage",
+    #: "detail", "unmet"}`` per time Validate sent the work back. What a
+    #: finished run's card draws ("Execute ×2, sent back once"). Empty for
+    #: tiers without stages.
+    route: tuple[dict[str, str], ...] = ()
 
     @property
     def succeeded(self) -> bool:

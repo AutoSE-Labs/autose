@@ -49,7 +49,7 @@ include = ["logic*", "tui*", "gui*"]
 [tool.setuptools.package-data]
 # The dashboard's page ships as-is (DR-029): no build step, so these files are
 # the artifact and have to travel with the wheel.
-gui = ["static/*"]
+gui = ["static/*", "static/fonts/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

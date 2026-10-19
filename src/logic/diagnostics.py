@@ -12,8 +12,9 @@ from dataclasses import dataclass, field
 from .common.context import MIN_USABLE_CONTEXT_TOKENS
 from .config import AutoSEConfig, load_config
 from .errors import AutoSEError
+from .inference.context_advice import advise_context
 from .inference.discovery import DetectedRuntime, discover_local_runtimes
-from .inference.ollama import OLLAMA_CONTEXT_ENV
+from .inference.registry import available_providers, create_model_catalog
 from .workflows import available_tiers
 
 __all__ = ["Diagnosis", "diagnose"]
@@ -32,6 +33,9 @@ class Diagnosis:
     #: (DR-022): everything works, just in less room than the user assumes,
     #: and nothing else would reveal it.
     advisories: tuple[str, ...] = field(default_factory=tuple)
+    #: The address AutoSE is configured to use, when it is not one of the
+    #: ports discovery probes (an SSH tunnel on :11435, say), else "".
+    configured_url: str = ""
 
     @property
     def usable_runtimes(self) -> tuple[DetectedRuntime, ...]:
@@ -59,6 +63,13 @@ def diagnose(config: AutoSEConfig | None = None) -> Diagnosis:
     runtimes = discover_local_runtimes(
         timeout=config.inference.discovery_timeout, include_unreachable=True
     )
+    # The endpoint the configuration names is the one AutoSE will use, so it
+    # is probed too and listed first, even when no standard port answers.
+    configured = _probe_configured(config)
+    if configured is not None:
+        runtimes = (configured,) + tuple(
+            runtime for runtime in runtimes if not _same_url(runtime.base_url, configured.base_url)
+        )
     if not any(runtime.usable for runtime in runtimes):
         problems.append(
             "no local runtime is serving a model. Start one (`ollama serve`) and "
@@ -84,6 +95,34 @@ def diagnose(config: AutoSEConfig | None = None) -> Diagnosis:
         implemented_tiers=available_tiers(),
         problems=tuple(problems),
         advisories=_context_advisories(runtimes),
+        configured_url=configured.base_url if configured is not None else "",
+    )
+
+
+def _same_url(left: str, right: str) -> bool:
+    return left.rstrip("/").lower() == right.rstrip("/").lower()
+
+
+def _probe_configured(config: AutoSEConfig) -> DetectedRuntime | None:
+    """The configured endpoint, probed like a discovered one; ``None`` when
+    nothing is configured beyond the defaults discovery already covers."""
+    settings = config.inference
+    if not settings.is_ready or not settings.base_url:
+        return None
+    try:
+        models = create_model_catalog(settings).list_models()
+    except Exception as exc:  # noqa: BLE001 - a probe reports, it never raises
+        return DetectedRuntime(
+            provider=settings.provider,
+            base_url=settings.base_url,
+            reachable=False,
+            error=f"could not reach {settings.base_url}: {exc}",
+        )
+    return DetectedRuntime(
+        provider=settings.provider,
+        base_url=settings.base_url,
+        reachable=True,
+        models=tuple(models),
     )
 
 
@@ -96,6 +135,12 @@ def _context_advisories(runtimes: tuple[DetectedRuntime, ...]) -> tuple[str, ...
     """
     advisories: list[str] = []
     for runtime in runtimes:
+        provider = available_providers().get(runtime.provider)
+        if provider is not None and provider.serves_requested_window:
+            # DR-035: AutoSE asks this runtime for its own window on every
+            # request, so the window it was started with is not what AutoSE
+            # runs in, and advising a restart would change nothing.
+            continue
         too_small = [
             model
             for model in runtime.models
@@ -104,22 +149,61 @@ def _context_advisories(runtimes: tuple[DetectedRuntime, ...]) -> tuple[str, ...
         ]
         if too_small:
             smallest = min(model.context_length or 0 for model in too_small)
+            largest = max(model.max_context_length or 0 for model in too_small)
+            remedy = next(
+                (
+                    advice.remedy
+                    for advice in (
+                        advise_context(
+                            model,
+                            provider=runtime.provider,
+                            min_usable=MIN_USABLE_CONTEXT_TOKENS,
+                        )
+                        for model in too_small
+                    )
+                    if advice.remedy
+                ),
+                "",
+            )
             advisories.append(
                 f"{runtime.provider} is serving {smallest:,} tokens, below the "
                 f"{MIN_USABLE_CONTEXT_TOKENS:,} AutoSE needs to work usefully — "
                 "tool schemas and the stage prompt consume most of that before "
                 "your request is counted."
+                + (
+                    f" The models support up to {largest:,}; the runtime is what "
+                    "caps them."
+                    if largest > smallest
+                    else ""
+                )
+                + (f" Raise it: `{remedy}`." if remedy else "")
             )
-        capped = [model for model in runtime.models if model.is_context_capped]
-        if not capped:
+        # DR-034: only a window that hurts is worth an advisory, and its remedy
+        # is computed for the model, not a fixed example value.
+        hurting = [
+            (model, advice)
+            for model in runtime.models
+            if model.context_length
+            and model.context_length >= MIN_USABLE_CONTEXT_TOKENS
+            for advice in (
+                advise_context(
+                    model,
+                    provider=runtime.provider,
+                    min_usable=MIN_USABLE_CONTEXT_TOKENS,
+                ),
+            )
+            if advice.level == "warning"
+        ]
+        if not hurting:
             continue
-        smallest = min(model.context_length or 0 for model in capped)
-        largest = max(model.max_context_length or 0 for model in capped)
+        smallest = min(model.context_length or 0 for model, _ in hurting)
+        remedy = next((advice.remedy for _, advice in hurting if advice.remedy), "")
         advisories.append(
             f"{runtime.provider} is serving a {smallest:,}-token window for "
-            f"{len(capped)} model(s) that support up to {largest:,}. An "
-            "over-long request is trimmed by the runtime, not refused. Raise it "
-            f"with `{OLLAMA_CONTEXT_ENV}=32768 ollama serve`."
+            f"{len(hurting)} model(s); multi-stage runs will keep dropping "
+            "earlier reads. An over-long request is trimmed by the runtime, not "
+            "refused."
+            + (f" Raise it: `{remedy}`." if remedy else "")
         )
     return tuple(advisories)
 

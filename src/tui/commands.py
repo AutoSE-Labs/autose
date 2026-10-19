@@ -178,7 +178,8 @@ def _tier(app: App, argument: str) -> bool:
         app.console.print(tier_table(app.session))
         app.console.print(
             Text(
-                f"  /tier <{'|'.join(TIERS)}> — a session only ever ratchets up",
+                f"  /tier <{'|'.join(TIERS)}>: automatic classification only moves "
+                "up; a tier you choose here is used as chosen",
                 style=THEME.muted,
             )
         )
@@ -192,15 +193,8 @@ def _tier(app: App, argument: str) -> bool:
         return True
 
     previous = app.session.tier
-    effective = app.session.request_tier(requested)
-    if effective != requested:
-        app.console.print(
-            warning_text(
-                f"staying on '{effective}': a session's tier only ratchets up, "
-                f"never down (DR-003)."
-            )
-        )
-    elif effective != previous:
+    effective = app.session.choose_tier(requested)
+    if effective != previous:
         app.console.print(
             Text(f"  {THEME.ok_glyph} tier is now {effective}", style=THEME.success)
         )

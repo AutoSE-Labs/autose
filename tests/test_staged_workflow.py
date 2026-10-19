@@ -730,3 +730,150 @@ def test_a_confirming_validation_that_fails_sends_work_back(tmp_path, monkeypatc
     assert [event.data["target"] for event in events.of_type("loopback")] == [EXECUTE]
     # Confirmed once per run, not again after the loopback.
     assert len(events.of_type("validation_confirmation")) == 1
+
+
+# -- DR-038: the outcome carries the final ledger ------------------------------
+
+
+def test_the_outcome_carries_the_ledger_as_the_validator_left_it(tmp_path):
+    """DR-038: what a reviewer reads to see why a run counts as done."""
+    request = _request(
+        tmp_path, [plan("R1", "R2"), execute("R1", "R2"), validate("R1", "R2")]
+    )
+    outcome = CraftWorkflow().run(request)
+    assert [item["id"] for item in outcome.requirements] == ["R1", "R2"]
+    assert {item["status"] for item in outcome.requirements} == {"Verified"}
+
+
+# -- DR-045: a person reviews the plan before anything is changed ---------------
+
+
+class _ScriptedReviewer:
+    """A PlanReviewGate that answers from a script and records what it saw."""
+
+    def __init__(self, *decisions):
+        from logic.workflows.review import PlanDecision  # noqa: F401
+
+        self._decisions = list(decisions)
+        self.seen = []
+
+    def review(self, review):
+        self.seen.append(review)
+        return self._decisions.pop(0)
+
+
+def _reviewed(tmp_path, script, reviewer):
+    from dataclasses import replace
+
+    return replace(_request(tmp_path, script), plan_review=reviewer)
+
+
+def test_an_approved_plan_goes_on_to_execute(tmp_path):
+    from logic.workflows.review import PlanDecision
+
+    reviewer = _ScriptedReviewer(PlanDecision.approve())
+    outcome = CraftWorkflow().run(
+        _reviewed(tmp_path, [plan("R1"), execute("R1"), validate("R1")], reviewer)
+    )
+    assert outcome.succeeded
+    (seen,) = reviewer.seen
+    assert "REQUIREMENTS STATUS" in seen.plan
+    assert [item["id"] for item in seen.requirements] == ["R1"]
+
+
+def test_a_plan_sent_back_is_planned_again_with_the_reviewer_s_words(tmp_path):
+    from logic.workflows.review import PlanDecision
+
+    reviewer = _ScriptedReviewer(
+        PlanDecision.revise("use a dataclass, not a dict"), PlanDecision.approve()
+    )
+    request = _reviewed(
+        tmp_path, [plan("R1"), plan("R1"), execute("R1"), validate("R1")], reviewer
+    )
+    outcome = CraftWorkflow().run(request)
+    assert outcome.succeeded
+    assert [seen.pass_number for seen in reviewer.seen] == [1, 2]
+    second_plan_prompt = request.model.requests[1]["messages"][-1]["content"]
+    assert "use a dataclass, not a dict" in second_plan_prompt
+
+
+def test_an_edited_plan_is_adopted_after_the_same_checks(tmp_path):
+    from logic.workflows.review import PlanDecision
+
+    reviewer = _ScriptedReviewer(PlanDecision.edit(plan("R1", "R2")))
+    request = _reviewed(
+        tmp_path, [plan("R1"), execute("R1", "R2"), validate("R1", "R2")], reviewer
+    )
+    outcome = CraftWorkflow().run(request)
+    assert outcome.succeeded
+    assert [item["id"] for item in outcome.requirements] == ["R1", "R2"]
+
+
+def test_an_edit_without_a_ledger_is_refused_and_asked_again(tmp_path):
+    from logic.workflows.review import PlanDecision
+
+    reviewer = _ScriptedReviewer(
+        PlanDecision.edit("just do it"), PlanDecision.approve()
+    )
+    outcome = CraftWorkflow().run(
+        _reviewed(tmp_path, [plan("R1"), execute("R1"), validate("R1")], reviewer)
+    )
+    assert outcome.succeeded
+    assert reviewer.seen[1].problem
+    assert reviewer.seen[0].problem == ""
+
+
+def test_stopping_at_plan_review_changes_nothing_and_is_not_a_success(tmp_path):
+    from logic.workflows.review import PlanDecision
+
+    reviewer = _ScriptedReviewer(PlanDecision.stop("not this approach"))
+    outcome = CraftWorkflow().run(
+        _reviewed(tmp_path, [plan("R1")], reviewer)
+    )
+    assert outcome.stop_reason == "cancelled"
+    assert not outcome.succeeded
+    assert outcome.files_changed == ()
+
+
+def test_without_a_reviewer_nothing_waits(tmp_path):
+    outcome = CraftWorkflow().run(
+        _request(tmp_path, [plan("R1"), execute("R1"), validate("R1")])
+    )
+    assert outcome.succeeded
+
+
+def test_the_outcome_records_the_route_with_every_loopback(tmp_path):
+    """A finished run's card draws this: which stages ran, and each send-back."""
+    model = ScriptedChatModel(
+        [
+            _answer(t)
+            for t in (
+                plan("R1"),
+                execute("R1"),
+                validate("R1", status="Failed", verdict="VERDICT: FAIL execute — R1 is untested"),
+                execute("R1"),
+                validate("R1"),
+            )
+        ]
+    )
+    outcome = CraftWorkflow().run(
+        WorkflowRequest(
+            prompt="p",
+            workspace=Workspace.at(tmp_path),
+            model=model,
+            events=RecordingEventSink(),
+            approval_gate=RecordingApprovalGate(default=True),
+        )
+    )
+    steps = [(item["kind"], item["stage"]) for item in outcome.route]
+    assert steps == [
+        ("stage", "plan"),
+        ("stage", "execute"),
+        ("stage", "validate"),
+        ("loopback", "execute"),
+        ("stage", "execute"),
+        ("stage", "validate"),
+    ]
+    loopback = outcome.route[3]
+    assert "untested" in loopback["detail"]
+    assert loopback["unmet"] == "R1"

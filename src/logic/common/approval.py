@@ -194,7 +194,7 @@ class AutoApproveGate:
         if not authorized_by or not authorized_by.strip():
             raise ValueError(
                 "AutoApproveGate requires an explicit 'authorized_by' identifying "
-                "who opted into unattended approval for this run (DR-012)."
+                "who opted into unattended approval for this run."
             )
         self._authorized_by = authorized_by.strip()
 

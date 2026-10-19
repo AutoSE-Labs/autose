@@ -378,3 +378,107 @@ def test_ordinary_tokenizer_drift_does_not_warn(workspace):
     assert not [
         event for event in events.events if event.type == "context_truncated_by_runtime"
     ]
+
+
+# -- DR-033: usage reaches an adapter while the stage is still running -------
+
+
+def test_every_round_reports_its_usage_as_it_happens(workspace):
+    """DR-033: a dashboard that only hears about tokens when a stage ends shows
+    zero for the whole of a long stage, which reads as "nothing is happening".
+    """
+    (workspace.root / "m.txt").write_text("file body", encoding="utf-8")
+    events = RecordingEventSink()
+    agent = _agent(
+        workspace,
+        [
+            calls(tool_call("read_file", path="m.txt")),
+            answer("done", prompt_tokens=120, completion_tokens=7),
+        ],
+        events=events,
+        budget=ContextBudget(context_limit=32_768),
+    )
+    agent.run("read it")
+
+    rounds = events.of_type("round_usage")
+    assert [event.data["round"] for event in rounds] == [1, 2]
+    assert all(event.data["stage"] == "test-stage" for event in rounds)
+    assert rounds[1].data["prompt_tokens"] == 120
+    assert rounds[1].data["completion_tokens"] == 7
+    # The budget's estimate stands in for a runtime that reports no usage.
+    assert rounds[0].data["estimated_input_tokens"] > 0
+    assert rounds[0].data["context_limit"] == 32_768
+
+
+# -- DR-037: a step's result reaches an adapter, bounded ---------------------
+
+
+def test_a_completed_tool_call_carries_a_bounded_preview_of_its_result(workspace):
+    """DR-037: the inspector shows what came back without re-reading anything."""
+    (workspace.root / "m.txt").write_text("file body " * 400, encoding="utf-8")
+    events = RecordingEventSink()
+    agent = _agent(
+        workspace,
+        [calls(tool_call("read_file", path="m.txt")), answer("done")],
+        events=events,
+    )
+    agent.run("read it")
+
+    (called,) = events.of_type("tool_called")
+    (completed,) = events.of_type("tool_completed")
+    assert completed.data["call_id"] == called.data["call_id"]
+    assert "file body" in completed.data["preview"]
+    assert len(completed.data["preview"]) <= 1_200 + 2
+    assert completed.data["failed"] is False
+    assert completed.data["elapsed_ms"] >= 0
+
+
+def test_a_failed_tool_call_is_marked_failed(workspace):
+    events = RecordingEventSink()
+    agent = _agent(
+        workspace,
+        [calls(tool_call("read_file", path="missing.txt")), answer("done")],
+        events=events,
+    )
+    agent.run("read it")
+    (completed,) = events.of_type("tool_completed")
+    assert completed.data["failed"] is True
+
+
+# -- DR-039: a tool call the runtime could not parse is retried --------------
+
+
+def _malformed() -> Exception:
+    from logic.errors import MalformedToolCallError
+
+    return MalformedToolCallError(
+        "XML syntax error on line 3: element <function> closed by </parameter>"
+    )
+
+
+def test_a_malformed_tool_call_is_retried_with_what_was_wrong(workspace):
+    """DR-039: seen live — Ollama's parser rejected a Qwen tool call mid-stream
+    and the whole run stopped at Plan. One bad generation is not a failure."""
+    events = RecordingEventSink()
+    model = ScriptedChatModel([_malformed(), answer("done")])
+    agent = _Stage(model=model, tools=catalog_subset("read_file"), workspace=workspace, events=events)
+
+    result = agent.run("read something")
+
+    assert result.content == "done"
+    (event,) = events.of_type("tool_call_malformed")
+    assert "XML syntax error" in event.message
+    retried = model.requests[-1]["messages"][-1]
+    assert retried["role"] == "user"
+    assert "could not parse" in retried["content"]
+
+
+def test_a_model_that_keeps_writing_malformed_calls_fails_the_stage(workspace):
+    from logic.errors import MalformedToolCallError
+
+    model = ScriptedChatModel([_malformed() for _ in range(4)])
+    agent = _Stage(model=model, tools=catalog_subset("read_file"), workspace=workspace)
+
+    with pytest.raises(MalformedToolCallError):
+        agent.run("read something")
+    assert model.call_count == 4

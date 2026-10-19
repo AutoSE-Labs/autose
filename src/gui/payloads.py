@@ -16,6 +16,7 @@ from typing import Any
 
 from logic.common.changes import FileChange, RevertReport
 from logic.common.events import Event
+from logic.connections import Connection
 from logic.diagnostics import Diagnosis
 from logic.inference.catalog import ModelInfo
 from logic.inference.discovery import DetectedRuntime
@@ -26,6 +27,7 @@ from logic.tiers import TIER_SPECS
 __all__ = [
     "ARTIFACT_CHARS",
     "change_payload",
+    "connection_payload",
     "diagnosis_payload",
     "event_payload",
     "model_payload",
@@ -68,7 +70,10 @@ def turn_payload(turn: Turn, *, index: int = -1) -> dict[str, Any]:
             else None
         ),
         "files_changed": list(turn.files_changed),
+        "requirements": [dict(item) for item in turn.requirements],
+        "route": [dict(item) for item in turn.route],
         "changes": [change_payload(change) for change in turn.changes],
+        "undone": [change_payload(change) for change in turn.undone],
         "artifacts": {
             name: _clip(text, ARTIFACT_CHARS)
             for name, text in dict(turn.artifacts).items()
@@ -139,6 +144,30 @@ def runtime_payload(runtime: DetectedRuntime) -> dict[str, Any]:
     }
 
 
+def connection_payload(connection: Connection) -> dict[str, Any]:
+    """One provider on the settings page (DR-036).
+
+    The key appears only as ``has_key``, its masked tail and where it came
+    from. :class:`Connection` holds no key to leak, and this is the only place
+    one is turned into JSON, so a test on it covers the whole surface.
+    """
+    return {
+        "provider": connection.provider,
+        "description": connection.description,
+        "is_local": connection.is_local,
+        "requires_api_key": connection.requires_api_key,
+        "has_key": connection.key.has_key,
+        "masked_key": connection.key.masked,
+        "key_source": connection.key.source,
+        "base_url": connection.base_url,
+        "reachable": connection.reachable,
+        "usable": connection.usable,
+        "error": connection.error,
+        "serves_requested_window": connection.serves_requested_window,
+        "models": [model_payload(model) for model in connection.models],
+    }
+
+
 def diagnosis_payload(diagnosis: Diagnosis) -> dict[str, Any]:
     """``autose --doctor`` as a panel rather than a table (DR-002)."""
     return {
@@ -148,6 +177,7 @@ def diagnosis_payload(diagnosis: Diagnosis) -> dict[str, Any]:
         "implemented_tiers": list(diagnosis.implemented_tiers),
         "total_models": diagnosis.total_models,
         "runtimes": [runtime_payload(runtime) for runtime in diagnosis.runtimes],
+        "configured_url": diagnosis.configured_url,
         "workspace": str(diagnosis.config.resolve_workspace_root()),
         "config_source": str(diagnosis.config.source) if diagnosis.config.source else "",
     }
@@ -159,6 +189,7 @@ def record_payload(record: SessionRecord) -> dict[str, Any]:
     return {
         "id": record.id,
         "title": record.title,
+        "name": record.name,
         "created_at": record.created_at,
         "updated_at": record.updated_at,
         "provider": record.provider,

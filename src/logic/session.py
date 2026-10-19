@@ -33,12 +33,23 @@ from .common.events import Event, EventSink, NullEventSink
 from .common.memory import SessionMemory
 from .common.workspace import Workspace
 from .config import AutoSEConfig
+from .connections import provider_settings
+from .credentials import CredentialStore
 from .errors import ConfigurationError
 from .inference.base import ChatModel
 from .inference.catalog import ModelInfo
+from .inference.context_advice import (
+    COMFORTABLE_CONTEXT_TOKENS,
+    ContextAdvice,
+    advise_context,
+)
 from .inference.discovery import DetectedRuntime, discover_local_runtimes
-from .inference.ollama import OLLAMA_CONTEXT_ENV
-from .inference.registry import create_chat_model, create_model_catalog, local_providers
+from .inference.registry import (
+    available_providers,
+    create_chat_model,
+    create_model_catalog,
+    local_providers,
+)
 from .inference.settings import InferenceSettings
 from .inference.types import Usage
 from .limits import count_limit
@@ -60,8 +71,15 @@ from .workflows import (
     create_workflow,
     supports_tier,
 )
+from .workflows.review import PlanReviewGate
 
-__all__ = ["Session", "Turn", "SessionSetup", "setup_from_config"]
+__all__ = [
+    "Session",
+    "Turn",
+    "SessionSetup",
+    "setup_from_config",
+    "setup_for_provider",
+]
 
 #: Tokens allowed for one rolling-summary compression call. Small on purpose:
 #: this runs when history overflows, and it is condensing, not writing.
@@ -93,6 +111,15 @@ class Turn:
     #: (DR-024). Carrying both halves on the turn is what makes the change
     #: reviewable as a diff and revertible after the run has finished.
     changes: tuple[FileChange, ...] = ()
+    #: The requirements ledger as it stood when the turn ended (DR-038).
+    requirements: tuple[dict[str, str], ...] = ()
+    #: The stages it went through and every loop-back (see
+    #: ``WorkflowOutcome.route``).
+    route: tuple[dict[str, str], ...] = ()
+    #: Changes an undo put back. Kept, not dropped, so the record still shows
+    #: what the run wrote and that it was reverted; ``changes`` holds only
+    #: what is still in the workspace, which is what the next undo reverts.
+    undone: tuple[FileChange, ...] = ()
 
     @property
     def succeeded(self) -> bool:
@@ -143,15 +170,84 @@ class SessionSetup:
         info = next(
             (model for model in self.available_models if model.name == name), None
         )
-        inference = self.inference.with_model(name)
-        if info is not None and info.context_length:
-            inference = inference.with_context_limit(info.context_length)
+        inference, info = adopt_context_window(
+            self.inference.with_model(name),
+            info,
+            explicit=self.config.inference.context_limit,
+        )
         return replace(
             self,
             inference=inference,
             model_info=info,
-            warnings=_capability_warnings(info),
+            warnings=_capability_warnings(info, inference.provider),
         )
+
+
+def _raise_it(advice: ContextAdvice) -> str:
+    """The remedy as a sentence: AutoSE's own setting, or the runtime's (DR-035)."""
+    if not advice.remedy or advice.recommended is None:
+        return ""
+    if advice.adjustable:
+        return (
+            f" Raise it to {advice.recommended:,} from the dashboard's CTX panel, "
+            f"or with `inference.context_limit: {advice.recommended}` in "
+            ".autose/config.yaml."
+        )
+    return f" Raise it: `{advice.remedy}`."
+
+
+def serves_requested_window(provider: str) -> bool:
+    """Whether *provider* serves the window a request asks for (DR-035)."""
+    registered = available_providers().get((provider or "").strip().lower())
+    return bool(registered and registered.serves_requested_window)
+
+
+def adopt_context_window(
+    inference: InferenceSettings,
+    info: ModelInfo | None,
+    *,
+    explicit: int | None,
+) -> tuple[InferenceSettings, ModelInfo | None]:
+    """Decide the window to budget against, and to request where that works.
+
+    For a runtime that only serves what it was started with, that is the
+    configured limit or else the window it reports (DR-010, DR-022). For one
+    that serves what a request asks for (DR-035), AutoSE chooses: the
+    configured limit; else the window the runtime reports, when that is at
+    least comfortable; else a comfortable window, capped by the model's maximum
+    — never the runtime's 4,096 default. The returned :class:`ModelInfo` then
+    describes the window that will be served, not the one last observed.
+    """
+    if not serves_requested_window(inference.provider):
+        if explicit:
+            return inference.with_context_limit(explicit), info
+        if info is not None and info.context_length:
+            return inference.with_context_limit(info.context_length), info
+        return inference, info
+    maximum = info.max_context_length if info is not None else None
+    if explicit:
+        window = explicit
+    elif (
+        info is not None
+        and info.context_length
+        and info.context_length >= COMFORTABLE_CONTEXT_TOKENS
+    ):
+        window = info.context_length
+    else:
+        window = COMFORTABLE_CONTEXT_TOKENS
+    if maximum:
+        window = min(window, maximum)
+    if info is None:
+        return inference.with_context_limit(window), None
+    observed = info.context_length_measured and info.context_length == window
+    return inference.with_context_limit(window), replace(
+        info,
+        context_length=window,
+        context_length_measured=True,
+        # Measured at a different window, the GPU share says nothing about
+        # this one; it is re-read after the next request loads the model.
+        gpu_fraction=info.gpu_fraction if observed else None,
+    )
 
 
 def setup_from_config(config: AutoSEConfig, *, discover: bool = True) -> SessionSetup:
@@ -162,25 +258,32 @@ def setup_from_config(config: AutoSEConfig, *, discover: bool = True) -> Session
     """
     configured = config.inference
 
+    missing_key = _missing_key_warning(configured)
+    if missing_key:
+        # DR-036: a hosted provider with no key can list nothing and run
+        # nothing. Say so now, rather than open a session that fails its first
+        # request with a 401.
+        return SessionSetup(
+            config=config,
+            inference=configured.with_model(""),
+            warnings=(missing_key,),
+        )
+
     if configured.is_ready:
         # Fully configured. Enumerate anyway when we cheaply can, so the model
         # picker and the real context limit are still available — but never
         # let a failed enumeration block a run that was explicitly set up.
         runtime = _enumerate(configured)
         info = runtime.model(configured.model) if runtime else None
-        inference = configured
-        if (
-            info is not None
-            and info.context_length
-            and configured.context_limit is None
-        ):
-            inference = configured.with_context_limit(info.context_length)
+        inference, info = adopt_context_window(
+            configured, info, explicit=configured.context_limit
+        )
         return SessionSetup(
             config=config,
             runtimes=(runtime,) if runtime else (),
             inference=inference,
             model_info=info,
-            warnings=_capability_warnings(info),
+            warnings=_capability_warnings(info, inference.provider),
         )
 
     if not discover:
@@ -207,15 +310,60 @@ def setup_from_config(config: AutoSEConfig, *, discover: bool = True) -> Session
         timeout=configured.timeout,
         discovery_timeout=configured.discovery_timeout,
     )
-    if configured.context_limit:
-        inference = inference.with_context_limit(configured.context_limit)
     info = usable.model(inference.model)
+    inference, info = adopt_context_window(
+        inference, info, explicit=configured.context_limit
+    )
     return SessionSetup(
         config=config,
         runtimes=runtimes,
         inference=inference,
         model_info=info,
-        warnings=_capability_warnings(info),
+        warnings=_capability_warnings(info, inference.provider),
+    )
+
+
+def setup_for_provider(
+    config: AutoSEConfig,
+    provider: str,
+    model: str,
+    *,
+    base_url: str | None = None,
+    credentials: CredentialStore | None = None,
+) -> SessionSetup:
+    """Resolve *model* on *provider* as the start of new sessions (DR-036).
+
+    The dashboard's "default for new sessions": the same resolution as an
+    explicitly configured run, for a provider and model chosen at runtime.
+    Refuses, with a :class:`ConfigurationError`, a provider that needs a key
+    and has none.
+    """
+    inference = provider_settings(
+        config.inference,
+        provider,
+        model,
+        base_url=base_url,
+        credentials=credentials,
+    )
+    runtime = _enumerate(inference)
+    info = runtime.model(model) if runtime else None
+    inference, info = adopt_context_window(
+        inference,
+        info,
+        # A configured window is for the configured provider; a different
+        # provider starts from its own (DR-035).
+        explicit=(
+            config.inference.context_limit
+            if inference.provider == config.inference.provider
+            else None
+        ),
+    )
+    return SessionSetup(
+        config=config,
+        runtimes=(runtime,) if runtime else (),
+        inference=inference,
+        model_info=info,
+        warnings=_capability_warnings(info, inference.provider),
     )
 
 
@@ -237,8 +385,11 @@ class Session:
         require_edit_approval: bool = False,
         store: SessionStore | None = None,
         session_id: str = "",
+        credentials: CredentialStore | None = None,
     ) -> None:
         self._inference = inference.require_model()
+        #: Where a key for a provider switched to mid-session comes from (DR-036).
+        self._credentials = credentials or CredentialStore()
         self._workspace = workspace
         self._events = events or NullEventSink()
         # DR-012: no gate means refuse, never means run unreviewed.
@@ -249,6 +400,11 @@ class Session:
             require_edit_approval=require_edit_approval
         )
         self._model_info = model_info
+        #: Asked to approve the plan before Execute (DR-045); ``None`` skips it.
+        self._plan_review: PlanReviewGate | None = None
+        #: A window the user picked this session (DR-035), kept across a
+        #: model switch; ``None`` lets each model get the chosen default.
+        self._chosen_window: int | None = None
         self._model: ChatModel = create_chat_model(self._inference)
         self._turns: list[Turn] = []
         # DR-021: a repo's `.autose/config.yaml` tuning/prompts apply to every
@@ -275,6 +431,8 @@ class Session:
             prompt_overrides=self._prompt_overrides,
         )
         self._created_at = time.time()
+        #: A name the person gave this session, if any.
+        self._name = ""
         # DR-030: one token for the session's lifetime, cleared at the start of
         # every turn. One rather than one-per-turn because an Adapter wires it
         # up once — the dashboard's Stop button holds a reference, the TUI's
@@ -297,6 +455,7 @@ class Session:
         auto_classify: bool = True,
         store: SessionStore | None = None,
         resume: SessionRecord | None = None,
+        credentials: CredentialStore | None = None,
     ) -> Session:
         if setup.inference is None or not setup.inference.is_ready:
             raise ConfigurationError(
@@ -320,6 +479,7 @@ class Session:
             require_edit_approval=setup.config.require_edit_approval,
             store=store,
             session_id=resume.id if resume is not None else "",
+            credentials=credentials,
         )
         if resume is not None:
             session.restore(resume)
@@ -414,6 +574,7 @@ class Session:
             base_url=self._inference.base_url,
             model=self._inference.model,
             tier=self._tier,
+            name=self._name,
             summary=self._memory.summary,
             verbatim=tuple(
                 (exchange.prompt, exchange.answer)
@@ -431,6 +592,9 @@ class Session:
                     completion_tokens=turn.usage.completion_tokens,
                     files_changed=turn.files_changed,
                     changes=turn.changes,
+                    requirements=turn.requirements,
+                    route=turn.route,
+                    undone=turn.undone,
                 )
                 for turn in self._turns
             ),
@@ -445,6 +609,7 @@ class Session:
         """
         self._id = record.id
         self._created_at = record.created_at or self._created_at
+        self._name = record.name
         self._turns = [
             Turn(
                 prompt=item.prompt,
@@ -457,6 +622,9 @@ class Session:
                 ),
                 files_changed=item.files_changed,
                 changes=item.changes,
+                requirements=item.requirements,
+                route=item.route,
+                undone=item.undone,
             )
             for item in record.turns
         ]
@@ -474,6 +642,16 @@ class Session:
             turns=len(self._turns),
             tier=self._tier,
         )
+
+    @property
+    def name(self) -> str:
+        """The name the person gave this session; empty when none."""
+        return self._name
+
+    def rename(self, name: str) -> None:
+        """Name the session (empty clears it) and save the name with it."""
+        self._name = " ".join(name.split())[:80]
+        self.persist()
 
     def persist(self) -> None:
         """Write the session out. Never raises — a failed save is not a failed run."""
@@ -506,25 +684,189 @@ class Session:
 
     # -- mutation ---------------------------------------------------------
 
-    def select_model(self, name: str) -> None:
-        """Switch models mid-session, adopting the new model's context limit."""
+    def select_model(
+        self,
+        name: str,
+        *,
+        provider: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
+        """Switch models mid-session, adopting the new model's context limit.
+
+        With *provider* (and optionally *base_url*) the switch may cross to any
+        registered provider — local or hosted — for this session only (DR-036);
+        see :meth:`use_provider`.
+        """
+        current = self._inference
+        if (provider and provider.strip().lower() != current.provider.lower()) or (
+            base_url and base_url.strip().rstrip("/") != current.base_url
+        ):
+            self.use_provider(provider or current.provider, name, base_url=base_url)
+            return
         info = next(
             (model for model in self.available_models() if model.name == name), None
         )
-        inference = self._inference.with_model(name)
-        if info is not None and info.context_length:
-            inference = inference.with_context_limit(info.context_length)
+        inference, info = adopt_context_window(
+            self._inference.with_model(name), info, explicit=self._chosen_window
+        )
         self._inference = inference.require_model()
         self._model_info = info
-        self._model = create_chat_model(self._inference)
+        self._rebuild_model()
         self._emit(
-            "model_selected", name, model=name, provider=self._inference.provider
+            "model_selected",
+            name,
+            model=name,
+            provider=self._inference.provider,
+            base_url=self._inference.base_url,
         )
 
+    def use_provider(
+        self, provider: str, model: str, *, base_url: str | None = None
+    ) -> None:
+        """Run this session's next request on *model* at *provider* (DR-036).
+
+        Rebuilds the inference settings — the address (the given one, else the
+        provider's conventional one), the key from the credentials file or the
+        provider's environment variable — decides the window afresh for the
+        new model (DR-035), and rebuilds the chat model. Other open sessions,
+        and the default for new ones, are untouched.
+
+        Refuses with :class:`ConfigurationError`, changing nothing, when the
+        provider is unknown, has no address, or needs a key and has none.
+        """
+        previous = self._inference
+        settings = provider_settings(
+            previous,
+            provider,
+            model,
+            base_url=base_url,
+            credentials=self._credentials,
+        ).require_model()
+        try:
+            listed = create_model_catalog(settings).list_models()
+        except Exception:  # noqa: BLE001 - a listing is a convenience here too
+            listed = ()
+        info = next((entry for entry in listed if entry.name == model), None)
+        inference, info = adopt_context_window(
+            settings,
+            info,
+            # A window picked on one runtime means nothing to another that only
+            # serves what it was started with (DR-022).
+            explicit=(
+                self._chosen_window
+                if serves_requested_window(settings.provider)
+                else None
+            ),
+        )
+        self._inference = inference
+        self._model_info = info
+        self._rebuild_model()
+        self._emit(
+            "model_selected",
+            model,
+            model=model,
+            provider=inference.provider,
+            base_url=inference.base_url,
+            previous_provider=previous.provider,
+        )
+
+    def _rebuild_model(self) -> None:
+        """A new chat model for the current settings, and a classifier over it.
+
+        The classifier holds the model it was built with, so it is rebuilt too:
+        otherwise tier classification would keep calling the old runtime.
+        """
+        self._model = create_chat_model(self._inference)
+        self._classifier = TaskClassifier(
+            self._model,
+            context_limit=self.context_limit(),
+            tuning=self._tuning.classifier,
+            prompt_overrides=self._prompt_overrides,
+        )
+
+    def set_context_window(self, tokens: int) -> None:
+        """Serve and budget against *tokens* from the next request on (DR-035).
+
+        Only for a runtime that honours a requested window; any other serves
+        what it was started with, and claiming otherwise would make the budget
+        a lie about what the model can see (DR-022).
+        """
+        if not serves_requested_window(self._inference.provider):
+            raise ConfigurationError(
+                f"{self._inference.provider} serves the window it was started "
+                "with; AutoSE cannot change it from here"
+            )
+        floor = count_limit(self._tuning.context.min_usable_context_tokens)
+        if floor is not None and tokens < floor:
+            raise ConfigurationError(
+                f"{tokens:,} tokens is below the {floor:,} AutoSE needs to work"
+            )
+        info = self._model_info
+        maximum = info.max_context_length if info is not None else None
+        if maximum and tokens > maximum:
+            raise ConfigurationError(
+                f"'{self._inference.model}' supports at most {maximum:,} tokens"
+            )
+        previous = self._inference.context_limit
+        self._chosen_window = tokens
+        self._inference, self._model_info = adopt_context_window(
+            self._inference, info, explicit=tokens
+        )
+        self._rebuild_model()
+        self._emit(
+            "context_window_changed",
+            f"{previous or 0} -> {tokens}",
+            previous=previous,
+            tokens=tokens,
+        )
+
+    def review_plans_with(self, gate: PlanReviewGate | None) -> None:
+        """Have every later staged turn put its plan to *gate* (DR-045).
+
+        ``None`` turns review off. Takes effect from the next turn; a turn in
+        progress keeps the gate it started with.
+        """
+        self._plan_review = gate
+
+    @property
+    def reviews_plans(self) -> bool:
+        return self._plan_review is not None
+
+    def refresh_model_info(self) -> None:
+        """Re-read what the runtime reports about the current model.
+
+        Cheap (one catalog call), and the only way to learn how much of the
+        model landed on the GPU at the window it was just loaded with (DR-034,
+        DR-035). A runtime that cannot be reached leaves the old facts alone.
+        """
+        info = self._model_info
+        if info is None:
+            return
+        fresh = next(
+            (model for model in self.available_models() if model.name == info.name),
+            None,
+        )
+        if fresh is None or fresh.context_length != self._inference.context_limit:
+            return
+        self._model_info = replace(info, gpu_fraction=fresh.gpu_fraction)
+
     def request_tier(self, tier: str) -> str:
-        """Ask for a tier. The ratchet may return a higher one (DR-003)."""
+        """Propose a tier from classification. The ratchet may keep a higher one (DR-003)."""
+        return self._set_tier(ratchet(self._tier, tier))
+
+    def choose_tier(self, tier: str) -> str:
+        """Use the tier a person chose, up or down (DR-049).
+
+        The ratchet guards against a *classifier* reading a follow-up such as
+        "yes, do that" as trivial and dropping a task's pipeline mid-flight.
+        A person picking a tier is not that mistake: they have looked at the
+        session and decided, so the choice stands.
+        """
+        return self._set_tier(normalise_tier(tier))
+
+    def _set_tier(self, tier: str) -> str:
         previous = self._tier
-        self._tier = ratchet(self._tier, tier)
+        self._tier = tier
         if self._tier != previous:
             self._emit(
                 "tier_changed",
@@ -555,10 +897,12 @@ class Session:
         # The turn's record is replaced by what survives, so a second undo
         # retries only what the first one could not restore rather than
         # re-reverting files already put back.
-        remaining = tuple(
-            change for change in turn.changes if change.path not in set(report.restored)
+        restored = set(report.restored)
+        remaining = tuple(change for change in turn.changes if change.path not in restored)
+        reverted = tuple(change for change in turn.changes if change.path in restored)
+        self._turns[self._turns.index(turn)] = replace(
+            turn, changes=remaining, undone=turn.undone + reverted
         )
-        self._turns[self._turns.index(turn)] = replace(turn, changes=remaining)
         self._emit(
             "changes_reverted",
             f"restored {len(report.restored)} file(s)",
@@ -600,7 +944,8 @@ class Session:
         self._cancel.clear()
         classification: Classification | None = None
         if tier:
-            effective = self.request_tier(tier)
+            # Named with this request: a person's choice (DR-049).
+            effective = self.choose_tier(tier)
         elif self.auto_classify:
             self._emit("classification_started", prompt)
             classification = self.classify(prompt)
@@ -654,6 +999,7 @@ class Session:
             context_limit=self.context_limit(),
             tuning=self._tuning,
             prompt_overrides=self._prompt_overrides or {},
+            plan_review=self._plan_review,
         )
         self._emit("turn_started", prompt, tier=tier, prompt_text=prompt)
         outcome: WorkflowOutcome = yield from workflow.stream(request)
@@ -667,6 +1013,8 @@ class Session:
             artifacts=dict(outcome.artifacts),
             files_changed=outcome.files_changed,
             changes=outcome.changes,
+            requirements=outcome.requirements,
+            route=outcome.route,
         )
         self._record(turn)
         holder["turn"] = turn
@@ -712,10 +1060,26 @@ class Session:
             # first turn loads the model.
             return
         capped = info is not None and info.is_context_capped
+        advice = (
+            advise_context(
+                info,
+                provider=self.inference.provider,
+                min_usable=floor,
+                adjustable=serves_requested_window(self.inference.provider),
+            )
+            if info is not None
+            else None
+        )
         remedy = (
             f"The model itself supports {info.max_context_length:,} tokens — the "
-            f"runtime is what is serving {limit:,}. Raise it with "
-            f"{OLLAMA_CONTEXT_ENV}, e.g. `{OLLAMA_CONTEXT_ENV}=32768 ollama serve`."
+            f"runtime is what is serving {limit:,}."
+            + (
+                _raise_it(advice)
+                if advice and advice.remedy
+                else f" Serve it with at least {advice.recommended:,} tokens."
+                if advice and advice.recommended
+                else ""
+            )
             if capped and info is not None and info.max_context_length
             else "Pick a model served in a larger window."
         )
@@ -807,7 +1171,9 @@ def _enumerate(settings: InferenceSettings) -> DetectedRuntime | None:
     )
 
 
-def _capability_warnings(info: ModelInfo | None) -> tuple[str, ...]:
+def _capability_warnings(
+    info: ModelInfo | None, provider: str = ""
+) -> tuple[str, ...]:
     """Pre-flight checks DR-015 wants surfaced before work starts."""
     if info is None:
         return ()
@@ -818,17 +1184,20 @@ def _capability_warnings(info: ModelInfo | None) -> tuple[str, ...]:
             "read and change files — pick a tool-capable model, or expect it to "
             "answer from the prompt alone."
         )
-    # DR-022: the gap between what the model supports and what the runtime
-    # actually serves is invisible otherwise — the request is not rejected,
-    # it is silently truncated from the front.
-    if info.is_context_capped:
-        assert info.context_length is not None and info.max_context_length is not None
+    # DR-022 made the gap between what the model supports and what the
+    # runtime serves visible; DR-034 decides whether it is worth a standing
+    # warning. A deliberate 32k cap on a 256k model is not, and a remedy that
+    # repeats the value already set is worse than none.
+    advice = advise_context(
+        info,
+        provider=provider,
+        min_usable=MIN_USABLE_CONTEXT_TOKENS,
+        adjustable=serves_requested_window(provider),
+    )
+    if advice.level == "warning":
         warnings.append(
-            f"'{info.name}' supports {info.max_context_length:,} tokens but the "
-            f"runtime is serving only {info.context_length:,}. AutoSE will budget "
-            "against the served window; anything larger would be silently dropped "
-            f"by the runtime. Raise it with {OLLAMA_CONTEXT_ENV}, e.g. "
-            f"`{OLLAMA_CONTEXT_ENV}=32768 ollama serve`."
+            f"'{info.name}': {advice.summary} {advice.detail}"
+            + _raise_it(advice)
         )
     if info.context_length and info.context_length < MIN_USABLE_CONTEXT_TOKENS:
         # Not "requests get trimmed" — with a truthful budget they fail closed
@@ -839,8 +1208,26 @@ def _capability_warnings(info: ModelInfo | None) -> tuple[str, ...]:
             "schemas and the stage prompt take most of it before your request is "
             "counted, so reading even one file may exceed the budget and stop the "
             "stage rather than silently truncating it."
+            + (
+                f" The model supports {info.max_context_length:,}; the runtime "
+                "is what caps it."
+                if info.is_context_capped and info.max_context_length
+                else ""
+            )
+            + _raise_it(advice)
         )
     return tuple(warnings)
+
+
+def _missing_key_warning(settings: InferenceSettings) -> str:
+    registered = available_providers().get((settings.provider or "").strip().lower())
+    if registered is None or not registered.requires_api_key or settings.api_key:
+        return ""
+    return (
+        f"{registered.name} needs an API key. Add one in the dashboard's settings"
+        + (f", or set {registered.api_key_env}" if registered.api_key_env else "")
+        + "."
+    )
 
 
 def _no_runtime_message(runtimes: tuple[DetectedRuntime, ...]) -> str:

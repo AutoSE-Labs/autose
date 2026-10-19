@@ -185,6 +185,24 @@ def test_the_session_tier_ratchets_and_never_downgrades(scripted, tmp_path):
     assert session.request_tier(SPARK) == CRAFT
 
 
+def test_a_tier_a_person_chooses_is_used_even_when_lower(scripted, tmp_path):
+    """DR-049: the ratchet is for classification, not for the person."""
+    session = _session(scripted, tmp_path, [answer("a")])
+    session.request_tier(CRAFT)
+    assert session.choose_tier(SPARK) == SPARK
+    assert session.tier == SPARK
+    # Classification still cannot pull a session down.
+    session.choose_tier(CRAFT)
+    assert session.request_tier(SPARK) == CRAFT
+
+
+def test_a_tier_named_with_a_request_is_used_as_given(scripted, tmp_path):
+    session = _session(scripted, tmp_path, [answer("a")])
+    session.choose_tier(CRAFT)
+    turn = session.run("a quick question", tier=SPARK)
+    assert turn.tier == SPARK
+
+
 def test_every_tier_the_session_offers_can_actually_run(scripted, tmp_path):
     session = _session(scripted, tmp_path, [answer("a")])
     assert set(session.implemented_tiers) == {SPARK, CRAFT}
@@ -320,8 +338,23 @@ def test_selecting_another_model_in_setup_carries_its_context_limit(monkeypatch)
     )
     monkeypatch.setattr("logic.session.discover_local_runtimes", lambda **kwargs: (runtime,))
     setup = setup_from_config(AutoSEConfig()).with_model("tiny:1b")
-    assert setup.inference.context_limit == 4096
+    # DR-035: Ollama is asked for a usable window rather than inheriting the
+    # 4,096 it reported for a model it has not loaded.
+    assert setup.inference.context_limit == 32768
     assert any("tool-calling" in warning for warning in setup.warnings)
+
+
+def test_a_runtime_that_cannot_honour_a_window_keeps_the_one_it_reports(monkeypatch):
+    """DR-035 only applies where the runtime serves what a request asks for."""
+    runtime = DetectedRuntime(
+        provider="lm-studio",
+        base_url="http://localhost:1234/v1",
+        reachable=True,
+        models=(_TINY,),
+    )
+    monkeypatch.setattr("logic.session.discover_local_runtimes", lambda **kwargs: (runtime,))
+    setup = setup_from_config(AutoSEConfig())
+    assert setup.inference.context_limit == 4096
 
 
 def test_discovery_can_be_disabled(monkeypatch):
@@ -515,7 +548,11 @@ def test_a_turn_is_refused_outright_when_the_window_is_too_small(scripted, tmp_p
     # The number, the remedy, and the way out — an error that only says "too
     # small" leaves the user exactly as stuck as the stall did.
     assert "4,096" in message and "8,192" in message
-    assert "OLLAMA_CONTEXT_LENGTH" in message
+    # DR-034: the remedy is computed for this runtime. This one has no known
+    # command, so the advice names the window to serve rather than borrowing
+    # Ollama's environment variable for a runtime that is not Ollama.
+    assert "32,768" in message
+    assert "OLLAMA_CONTEXT_LENGTH" not in message
     assert "min_usable_context_tokens: -1" in message
 
 

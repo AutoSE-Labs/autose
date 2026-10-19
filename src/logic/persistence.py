@@ -94,6 +94,16 @@ def new_session_id() -> str:
     return f"{stamp}-{uuid.uuid4().hex[:6]}"
 
 
+#: The fields a stored requirement keeps (DR-038).
+_REQUIREMENT_KEYS = ("id", "status", "description", "evidence")
+
+#: The fields a stored route step keeps (see ``WorkflowOutcome.route``): the
+#: shape of the run and which requirements sent it back, not the validator's
+#: feedback text, which is intermediate reasoning DR-004 keeps off disk like
+#: the stage artifacts.
+_ROUTE_KEYS = ("kind", "stage", "title", "unmet")
+
+
 @dataclass(frozen=True)
 class TurnRecord:
     """One completed exchange, in the form that goes to disk."""
@@ -106,6 +116,13 @@ class TurnRecord:
     completion_tokens: int = 0
     files_changed: tuple[str, ...] = ()
     changes: tuple[FileChange, ...] = ()
+    #: The final requirements ledger (DR-038). Optional on read: a session
+    #: written before it existed simply has none, which is not a format change.
+    requirements: tuple[dict[str, str], ...] = ()
+    #: The stages and loop-backs, in order. Optional on read, like the ledger.
+    route: tuple[dict[str, str], ...] = ()
+    #: Changes an undo reverted, kept for the record. Optional on read.
+    undone: tuple[FileChange, ...] = ()
 
     @property
     def succeeded(self) -> bool:
@@ -121,6 +138,12 @@ class TurnRecord:
             "completion_tokens": self.completion_tokens,
             "files_changed": list(self.files_changed),
             "changes": [_change_to_dict(change) for change in self.changes],
+            "undone": [_change_to_dict(change) for change in self.undone],
+            "requirements": [dict(item) for item in self.requirements],
+            "route": [
+                {key: item[key] for key in _ROUTE_KEYS if key in item}
+                for item in self.route
+            ],
         }
 
     @classmethod
@@ -135,6 +158,19 @@ class TurnRecord:
             files_changed=tuple(str(p) for p in document.get("files_changed", ())),
             changes=tuple(
                 _change_from_dict(item) for item in document.get("changes", ())
+            ),
+            undone=tuple(
+                _change_from_dict(item) for item in document.get("undone", ())
+            ),
+            requirements=tuple(
+                {key: str(item.get(key, "")) for key in _REQUIREMENT_KEYS}
+                for item in document.get("requirements", ())
+                if isinstance(item, Mapping)
+            ),
+            route=tuple(
+                {key: str(item.get(key, "")) for key in _ROUTE_KEYS if key in item}
+                for item in document.get("route", ())
+                if isinstance(item, Mapping)
             ),
         )
 
@@ -152,6 +188,8 @@ class SessionRecord:
     model: str = ""
     #: The tier the session had ratcheted to (DR-003).
     tier: str = ""
+    #: A name the person gave it; the title falls back to the first request.
+    name: str = ""
     turns: tuple[TurnRecord, ...] = ()
     #: `SessionMemory`'s rolling compressed summary, and the exchanges it was
     #: still holding verbatim (DR-004).
@@ -162,7 +200,9 @@ class SessionRecord:
 
     @property
     def title(self) -> str:
-        """A one-line label: the first thing the user asked for."""
+        """A one-line label: its name, else the first thing the user asked for."""
+        if self.name.strip():
+            return self.name.strip()
         for turn in self.turns:
             first = " ".join(turn.prompt.split())
             if first:
@@ -192,6 +232,7 @@ class SessionRecord:
             "base_url": self.base_url,
             "model": self.model,
             "tier": self.tier,
+            "name": self.name,
             "summary": self.summary,
             "verbatim": [list(pair) for pair in self.verbatim],
             "prompt_tokens": self.prompt_tokens,
@@ -220,6 +261,7 @@ class SessionRecord:
             base_url=str(document.get("base_url", "")),
             model=str(document.get("model", "")),
             tier=str(document.get("tier", "")),
+            name=str(document.get("name", "")),
             summary=str(document.get("summary", "")),
             verbatim=tuple(
                 (str(pair[0]), str(pair[1]))

@@ -11,111 +11,142 @@
 </head>
 
 <body>
-  <div class="blueprint-grid" aria-hidden="true"></div>
+  <!-- The nib: AutoSE's draftsman. One drawing, a few poses. -->
+  <svg width="0" height="0" class="defs" aria-hidden="true">
+    <defs>
+      <symbol id="nib" viewBox="0 0 40 48">
+        <path d="M12 4h16v14l-4 4H16l-4-4z" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+        <path d="M16 22l4 16 4-16" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+        <path d="M20 30v8" stroke="currentColor" stroke-width="1.6" />
+        <circle cx="17" cy="11" r="1.9" fill="currentColor" />
+        <circle cx="23" cy="11" r="1.9" fill="currentColor" />
+        <path d="M17 15.5q3 2 6 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </symbol>
+      <symbol id="nib-sleep" viewBox="0 0 40 48">
+        <rect x="11" y="2" width="18" height="14" rx="3" fill="currentColor" opacity="0.18" stroke="currentColor" stroke-width="2" />
+        <path d="M12 16h16v4l-4 4H16l-4-4z" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+        <path d="M16 20q1.5 1.2 3 0M21 20q1.5 1.2 3 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </symbol>
+    </defs>
+  </svg>
 
   <div class="app-shell rail-open" id="app-shell">
-    <aside class="rail" id="rail" aria-label="Worklog">
-      <div class="rail-head"><span class="eyebrow"><span class="tick"></span>Worklog</span></div>
-      <button id="new-session" class="new-task-button" type="button">+ New session</button>
-      <div class="session-list" id="session-list"></div>
-      <div class="rail-foot">
-        <button class="rail-link" id="open-doctor" type="button">Machine check</button>
-      </div>
-    </aside>
-
     <header class="app-header">
-      <button id="toggle-rail" class="icon-button" type="button" aria-label="Show or hide the worklog"
-        title="Show or hide the worklog">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
-          stroke-width="1.5">
-          <path d="M2 4.5h12M2 8h12M2 11.5h7" />
-        </svg>
-      </button>
-      <span class="brand"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Auto<span
-            class="brand-accent">SE</span></span></span>
+      <button id="toggle-rail" class="icon-button phone-only" type="button" aria-label="Show or hide the sessions"
+        title="Show or hide the sessions"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h14M3 10h14M3 15h9"/></svg></button>
+      <span class="brand"><svg class="brand-nib" aria-hidden="true"><use href="#nib" /></svg><span class="brand-name">AutoSE</span></span>
 
-      <label class="header-field" title="Which pipeline a request runs through (DR-003)">
-        <span class="eyebrow">Tier</span>
-        <select id="tier-select"></select>
-      </label>
-      <label class="header-field" title="The model AutoSE thinks with">
-        <span class="eyebrow">Model</span>
-        <select id="model-select"></select>
+      <div class="presence" id="presence" aria-live="polite">
+        <span class="presence-dot"></span><span id="presence-text">Connecting</span>
+      </div>
+
+      <!-- Context as an engineer's scale filling with ink (DR-034). -->
+      <button class="ctx-scale" id="status-ctx" type="button"
+        title="How full the context window was last round. Click for what the window means here">
+        <span class="lbl">Context</span>
+        <span class="ctx-ruler" aria-hidden="true"><span class="ctx-fill" id="ctx-fill"></span><span class="ctx-step" id="ctx-step" hidden></span><span class="ctx-ticks"></span></span>
+        <em id="ctx-label">—</em>
+        <span class="ctx-mark" id="ctx-mark" aria-hidden="true"></span>
+      </button>
+
+      <label class="machine" id="status-model" title="The model AutoSE thinks with">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="10" rx="2"/><path d="M7 17h6M10 14v3"/></svg>
+        <span class="sr-only" id="model-label">—</span>
+        <select id="model-select" aria-label="Model"></select>
+        <span class="tok-rate" id="tok-rate" title="How fast the model wrote its last reply" hidden></span>
       </label>
 
-      <button id="open-diff" class="icon-button push-right" type="button" aria-label="Review file changes"
-        title="Review what it changed">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
-          stroke-width="1.5">
-          <path d="M4 2.75h5.5L12 5.25v8H4z" />
-          <path d="M5.75 8.5h4.5M8 6.25v4.5" />
+      <button class="yolo-toggle" id="toggle-yolo" type="button" aria-pressed="false" title="YOLO mode: let everything run without asking"><svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.5 4.8 11h4.6l-1 6.5L15.2 9h-4.6z"/></svg><span id="yolo-word">YOLO</span></button>
+      <span class="local-pill" id="status-stamp" title="Where this runs, and what it will do without asking">Local · no cloud</span>
+
+      <button id="toggle-notify" class="icon-button" type="button" aria-pressed="false" aria-label="Desktop notifications"
+        title="Notify me when something waits for me">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">
+          <path d="M4 11V7a4 4 0 0 1 8 0v4l1.2 1.5H2.8z" /><path d="M6.5 13.5a1.6 1.6 0 0 0 3 0" />
+          <path class="notify-off-mark" d="M2.5 2.5l11 11" />
         </svg>
       </button>
-      <button id="clear-history" class="icon-button" type="button" aria-label="Forget this conversation"
-        title="Forget this conversation (the files stay)">
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
-          stroke-width="1.5">
-          <path d="M3 5.5h10M6.25 5.5V3.75h3.5V5.5M4.5 5.5l.6 7.75h5.8l.6-7.75" />
-        </svg>
-      </button>
+      <button id="toggle-theme" class="icon-button" type="button" aria-label="Switch between drafting paper and cyanotype"
+        title="Drafting paper or cyanotype"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11.5A6.5 6.5 0 0 1 8.5 4a6.5 6.5 0 1 0 7.5 7.5z"/></svg></button>
+      <button id="toggle-inspector" class="icon-button" type="button" aria-label="Show or hide the details panel"
+        title="Show or hide the details panel"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M12.5 3.5v13"/></svg></button>
     </header>
 
+    <!-- Sections: everything that is not a run. -->
+    <nav class="section-rail" aria-label="Sections">
+      <button class="section-button on" id="show-sessions" type="button" title="Your sessions"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h6A2.5 2.5 0 0 1 14 5.5v3a2.5 2.5 0 0 1-2.5 2.5H8l-3 2.5V11A2.5 2.5 0 0 1 3 8.5z"/><path d="M14 7.5h.5A2.5 2.5 0 0 1 17 10v3a2.5 2.5 0 0 1-2.5 2.5H14V18l-3-2.5H9.5"/></svg><span class="section-label">Sessions</span></button>
+      <button class="section-button" id="show-inbox" type="button" title="Everything waiting for you, from every session"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5l2.2-6.6A1.5 1.5 0 0 1 6.6 3.8h6.8a1.5 1.5 0 0 1 1.4 1.1l2.2 6.6V15a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 15z"/><path d="M3 11.5h4l1 2h4l1-2h4"/></svg><span class="section-label">Needs you</span><span class="section-badge" id="inbox-count" hidden></span></button>
+      <button class="section-button" id="open-automation" type="button" title="Schedules and watchers: runs that start on their own"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2.5v3M13 2.5v3M10 10.5v2.5l1.8 1.1"/></svg><span class="section-label">Schedules</span></button>
+      <button class="section-button" id="open-files" type="button" title="Files: browse and read every file in the workspace"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h3.6l1.6 1.8H16a1.5 1.5 0 0 1 1.5 1.5v7.2A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5z"/><path d="M6 10h8M6 13h5"/></svg><span class="section-label">Files</span></button>
+      <span class="section-sep" aria-hidden="true"></span>
+      <button class="section-button" id="open-doctor" type="button" title="Machine check: model server, GPU, context window and config"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="10" height="10" rx="1.5"/><rect x="8" y="8" width="4" height="4" rx="0.5"/><path d="M8 2.5V5M12 2.5V5M8 15v2.5M12 15v2.5M2.5 8H5M2.5 12H5M15 8h2.5M15 12h2.5"/></svg><span class="section-label">Machine</span></button>
+      <button class="section-button" id="open-settings" type="button" title="Settings: providers, models and API keys"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.6"/><path d="M10 1.8l1.6 2.1 2.6-.6.6 2.6 2.1 1.6-1.2 2.4 1.2 2.4-2.1 1.6-.6 2.6-2.6-.6L10 18.2l-1.6-2.1-2.6.6-.6-2.6-2.1-1.6 1.2-2.4-1.2-2.4 2.1-1.6.6-2.6 2.6.6z"/></svg><span class="section-label">Settings</span></button>
+      <button class="section-button" id="open-settings-header" type="button" aria-label="Settings" title="Settings" hidden></button>
+      <button class="section-button push-down" id="open-tips" aria-describedby="tip-popup" type="button" title="Tips"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5a5 5 0 0 0-2.9 9.1c.6.4.7.9.7 1.3v.9h4.4v-.9c0-.4.1-.9.7-1.3A5 5 0 0 0 10 2.5z"/><path d="M8 16.5h4"/></svg><span class="section-label">Tips</span></button>
+    </nav>
+
+    <!-- The sheet set: every session, open and stored. -->
+    <aside class="rail" id="rail" aria-label="Sessions">
+      <div class="rail-head">
+        <h2 id="rail-title">Sessions</h2>
+        <button id="new-session" class="new-sheet" type="button">+ New session</button>
+      </div>
+      <!-- DR-044: standing orders, what runs without asking here. -->
+      <section class="needs-you" id="needs-you" aria-label="Runs without asking here" hidden></section>
+      <div class="session-list" id="session-list"></div>
+      <div class="inbox-list" id="inbox-list" hidden></div>
+      <div class="resize-handle at-right" data-resize="rail" role="separator" aria-orientation="vertical" aria-label="Width of the sessions panel" tabindex="0" title="Drag to resize · double-click to reset"></div>
+    </aside>
+
     <div class="main-column">
-      <!-- Pre-flight problems that will break every run until they are fixed
-           (a too-small context window, a model with no tool calling). A toast
-           is the wrong shape for these: they are not events, they are the
-           standing state of the machine, and they outlive any one turn. -->
+      <!-- What belongs to the session on screen, beside it rather than in the global rail. -->
+      <div class="session-bar" id="session-bar" aria-label="This session">
+        <span class="sb-who"><span id="sb-badge"></span><span class="sb-no" id="sb-no"></span></span>
+        <button class="sb-name" id="sb-name" type="button" title="Rename this session"><span id="sb-title"></span><svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 4.5l3 3L7 16H4v-3z"/></svg></button>
+        <form class="sb-rename" id="sb-rename" hidden><input id="sb-rename-input" type="text" maxlength="80" aria-label="Session name" /></form>
+        <span class="sb-actions">
+          <button class="sb-button" id="open-allowed" type="button" title="What runs without asking in this session"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5 4 5v4.6c0 3.6 2.5 6.6 6 7.9 3.5-1.3 6-4.3 6-7.9V5z"/><path d="M7.4 10.2l1.9 1.9 3.4-3.6"/></svg><span class="sb-label">Allowed</span><b class="sb-count" id="sb-allowed-count"></b></button>
+          <button class="sb-button" id="open-diff" type="button" title="What this session changed: the diff of every file"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2.5h7l3 3v12H5z"/><path d="M8 8h4M10 6v4M8 13.5h4"/></svg><span class="sb-label">Changes</span><b class="sb-count" id="sb-changes-count"></b></button>
+          <button class="sb-button" id="clear-history" type="button" title="Clear this session's history (files stay as they are)"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4h4v2M6 6l.7 10.5h6.6L14 6"/></svg><span class="sb-label">Clear</span></button>
+        </span>
+      </div>
       <div class="setup-warnings" id="setup-warnings" role="status" hidden></div>
       <section class="conversation" id="conversation">
         <div class="conversation-inner" id="messages"></div>
       </section>
 
-      <div class="jump-wrap"><button id="jump-latest" class="jump-latest" type="button" hidden>↓ Jump to the
-          latest</button></div>
+      <div class="jump-wrap"><button id="jump-latest" class="jump-latest" type="button" hidden>↓ Jump to the latest</button></div>
 
       <section class="composer-area" aria-label="New request">
-        <div class="composer cropped" id="composer">
-          <div class="composer-label"><span class="eyebrow"><span class="tick"></span>New request</span></div>
+        <div class="composer" id="composer">
           <textarea id="prompt" rows="2" spellcheck="true" aria-label="Describe your request"
-            placeholder="Describe a change, a bug, or a question about this workspace. Plain English is fine."></textarea>
+            placeholder="Describe a change, or ask about this workspace"></textarea>
           <div class="composer-foot">
-            <span class="composer-hint" id="composer-hint">ENTER ↵ STARTS · SHIFT+ENTER FOR A NEW LINE</span>
-            <!-- DR-030: nothing caps a run any more, so stopping it is a
-                   first-class control, not a page reload. -->
+            <div class="tier-switch" id="tier-select" role="group" aria-label="Tier"></div>
+            <!-- DR-045: stop after the plan, before anything is changed. -->
+            <label class="switch" title="Craft and Forge stop after planning so you can approve, change or edit the plan before any file is touched">
+              <input type="checkbox" id="review-plans" /><span class="switch-track" aria-hidden="true"></span>Review the plan
+            </label>
+            <span class="composer-hint" id="composer-hint">Enter starts · Shift+Enter for a new line</span>
             <button id="stop-button" class="send-button stop-button" type="button" hidden
               title="Stop after the current step, keeping everything produced so far">Stop</button>
-            <button id="send-button" class="send-button" type="button">Start work</button>
+            <button id="send-button" class="send-button" type="button">Start</button>
           </div>
         </div>
       </section>
     </div>
 
-    <footer class="status-bar">
-      <div class="presence status-cell" id="presence" aria-live="polite">
-        <span class="presence-dot"></span>
-        <span id="presence-text">Connecting</span>
-      </div>
-      <span class="status-cell" id="status-model">MODEL <em id="model-label">—</em></span>
-      <span class="status-cell" id="status-dir" title="The workspace AutoSE reads and writes">DIR <em
-          id="dir-label">—</em></span>
-      <span class="status-cell" id="status-session">SESSION <em id="session-label">—</em></span>
-      <span class="status-cell status-right" id="status-tokens"
-        title="Tokens this session, and how full the context window was last round">
-        TOKENS <em id="tokens-label">0</em>
-        <span class="ctx-meter" aria-hidden="true"><span class="ctx-fill" id="ctx-fill"></span></span>
-        <em id="ctx-label">CTX —</em>
-      </span>
-      <span class="status-cell status-stamp" id="status-stamp"
-        title="Where this runs, and what it will do without asking">LOCAL / NO CLOUD</span>
-      <button id="open-tips" class="tip-button" type="button" aria-label="Tips for using AutoSE"
-        aria-describedby="tip-popup">
-        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor"
-          stroke-width="1.3">
-          <path d="M8 1.5a4 4 0 0 0-2.3 7.27c.45.33.55.7.55 1.03v.7h3.5v-.7c0-.33.1-.7.55-1.03A4 4 0 0 0 8 1.5Z" />
-          <path d="M6.25 12.75h3.5M6.75 14.25h2.5" />
-        </svg>
-      </button>
-    </footer>
+    <!-- DR-037: the run in full: checks, revisions, steps, usage. -->
+    <aside class="inspector" id="inspector" aria-label="Details">
+      <div class="resize-handle at-left" data-resize="inspector" role="separator" aria-orientation="vertical" aria-label="Width of the details panel" tabindex="0" title="Drag to resize · double-click to reset"></div>
+      <div class="inspector-tabs" id="inspector-tabs" role="tablist"></div>
+      <div class="inspector-body" id="inspector-body"></div>
+    </aside>
+
+    <!-- Kept for the script; shown in the run's title block instead. -->
+    <div class="sr-only" aria-hidden="true">
+      <span id="dir-label">—</span><span id="session-label">—</span><span id="tokens-label">0</span>
+    </div>
   </div>
 
   <div class="tip-popup" id="tip-popup" role="tooltip" hidden>
@@ -125,12 +156,11 @@
 
   <div class="overlay" id="setup-overlay" hidden>
     <div class="overlay-panel cropped">
-      <span class="eyebrow"><span class="tick"></span>Nothing to run against</span>
-      <h2>AutoSE needs a model</h2>
+      <span class="eyebrow"><span class="tick"></span>Setup</span>
+      <h2>No model found</h2>
       <p class="overlay-lede" id="setup-problem"></p>
       <div class="setup-hint">
-        <p>AutoSE looks for a runtime already on this machine — Ollama, LM Studio, vLLM, llama.cpp — and uses whatever
-          it serves. Nothing is bundled, nothing is proxied.</p>
+        <p>I looked for Ollama, LM Studio, vLLM and llama.cpp on this machine, and none was serving.</p>
         <pre><code>ollama serve
 ollama pull qwen3:8b</code></pre>
         <p>Any other OpenAI-compatible endpoint works too: set <code>AUTOSE_BASE_URL</code> and
@@ -138,38 +168,30 @@ ollama pull qwen3:8b</code></pre>
       </div>
       <div class="overlay-actions">
         <button class="ghost-button" id="setup-doctor" type="button">Machine check</button>
-        <button class="primary-button" id="setup-retry" type="button">Look again</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="overlay" id="approval-overlay" hidden>
-    <div class="overlay-panel cropped approval-panel">
-      <span class="eyebrow"><span class="tick"></span>Waiting on you</span>
-      <h2 id="approval-title">Approve this call?</h2>
-      <p class="overlay-lede" id="approval-lede"></p>
-      <pre class="approval-args"><code id="approval-args"></code></pre>
-      <label class="field">
-        <span>Or refuse it, and say why
-          <small>The reason goes back to the model, which is how it tries something else instead of the same call
-            again.</small>
-        </span>
-        <input type="text" id="approval-reason" placeholder="e.g. stay off the network — read the vendored copy" />
-      </label>
-      <p class="approval-more" id="approval-more" hidden></p>
-      <div class="overlay-actions">
-        <button class="ghost-button" id="approval-deny" type="button">Refuse</button>
-        <button class="primary-button" id="approval-allow" type="button">Run it once</button>
+        <button class="primary-button" id="setup-retry" type="button">Check again</button>
       </div>
     </div>
   </div>
 
   <div class="overlay" id="diff-overlay" hidden>
-    <div class="overlay-panel cropped wide-panel">
-      <span class="eyebrow"><span class="tick"></span>File changes</span>
-      <h2>What it wrote <em class="panel-stat" id="diff-stat"></em></h2>
-      <div id="diff-body" class="diff-body"></div>
+    <div class="overlay-panel diff-panel" role="dialog" aria-labelledby="diff-title">
+      <div class="diff-top">
+        <div class="diff-titles">
+          <span class="eyebrow"><span class="tick"></span>File changes</span>
+          <h2 id="diff-title">What it wrote <em class="panel-stat" id="diff-stat"></em></h2>
+        </div>
+        <select id="diff-run" aria-label="Which run's changes" hidden></select>
+        <button class="ghost-button small" id="diff-split" type="button" aria-pressed="false" title="Old and new side by side (s)">Side by side</button>
+      </div>
+      <div class="diff-main">
+        <nav class="diff-files" aria-label="Changed files">
+          <input type="search" id="diff-filter" placeholder="Filter files" aria-label="Filter files" />
+          <div class="diff-file-list" id="diff-file-list"></div>
+        </nav>
+        <div id="diff-body" class="diff-body" tabindex="0"></div>
+      </div>
       <div class="overlay-actions">
+        <span class="diff-keys"><kbd>j</kbd> <kbd>k</kbd> next / previous file · <kbd>s</kbd> side by side · <kbd>Esc</kbd> close</span>
         <button class="ghost-button" id="diff-close" type="button">Close</button>
         <button class="primary-button" id="diff-undo" type="button">Undo these changes</button>
       </div>
@@ -188,10 +210,106 @@ ollama pull qwen3:8b</code></pre>
     </div>
   </div>
 
+  <div class="overlay" id="settings-overlay" hidden>
+    <div class="overlay-panel cropped wide-panel context-panel">
+      <span class="eyebrow"><span class="tick"></span>Settings</span>
+      <h2>Providers, keys and models</h2>
+      <div id="settings-body"></div>
+      <div class="overlay-actions">
+        <button class="ghost-button" id="settings-refresh" type="button">Check again</button>
+        <button class="primary-button" id="settings-close" type="button">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="automation-overlay" hidden>
+    <div class="overlay-panel cropped wide-panel context-panel">
+      <span class="eyebrow"><span class="tick"></span>Automation</span>
+      <h2>Work that starts while you are away</h2>
+      <div id="automation-body"></div>
+      <div class="overlay-actions">
+        <button class="primary-button" id="automation-close" type="button">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="context-overlay" hidden>
+    <div class="overlay-panel cropped wide-panel context-panel">
+      <span class="eyebrow"><span class="tick"></span>Context window</span>
+      <h2 id="context-title">What the model can see</h2>
+      <p class="overlay-lede" id="context-summary"></p>
+      <p id="context-detail"></p>
+      <div class="context-figures" id="context-figures"></div>
+      <div class="context-choices" id="context-choices" hidden>
+        <span class="context-remedy-label">Choose the window AutoSE asks the model server for</span>
+        <div class="choice-list" id="context-choice-list" role="radiogroup"
+          aria-label="Context window size"></div>
+        <p class="context-hint" id="context-choice-hint"></p>
+      </div>
+      <div class="context-remedy" id="context-remedy" hidden>
+        <span class="context-remedy-label" id="context-remedy-label">To change it</span>
+        <pre class="approval-args"><code id="context-remedy-code"></code></pre>
+      </div>
+      <div class="overlay-actions">
+        <button class="ghost-button" id="context-close" type="button">Close</button>
+        <button class="ghost-button" id="context-copy" type="button" hidden>Copy</button>
+        <button class="primary-button" id="context-apply" type="button" hidden>Use this window</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="allowed-overlay" hidden>
+    <div class="overlay-panel wide-panel allowed-panel" role="dialog" aria-labelledby="allowed-title">
+      <span class="eyebrow"><span class="tick"></span>Allowed commands</span>
+      <h2 id="allowed-title">What runs without asking</h2>
+      <p class="panel-note" id="allowed-scope"></p>
+      <div class="allowed-list" id="allowed-list"></div>
+      <form class="allowed-add" id="allowed-add">
+        <span class="allowed-add-title">Add a rule</span>
+        <select id="allowed-tool" aria-label="What kind of call">
+          <option value="run_command">Command starting with</option>
+          <option value="fetch_url">Pages on the host</option>
+          <option value="web_search">Web searches</option>
+        </select>
+        <input id="allowed-pattern" type="text" placeholder="pytest, or npm run test" aria-label="Command words or host" autocomplete="off" />
+        <button class="primary-button" type="submit">Allow</button>
+        <p class="allowed-help">A command rule is its leading words: <code>pytest</code> covers <code>pytest -q tests/</code>, and <code>git status</code> does not cover <code>git push</code>. Commands that delete, publish, chain or run other commands can only be allowed one call at a time. Rules last for this session.</p>
+      </form>
+      <div class="overlay-actions">
+        <button class="ghost-button" id="allowed-close" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="files-overlay" hidden>
+    <div class="overlay-panel files-panel" role="dialog" aria-labelledby="files-title">
+      <div class="diff-top">
+        <div class="diff-titles">
+          <span class="eyebrow"><span class="tick"></span>Files · read only</span>
+          <h2 id="files-title"><span id="files-root"></span> <em class="panel-stat" id="files-count"></em></h2>
+        </div>
+        <button class="ghost-button small" id="files-watch" type="button" aria-pressed="false" title="Re-read the open file every few seconds and mark what changed">Watch</button>
+        <button class="ghost-button small" id="files-reload" type="button" title="Read the folder and the open file again">Reload</button>
+        <button class="ghost-button small" id="files-close" type="button">Close</button>
+      </div>
+      <div class="files-main">
+        <nav class="diff-files" aria-label="Workspace files">
+          <input type="search" id="files-filter" placeholder="Find a file" aria-label="Find a file" />
+          <div class="files-tree" id="files-tree"></div>
+        </nav>
+        <section class="files-editor" aria-label="Open file">
+          <div class="files-tabs" id="files-tabs"></div>
+          <div class="files-head" id="files-head"></div>
+          <div class="files-code" id="files-code" tabindex="0"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
   <div class="overlay" id="tips-overlay" hidden>
     <div class="overlay-panel cropped wide-panel">
       <span class="eyebrow"><span class="tick"></span>Tips</span>
-      <h2>Get more out of AutoSE</h2>
+      <h2>Tips</h2>
       <div id="tips-body"></div>
       <div class="overlay-actions">
         <button class="ghost-button" id="tips-close" type="button">Close</button>
@@ -201,7 +319,15 @@ ollama pull qwen3:8b</code></pre>
 
   <div class="toast-stack" id="toasts" aria-live="polite"></div>
 
+  <script src="/inspector.js"></script>
+  <script src="/settings.js"></script>
+  <script src="/notify.js"></script>
+  <script src="/route.js"></script>
+  <script src="/automation.js"></script>
+  <script src="/life.js"></script>
   <script src="/app.js"></script>
+  <script src="/diff.js"></script>
+  <script src="/files.js"></script>
 </body>
 
 </html>

@@ -230,3 +230,19 @@ def test_the_default_policy_matches_the_documented_set():
     assert ApprovalPolicy.default().tools == frozenset(
         {"run_command", "web_search", "fetch_url"}
     )
+
+
+def test_an_undo_keeps_what_it_reverted_on_the_record(scripted, tmp_path):
+    """The run's record still shows the change, as undone, not as if never made."""
+    (tmp_path / "m.py").write_text("value = 1\n", encoding="utf-8", newline="")
+    session = _session(
+        scripted, tmp_path, [_edit("m.py", "value = 1", "value = 2"), answer("Done.")]
+    )
+    session.run("bump the value")
+    session.undo_last_change()
+
+    turn = session.history[-1]
+    assert turn.changes == ()
+    assert [change.path for change in turn.undone] == ["m.py"]
+    # Nothing is left to undo: undone changes are not reverted twice.
+    assert session.undo_last_change() is None

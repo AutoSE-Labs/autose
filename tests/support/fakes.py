@@ -76,7 +76,12 @@ class ScriptedChatModel:
         )
         if not self._script:
             raise AssertionError("ScriptedChatModel ran out of scripted completions")
-        return self._script.pop(0)
+        item = self._script.pop(0)
+        # A scripted exception is raised in place of a completion, which is how
+        # a test stands in for a runtime that fails one particular request.
+        if isinstance(item, BaseException):
+            raise item
+        return item
 
     def complete(
         self, messages, *, tools=None, max_output_tokens=None, reasoning_effort=None

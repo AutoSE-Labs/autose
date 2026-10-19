@@ -25,7 +25,7 @@ from ...errors import WorkspaceEscapeError
 from ...limits import describe_limit, duration_limit
 from ..workspace import Workspace
 
-__all__ = ["run_command", "COMMAND_TIMEOUT_SECONDS"]
+__all__ = ["run_command", "refuse_escaping_command", "COMMAND_TIMEOUT_SECONDS"]
 
 #: Wall-clock ceiling for one command, when a repo's config does not set one
 #: (DR-021). A hung build must not hang the stage.
@@ -58,7 +58,7 @@ def run_command(
     (DR-030); ``subprocess`` reads that as ``None`` too, so the two agree.
     """
     limit = duration_limit(timeout)
-    refusal = _refuse_escaping_command(command)
+    refusal = refuse_escaping_command(command)
     if refusal:
         return refusal
     try:
@@ -91,7 +91,12 @@ def run_command(
     return "\n".join(parts).strip()
 
 
-def _refuse_escaping_command(command: str) -> str | None:
+def refuse_escaping_command(command: str) -> str | None:
+    """Why *command* reaches outside the workspace, or ``None`` if it does not.
+
+    Public so the one other place AutoSE runs a shell command — a watcher the
+    user defined (DR-047) — applies the same confinement rather than a copy.
+    """
     if _ABSOLUTE_PATH.search(command):
         # Matched anywhere in the command text, data included: a model that
         # put `{"path": "/m"}` into a test config kept resending variants of
@@ -120,3 +125,4 @@ def _refuse_escaping_command(command: str) -> str | None:
             "Error: command may not change directories; use the 'cwd' argument instead."
         )
     return None
+

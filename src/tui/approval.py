@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 from rich.text import Text
 
+from logic.common.allowances import Allowance, offer_for, standing_for
 from logic.common.approval import ApprovalDecision, ApprovalRequest
 
 from .render import approval_panel
@@ -31,7 +32,8 @@ __all__ = ["TerminalApprovalGate"]
 #: prompt's default is shown on the panel, so a bare Enter is an informed yes.
 _ALLOW_ONCE: frozenset[str] = frozenset({"y", "yes", "ok", "okay", "sure", "run", "allow"})
 
-#: Answers taken as "run this tool unasked for the rest of the session".
+#: Answers taken as "run calls like this unasked for the rest of the session":
+#: the same command words, the same host, or the same tool (DR-048).
 _ALLOW_ALWAYS: frozenset[str] = frozenset({"a", "always", "all"})
 
 #: Answers taken as a bare refusal, with nothing to pass back to the model.
@@ -39,13 +41,13 @@ _DENY: frozenset[str] = frozenset({"n", "no", "nope", "deny", "skip", "cancel", 
 
 
 class TerminalApprovalGate:
-    """Prompts the user, and remembers a per-tool "always allow" if given."""
+    """Prompts the user, and remembers an "always allow" if given (DR-048)."""
 
     def __init__(
         self, console: Console, *, stop_requested: Callable[[], bool] | None = None
     ) -> None:
         self._console = console
-        self._always_allow: set[str] = set()
+        self._always_allow: dict[str, Allowance] = {}
         #: Whether the run is already stopping (DR-030). Without this, a ctrl-c
         #: pressed while an approval prompt is up looks ignored: the first press
         #: asks the run to stop, but the run is blocked on this prompt and
@@ -53,8 +55,9 @@ class TerminalApprovalGate:
         self._stop_requested = stop_requested or (lambda: False)
 
     @property
-    def always_allowed(self) -> frozenset[str]:
-        return frozenset(self._always_allow)
+    def always_allowed(self) -> tuple[str, ...]:
+        """What runs unasked, as phrases: "pytest … commands"."""
+        return tuple(item.label for item in self._always_allow.values())
 
     def reset(self) -> None:
         """Forget every standing allowance — used when the session changes."""
@@ -81,9 +84,10 @@ class TerminalApprovalGate:
                 "the user stopped this run before the call was made"
             )
 
-        if request.tool_name in self._always_allow:
+        standing = standing_for(request, self._always_allow.values())
+        if standing is not None:
             return ApprovalDecision.allow(
-                f"'{request.tool_name}' was allowed for the rest of this session"
+                f"{standing.label} were allowed for the rest of this session"
             )
 
         self._console.print()
@@ -109,16 +113,30 @@ class TerminalApprovalGate:
         if not reply or keyword in _ALLOW_ONCE:
             return ApprovalDecision.allow("the user approved this call")
         if keyword in _ALLOW_ALWAYS:
-            self._always_allow.add(request.tool_name)
+            offer = offer_for(request)
+            if offer.allowance is None:
+                # The person said yes; only the "from now on" part cannot be
+                # given. Run this one call and say why the next will ask.
+                self._console.print(
+                    Text(
+                        f"  {THEME.warn_glyph} running it once; calls like this will "
+                        f"still ask: {offer.reason}",
+                        style=THEME.warning,
+                    )
+                )
+                return ApprovalDecision.allow("the user approved this call")
+            # DR-052: a chain's yes is a yes for each of its parts.
+            for part in offer.every:
+                self._always_allow[part.key] = part
             self._console.print(
                 Text(
-                    f"  {THEME.ok_glyph} '{request.tool_name}' will run unasked for the "
+                    f"  {THEME.ok_glyph} {offer.label} will run unasked for the "
                     "rest of this session (/tools to review)",
                     style=THEME.muted,
                 )
             )
             return ApprovalDecision.allow(
-                f"the user allowed '{request.tool_name}' for the rest of this session"
+                f"the user allowed {offer.label} for the rest of this session"
             )
         if keyword in _DENY:
             return ApprovalDecision.deny("the user declined this call")
@@ -136,6 +154,6 @@ class TerminalApprovalGate:
     @staticmethod
     def prompt_hint() -> str:
         return (
-            "y = run once   n = skip   a = allow this tool all session   "
+            "y = run once   n = skip   a = allow calls like this all session   "
             "anything else = decline with a reason the model will see"
         )

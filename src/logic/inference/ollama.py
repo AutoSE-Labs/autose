@@ -22,10 +22,9 @@ as the budget and keeps the maximum only as a diagnostic.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
 from .catalog import ModelInfo, fetch_json
-from .openai_compatible import OpenAICompatibleChatModel
 from .settings import InferenceSettings
 
 __all__ = ["OllamaCatalog", "OLLAMA_DEFAULT_BASE_URL", "native_root"]
@@ -35,6 +34,13 @@ OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1"
 
 #: Capability string Ollama reports for models that can call tools.
 _TOOLS_CAPABILITY = "tools"
+
+
+class _Loaded(NamedTuple):
+    """One entry of ``/api/ps``: the served window and how much is on the GPU."""
+
+    context_length: int
+    gpu_fraction: float | None
 
 #: The window Ollama serves when ``OLLAMA_CONTEXT_LENGTH`` is not set. Used
 #: only when no model is loaded, so ``/api/ps`` cannot be asked what the real
@@ -81,6 +87,10 @@ class OllamaCatalog:
         loaded is simply absent, which is why the caller needs a fallback
         rather than treating an empty result as "no cap" (DR-022).
         """
+        return {name: loaded.context_length for name, loaded in self._loaded().items()}
+
+    def _loaded(self) -> dict[str, _Loaded]:
+        """What ``/api/ps`` says about each loaded model (DR-022, DR-034)."""
         try:
             payload = fetch_json(
                 f"{self.root}/api/ps", timeout=self._settings.discovery_timeout
@@ -90,15 +100,22 @@ class OllamaCatalog:
         entries = payload.get("models")
         if not isinstance(entries, list):
             return {}
-        served: dict[str, int] = {}
+        loaded: dict[str, _Loaded] = {}
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
             name = entry.get("name") or entry.get("model")
             length = _positive_int(entry.get("context_length"))
             if name and length:
-                served[str(name)] = length
-        return served
+                size = _positive_int(entry.get("size"))
+                in_vram = entry.get("size_vram")
+                fraction = (
+                    min(1.0, max(0.0, float(in_vram) / size))
+                    if size and isinstance(in_vram, (int, float))
+                    else None
+                )
+                loaded[str(name)] = _Loaded(length, fraction)
+        return loaded
 
     def list_models(self) -> tuple[ModelInfo, ...]:
         payload = fetch_json(
@@ -107,9 +124,9 @@ class OllamaCatalog:
         entries = payload.get("models")
         if not isinstance(entries, list):
             return ()
-        served = self.served_context_lengths()
+        loaded = self._loaded()
         models = [
-            self._to_model_info(entry, served)
+            self._to_model_info(entry, loaded)
             for entry in entries
             if isinstance(entry, dict)
         ]
@@ -122,7 +139,7 @@ class OllamaCatalog:
 
     @staticmethod
     def _to_model_info(
-        entry: dict, served: dict[str, int] | None = None
+        entry: dict, loaded: dict[str, _Loaded] | None = None
     ) -> ModelInfo | None:
         name = entry.get("name") or entry.get("model")
         if not name:
@@ -135,7 +152,8 @@ class OllamaCatalog:
         # when the model is loaded, and otherwise Ollama's own default, capped
         # by the maximum so a genuinely small model is not overstated.
         maximum = _positive_int(details.get("context_length"))
-        measured = (served or {}).get(str(name))
+        observed = (loaded or {}).get(str(name))
+        measured = observed.context_length if observed else None
         assumed = (
             min(OLLAMA_DEFAULT_SERVED_CONTEXT, maximum)
             if maximum
@@ -160,6 +178,7 @@ class OllamaCatalog:
             quantization=str(details.get("quantization_level") or ""),
             size_bytes=_positive_int(entry.get("size")),
             family=str(details.get("family") or ""),
+            gpu_fraction=observed.gpu_fraction if observed else None,
         )
 
 
@@ -170,7 +189,3 @@ def _positive_int(value: Any) -> int | None:
         return None
     return number if number > 0 else None
 
-
-def build_chat_model(settings: InferenceSettings) -> OpenAICompatibleChatModel:
-    """Ollama needs no inference-side special-casing (DR-006)."""
-    return OpenAICompatibleChatModel(settings)
