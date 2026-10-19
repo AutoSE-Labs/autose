@@ -106,6 +106,10 @@ const TIPS = [
     title: "Closing a session isn't deleting it",
     text: "Closing takes a session off the rail; it stays on disk and reopens from Stored. Only Delete removes it.",
   },
+  {
+    title: "Ctrl K finds any command",
+    text: "Press Ctrl K (⌘ K on a Mac) and type a few letters to switch sessions, answer what is waiting, open a file or change a setting without the mouse. The commands you used last come first.",
+  },
 ];
 
 /* Tools, described the way a person would describe them. The names come from
