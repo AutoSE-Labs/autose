@@ -1272,6 +1272,61 @@ def test_a_turn_index_that_is_not_a_number_is_refused_over_http(served):
     assert status == 400
 
 
+# -- DR-055: a finished run's steps are read back on demand -------------------
+
+
+def test_a_finished_run_s_steps_are_served_on_demand(scripted, tmp_path):
+    (tmp_path / "notes.txt").write_text("draft notes", encoding="utf-8")
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(tool_call("read_file", path="notes.txt")),
+            answer("read it", prompt_tokens=50, completion_tokens=5),
+            answer("nothing to read"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("read the notes")
+    finished = _drain(subscriber, "turn")
+    bridge.submit("say something")
+    _drain(subscriber, "turn")
+
+    # The turn frame and the history say there is something to read...
+    assert finished["turn"]["has_steps"] is True
+    assert "steps" not in finished["turn"]
+    assert [turn["has_steps"] for turn in bridge.snapshot()["history"]] == [True, True]
+
+    # ...and the read returns it, for any turn, the latest by default.
+    first = bridge.steps(turn=0)
+    assert first["turn"] == 0
+    (tool,) = [step for step in first["steps"] if step["type"] == "tool"]
+    assert tool["tool"] == "read_file"
+    assert tool["args"] == {"path": "notes.txt"}
+    assert tool["status"] == "done"
+    assert "draft notes" in tool["preview"]
+    assert first["rounds"][-1]["prompt"] == 50
+    latest = bridge.steps()
+    assert latest["turn"] == 1
+    assert not [step for step in latest["steps"] if step["type"] == "tool"]
+
+
+def test_steps_for_a_run_that_does_not_exist_are_a_404(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    with pytest.raises(BridgeError) as caught:
+        bridge.steps()
+    assert caught.value.status == 404
+
+
+def test_steps_are_served_over_http(served):
+    status, payload = _request(served, "/api/steps?turn=0")
+    # Routed to the bridge, which has no run 0 yet in a fresh session.
+    assert status == 404
+    assert "no runs" in payload["error"]
+    status, _payload = _request(served, "/api/steps?turn=first")
+    assert status == 400
+
+
 def test_no_page_script_writes_inline_styles():
     """The CSP is default-src 'self' (DR-029), which drops inline style
     attributes without a word: a bar drawn with style="height:…" renders as

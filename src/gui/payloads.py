@@ -16,6 +16,7 @@ from typing import Any
 
 from logic.common.changes import FileChange, RevertReport
 from logic.common.events import Event
+from logic.common.trace import RunTrace
 from logic.connections import Connection
 from logic.diagnostics import Diagnosis
 from logic.inference.catalog import ModelInfo
@@ -36,6 +37,7 @@ __all__ = [
     "runtime_payload",
     "session_title",
     "tier_payloads",
+    "trace_payload",
     "turn_payload",
     "warnings_payload",
 ]
@@ -74,12 +76,27 @@ def turn_payload(turn: Turn, *, index: int = -1) -> dict[str, Any]:
         "route": [dict(item) for item in turn.route],
         "changes": [change_payload(change) for change in turn.changes],
         "undone": [change_payload(change) for change in turn.undone],
+        # DR-055: whether the Steps and Usage tabs can read this turn back.
+        # The trace itself is fetched on demand, never carried in a state
+        # frame (the reasoning DR-040 gives for diffs).
+        "has_steps": turn.trace is not None and turn.trace.has_steps,
         "artifacts": {
             name: _clip(text, ARTIFACT_CHARS)
             for name, text in dict(turn.artifacts).items()
             if text
         },
     }
+
+
+def trace_payload(trace: RunTrace | None) -> dict[str, Any]:
+    """A stored turn's steps, rounds and stage times (DR-055).
+
+    The same shape whether or not the turn has a trace, so the dashboard
+    draws an older turn's empty record with the code it uses for any other.
+    """
+    document = (trace or RunTrace()).to_dict()
+    document["has_steps"] = trace is not None and trace.has_steps
+    return document
 
 
 def change_payload(change: FileChange, *, with_diff: bool = False) -> dict[str, Any]:

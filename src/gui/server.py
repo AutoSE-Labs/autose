@@ -197,6 +197,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "/api/changes": lambda: self._bridge.changes(
                 target, turn=_turn_of(query)
             ),
+            # DR-055: a finished turn's steps, read when the inspector shows it.
+            "/api/steps": lambda: self._bridge.steps(target, turn=_turn_of(query)),
             "/api/doctor": self._bridge.doctor,
             # DR-051: the Files view, read-only and bounded by the workspace.
             "/api/files": self._bridge.files,
