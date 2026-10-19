@@ -1,6 +1,6 @@
 # DR-032: The Pro Edition Is the Decision-Record and Knowledge Layer; the Dashboard Ships in Both
 
-- **Status:** Accepted
+- **Status:** Accepted; the `forge` tier itself is partly superseded by [DR-054](DR-054-forge-ships-in-the-free-edition.md), which brings it to the free edition without the decision record
 - **Date:** 2026-10-17
 - **Decision owners:** AutoSE maintainers, on direction from the project founder
 - **Scope:** Product edition strategy. **Supersedes DR-013.** Changes which of DR-003's tiers and DR-004's stores each edition ships; DR-018 and DR-028 become Pro-only.

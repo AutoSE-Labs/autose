@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from logic.classifier import TaskClassifier
 from logic.errors import InferenceTimeoutError
-from logic.tiers import CRAFT, DEFAULT_TIER, SPARK
+from logic.tiers import CRAFT, DEFAULT_TIER, FORGE, SPARK
 from logic.tuning import ClassifierTuning
 from tests.support.fakes import ScriptedChatModel, answer
 
@@ -45,14 +45,13 @@ def test_prose_naming_a_tier_falls_back_to_a_text_scan():
 
 
 def test_the_text_scan_reads_intent_when_no_tier_is_named():
-    assert _classify("This needs an architectural redesign.").tier == CRAFT
+    assert _classify("This needs an architectural redesign.").tier == FORGE
     assert _classify("Just implement the feature.").tier == CRAFT
 
 
-def test_the_pro_only_forge_answer_lands_on_craft():
-    """A model that still answers `forge` (DR-032) gets the tier that exists."""
-    assert _classify('{"tier": "forge"}').tier == CRAFT
-    assert _classify("This is forge-level work.").tier == CRAFT
+def test_a_forge_answer_is_a_tier():
+    assert _classify('{"tier": "forge"}').tier == FORGE
+    assert _classify("This is forge-level work.").tier == FORGE
 
 
 def test_an_unparsable_answer_lands_on_the_middle_tier():
@@ -144,6 +143,5 @@ def test_recent_history_is_offered_as_read_only_context():
 def test_the_prompt_lists_every_tier():
     model = ScriptedChatModel([answer('{"tier": "craft"}')])
     prompt = TaskClassifier(model)._system_prompt()
-    for tier in (SPARK, CRAFT):
+    for tier in (SPARK, CRAFT, FORGE):
         assert tier in prompt
-    assert "forge" not in prompt

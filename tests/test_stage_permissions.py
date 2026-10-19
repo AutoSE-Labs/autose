@@ -27,9 +27,13 @@ def test_the_execute_stage_has_the_tools_it_needs():
     assert STAGES[EXECUTE].can_write
 
 
-def test_the_free_edition_has_no_design_stage():
-    """The decision-record Design stage is Pro-only (DR-032)."""
-    assert set(STAGES) == {PLAN, EXECUTE, VALIDATE}
+def test_the_free_design_stage_reads_but_writes_nothing():
+    """Forge's Design stage decides the approach; the decision record is Pro's (DR-054)."""
+    assert set(STAGES) == {"design", PLAN, EXECUTE, VALIDATE}
+    design = STAGES["design"]
+    assert "read_file" in design.tool_names
+    assert "write_file" not in design.tool_names
+    assert "edit_file" not in design.tool_names
     for spec in STAGES.values():
         assert "remember_fact" not in spec.tool_names
 

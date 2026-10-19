@@ -6,6 +6,7 @@ import pytest
 
 from logic.tiers import (
     CRAFT,
+    FORGE,
     DEFAULT_TIER,
     SPARK,
     TIER_RANK,
@@ -27,8 +28,8 @@ from logic.workflows.spark import SPARK_TOOL_NAMES
 
 
 def test_the_tier_order_is_the_rank():
-    assert TIERS == (SPARK, CRAFT)
-    assert TIER_RANK[SPARK] < TIER_RANK[CRAFT]
+    assert TIERS == (SPARK, CRAFT, FORGE)
+    assert TIER_RANK[SPARK] < TIER_RANK[CRAFT] < TIER_RANK[FORGE]
 
 
 def test_every_tier_has_a_spec():
@@ -43,11 +44,12 @@ def test_the_workflow_shapes_match_the_decision():
     assert TIER_SPECS[CRAFT].is_multi_stage
 
 
-def test_the_pro_only_forge_tier_is_absent_and_normalises_to_the_default():
-    """DR-032: `forge` is Pro-only. A Pro session or config naming it degrades."""
-    assert not is_tier("forge")
-    assert normalise_tier("forge") == DEFAULT_TIER
-    assert not supports_tier("forge")
+def test_forge_is_a_tier_with_a_design_stage_in_front():
+    """DR-054: `forge` ships in both editions; only the decision record is Pro's."""
+    assert is_tier("forge")
+    assert normalise_tier("forge") == FORGE
+    assert supports_tier("forge")
+    assert TIER_SPECS[FORGE].stages == ("design", "plan", "execute", "validate")
 
 
 def test_classification_failure_lands_on_the_middle_tier():

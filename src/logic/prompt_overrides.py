@@ -25,6 +25,7 @@ KNOWN_PROMPT_NAMES: tuple[str, ...] = (
     "classifier_system",
     "classifier_user",
     "spark_system",
+    "design",
     "plan",
     "execute",
     "validate",

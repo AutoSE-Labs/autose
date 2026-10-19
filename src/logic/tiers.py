@@ -6,12 +6,12 @@ choices, the workflow registry's keys, and the session ratchet — so adding or
 renaming one is a change in this file, not a hunt through the codebase.
 
 The names are a spectrum of effort, not severity labels: ``spark`` for a
-question or a one-line change, ``craft`` for everything that needs a plan,
-from ordinary feature and bug work to changes spanning many files.
+question or a one-line change, ``craft`` for ordinary feature and bug work,
+and ``forge`` for architecture-level work that needs a design stage of its own.
 
-The Pro edition adds ``forge``, a Design stage that writes a decision record,
-on top of these two. The free edition has no such tier; a ``forge`` name read
-from elsewhere (a Pro session file, a stale config) normalises to the default.
+Both editions have ``forge``. In the free edition its Design stage reasons
+about the approach and hands it to Plan; it writes no decision record, which is
+the Pro edition's addition (DR-054).
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from dataclasses import dataclass
 __all__ = [
     "SPARK",
     "CRAFT",
+    "FORGE",
     "TIERS",
     "TIER_RANK",
     "DEFAULT_TIER",
@@ -35,9 +36,10 @@ __all__ = [
 
 SPARK = "spark"
 CRAFT = "craft"
+FORGE = "forge"
 
 #: Ordered least to most complex. Order *is* the rank.
-TIERS: tuple[str, ...] = (SPARK, CRAFT)
+TIERS: tuple[str, ...] = (SPARK, CRAFT, FORGE)
 
 #: Rank by position, so a session can compare two tiers and never downgrade.
 TIER_RANK: Mapping[str, int] = {tier: index for index, tier in enumerate(TIERS)}
@@ -83,8 +85,16 @@ TIER_SPECS: Mapping[str, TierSpec] = {
         summary="Plan then Execute then Validate — the everyday pipeline.",
         stages=("plan", "execute", "validate"),
         classifier_hint=(
-            "implement a feature or fix a bug, refactor, or any change that needs a "
-            "plan, whether it touches a handful of files or many"
+            "implement a feature or fix a bug, typically touching a handful of files"
+        ),
+    ),
+    FORGE: TierSpec(
+        name=FORGE,
+        summary="Design then Plan then Execute then Validate, with loopback.",
+        stages=("design", "plan", "execute", "validate"),
+        classifier_hint=(
+            "architecture or workflow-level work, a change spanning many files, or a "
+            "task requiring significant independent design decisions"
         ),
     ),
 }

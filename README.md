@@ -2,7 +2,7 @@
 
 A local-first software engineering agent. Run it against the models on your own machine — it finds Ollama, LM Studio, vLLM, or llama.cpp by itself and needs no configuration to start. Any other OpenAI-compatible endpoint works too. AutoSE never provides, bundles, or proxies a model itself, and by default nothing leaves your machine.
 
-This is the **free edition**. It has everything an individual developer needs: the web dashboard, the terminal interface, both everyday tiers, approvals, `/diff` and `/undo`, and durable sessions. The **Pro edition** adds the decision-record and knowledge layer for teams: a `forge` tier whose Design stage writes architecture decision records, retrieval and citation of a repository's decisions and an organisation's standards, and approved learned facts (DR-032).
+This is the **free edition**. It has everything an individual developer needs: the web dashboard, the terminal interface, all three tiers, approvals, `/diff` and `/undo`, and durable sessions. The **Pro edition** adds the decision-record and knowledge layer for teams: a Design stage that writes architecture decision records, retrieval and citation of a repository's decisions and an organisation's standards, and approved learned facts (DR-032).
 
 ## Install
 
@@ -51,7 +51,7 @@ Inside a session, `/diff` shows what it wrote and `/undo` puts it back.
 - **Nothing side-effecting runs unreviewed.** Shell commands and network fetches are shown to you with their actual arguments and wait for a decision: run it once, skip it, or allow that tool for the session — or type a reason, which refuses the call *and* tells the model what to do instead. The gate lives in the shared layer every interface passes through, so it cannot be skipped by a new one, and with no approval interface attached the default is refusal (DR-012).
 - **Sessions are durable.** Every turn is written to `.autose/sessions/`, so `autose --resume` picks up an hour of `craft` work after a closed terminal — with its history, its ratcheted tier, its token tally, and the ability to still undo what it wrote (DR-026).
 - **git without the interruption.** `git_status`, `git_diff` and `git_log` are ordinary read-only tools, so the most common question an agent has about your repository no longer costs an approval prompt. Fixed argv, no shell, no revisions accepted, paths after a `--` separator (DR-025).
-- **Tiered complexity.** One cheap classification call routes each prompt to `spark` (a single direct pass) or `craft` (Plan → Execute → Validate) — so a one-line fix does not pay for machinery a real change needs. Within a session automatic classification only ratchets up, so a "yes, do that" inside a complex task does not silently drop the pipeline (DR-003); a tier you pick yourself is used as picked, up or down (DR-049).
+- **Tiered complexity.** One cheap classification call routes each prompt to `spark` (a single direct pass), `craft` (Plan → Execute → Validate) or `forge` (a read-only Design stage in front of those, for architecture-level work) — so a one-line fix does not pay for machinery a real change needs. Within a session automatic classification only ratchets up, so a "yes, do that" inside a complex task does not silently drop the pipeline (DR-003); a tier you pick yourself is used as picked, up or down (DR-049).
 - **A completion signal you can actually check.** Multi-stage work runs through a deterministic, IDed requirements ledger. Every stage must echo back exactly the IDs it was given, and the runner re-parses the verifying stage's ledger itself — a claimed pass with anything unverified is overridden into a loopback naming the specific unmet requirements (DR-005). The interface shows you when that happens.
 - **Least-privilege stages.** The validation stage has no write or edit tool *in its schema at all*, so it reports gaps and routes them back rather than papering over its own findings. The planning stage has no `write_file`/`edit_file` in its schema either — it cannot edit files — though it can run an approved shell command, the same as validation. (DR-008).
 - **Loops you end, not loops that time out.** Nothing caps a run by default: a small local model reads in many more, smaller steps than a hosted one, and a round or retry ceiling sized for a frontier model cuts off correct work two reads from finishing. What ends a long run is you — ctrl-c in the terminal, Stop in the dashboard, SIGINT for a piped run — and stopping keeps what the run produced: the draft, each finished stage's artifacts, the changed-file list, and the undo. Every cap is still there and still per tier, at `-1`: put a number back in one config line for an unattended run where nobody is watching (DR-030). Hitting a bound you *did* set is a distinct, typed outcome that is never rendered as a completed task, and neither is a run you stopped (DR-009).
@@ -73,7 +73,7 @@ Every notable decision behind this project — architecture, product scope, non-
 |---|---|
 | [DR-001](docs/DecisionRecords/DR-001-maintain-decision-records.md) | Maintain Decision Records for notable changes |
 | [DR-002](docs/DecisionRecords/DR-002-src-layout-logic-gui-tui-separation.md) | `src/` layout — logic owns computation, GUI/TUI are thin wrappers |
-| [DR-003](docs/DecisionRecords/DR-003-tiered-complexity-classification-and-ratcheting.md) | Complexity tiers (`spark`/`craft`, plus `forge` in Pro) and session ratcheting |
+| [DR-003](docs/DecisionRecords/DR-003-tiered-complexity-classification-and-ratcheting.md) | Complexity tiers (`spark`/`craft`/`forge`) and session ratcheting |
 | [DR-004](docs/DecisionRecords/DR-004-bounded-memory-architecture.md) | Bounded memory architecture — execution-memory scopes (knowledge stores are Pro, DR-032) |
 | [DR-005](docs/DecisionRecords/DR-005-canonical-requirements-ledger-fail-closed-validation.md) | Canonical requirements ledger and fail-closed validation |
 | [DR-006](docs/DecisionRecords/DR-006-provider-agnostic-byo-llm-inference.md) | Provider-agnostic, bring-your-own-LLM inference |
@@ -121,6 +121,7 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-051](docs/DecisionRecords/DR-051-a-read-only-files-view.md) | A read-only Files view in the dashboard |
 | [DR-052](docs/DecisionRecords/DR-052-chains-are-allowed-part-by-part.md) | A chain of commands is allowed part by part |
 | [DR-053](docs/DecisionRecords/DR-053-yolo-mode.md) | YOLO mode: a switch that lets everything run without asking |
+| [DR-054](docs/DecisionRecords/DR-054-forge-ships-in-the-free-edition.md) | `forge` ships in the free edition, without the decision record |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
 
@@ -136,7 +137,7 @@ src/
     session.py        #   the public entry point every interface drives
     classifier.py     #   one call picks a tier, with a deterministic fallback
     requirements.py   #   the deterministic ledger parser (DR-005)
-    tiers.py          #   single source of truth for spark/craft
+    tiers.py          #   single source of truth for spark/craft/forge
     diagnostics.py    #   "what can this machine run" as data, not output
   tui/                # terminal and JSON adapters — rendering and input only, DR-002
   gui/                # web dashboard — DR-002/DR-029
@@ -197,4 +198,4 @@ Any notable decision — a new feature, an architecture or module-boundary choic
 
 Apache License 2.0 — see [LICENSE](LICENSE).
 
-This repository is the free edition. Per DR-032 it is the Pro source with the `forge` tier and the knowledge layer removed, and nothing else changed.
+This repository is the free edition. Per DR-032 and DR-054 it is the Pro source with the knowledge layer and the Design stage's decision record removed, and nothing else changed.

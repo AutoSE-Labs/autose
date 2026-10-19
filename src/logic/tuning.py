@@ -184,6 +184,7 @@ class Tuning:
     #: take all night" is a config file, not a code change.
     spark: TierBounds = field(default_factory=TierBounds)
     craft: TierBounds = field(default_factory=TierBounds)
+    forge: TierBounds = field(default_factory=TierBounds)
 
     @classmethod
     def from_mapping(cls, document: Mapping[str, Any] | None) -> Tuning:
@@ -210,6 +211,7 @@ class Tuning:
             session=_merged(defaults.session, doc.get("session"), "tuning.session"),
             spark=_merged(defaults.spark, doc.get("spark"), "tuning.spark"),
             craft=_merged(defaults.craft, doc.get("craft"), "tuning.craft"),
+            forge=_merged(defaults.forge, doc.get("forge"), "tuning.forge"),
         )
 
 

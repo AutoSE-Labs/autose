@@ -33,9 +33,10 @@ from ..requirements import (
     PLAN_STATUSES,
     VALIDATE_STATUSES,
 )
-from .prompts import EXECUTE_PROMPT, PLAN_PROMPT, VALIDATE_PROMPT
+from .prompts import DESIGN_PROMPT, EXECUTE_PROMPT, PLAN_PROMPT, VALIDATE_PROMPT
 
 __all__ = [
+    "DESIGN",
     "PLAN",
     "EXECUTE",
     "VALIDATE",
@@ -46,6 +47,7 @@ __all__ = [
     "VALIDATE_SCRATCH_DIRECTORY",
 ]
 
+DESIGN = "design"
 PLAN = "plan"
 EXECUTE = "execute"
 
@@ -191,6 +193,17 @@ def _common_prefix(first: str, second: str) -> str:
 
 
 STAGES: Mapping[str, StageSpec] = {
+    DESIGN: StageSpec(
+        name=DESIGN,
+        title="Design",
+        label="Deciding the approach",
+        system_prompt=DESIGN_PROMPT,
+        # Read-only, like Plan: in the free edition it decides, and writes no
+        # record. It may run a command to inspect the repository it is
+        # deciding about.
+        tool_names=_read_only() + ("run_command",),
+        artifact="design_doc",
+    ),
     PLAN: StageSpec(
         name=PLAN,
         title="Plan",

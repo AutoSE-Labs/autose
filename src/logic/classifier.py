@@ -49,8 +49,10 @@ Tiers, from least to most effort:
 Guidance:
 - Judge the work the request implies, not how politely or briefly it is worded.
 - "How does X work?", "what does this file do?", "fix this typo" -> spark.
-- "Add feature X", "fix this bug", "write tests for Y", "restructure X",
-  anything spanning many files -> craft.
+- "Add feature X", "fix this bug", "write tests for Y" -> craft.
+- "Restructure X", "design Y", "change how the system does Z", anything
+  spanning many files or requiring you to make significant design decisions
+  yourself -> forge.
 - A short follow-up inside an ongoing task ("yes, do that", "use the other
   approach") is part of that task. Judge it by the work it continues.
 
@@ -70,10 +72,11 @@ Reply with {{"tier": "..."}} and nothing else.
 #: Words that, when a model writes prose instead of JSON, point at a tier.
 #: Ordered most-specific first so "not a simple change" does not read as spark.
 _TEXT_HINTS: tuple[tuple[str, str], ...] = (
+    (r"\bforge\b", "forge"),
     (r"\bcraft\b", "craft"),
     (r"\bspark\b", "spark"),
-    (r"\barchitect\w*\b", "craft"),
-    (r"\bredesign\b|\brefactor\b|\brestructure\b", "craft"),
+    (r"\barchitect\w*\b", "forge"),
+    (r"\bredesign\b|\brefactor\b|\brestructure\b", "forge"),
     (r"\bimplement\b|\bfeature\b|\bbug\b", "craft"),
     (r"\btrivial\b|\bsimple question\b|\bone[- ]line\b", "spark"),
 )

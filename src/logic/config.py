@@ -498,6 +498,11 @@ approval:
 #     max_validation_iterations: -1
 #     time_budget_seconds: -1
 #     max_format_retries: -1
+#   forge:
+#     max_tool_rounds: -1
+#     max_validation_iterations: -1
+#     time_budget_seconds: -1
+#     max_format_retries: -1
 
 # Replace any built-in prompt by name; see logic.prompt_overrides for the full
 # list. Everything not named here keeps its built-in default.
@@ -505,6 +510,8 @@ approval:
 #   classifier_system: |
 #     ...
 #   spark_system: |
+#     ...
+#   design: |
 #     ...
 #   plan: |
 #     ...

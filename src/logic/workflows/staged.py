@@ -1,4 +1,4 @@
-"""The multi-stage runner behind `craft` (DR-003, DR-005, DR-009).
+"""The multi-stage runner behind `craft` and `forge` (DR-003, DR-005, DR-009).
 
 `craft` is Plan → Execute → Validate. The runner takes its stage list as a
 parameter rather than hard-coding it, so a tier with a different shape is a
@@ -67,6 +67,7 @@ from . import stages as _stages
 from .base import WorkflowOutcome, WorkflowRequest
 from .review import PlanDecision, PlanReview
 from .stages import (
+    DESIGN,
     EXECUTE,
     PLAN,
     STAGES,
@@ -682,6 +683,7 @@ class StagedWorkflow:
         parts = [f"# Request\n\n{request.prompt}"]
 
         for name, heading in (
+            ("design_doc", "Design decision (already made — implement against it)"),
             ("plan", "Implementation plan"),
             ("execution_summary", "What the implementation stage reported"),
         ):
@@ -728,7 +730,7 @@ class StagedWorkflow:
             report,
             list(memory.requirements),
             available_targets=tuple(
-                name for name in (PLAN, EXECUTE) if name in self._stages
+                name for name in (DESIGN, PLAN, EXECUTE) if name in self._stages
             ),
         )
 

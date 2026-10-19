@@ -20,6 +20,7 @@ from .base import (
     supports_tier,
 )
 from .craft import CRAFT_STAGES, CraftWorkflow
+from .forge import FORGE_STAGES, ForgeWorkflow
 from .spark import SparkAgent, SparkWorkflow
 from .staged import DEFAULT_BOUNDS, StagedWorkflow, WorkflowBounds
 from .stages import STAGES, StageAgent, StageSpec
@@ -27,6 +28,8 @@ from .verdict import Verdict, derive_verdict
 
 __all__ = [
     "CRAFT_STAGES",
+    "FORGE_STAGES",
+    "ForgeWorkflow",
     "CraftWorkflow",
     "DEFAULT_BOUNDS",
     "STAGES",

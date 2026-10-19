@@ -16,7 +16,7 @@ from logic.inference.registry import Provider, register_provider
 from logic.inference.settings import InferenceSettings
 from logic.limits import UNLIMITED
 from logic.session import Session, setup_from_config
-from logic.tiers import CRAFT, SPARK
+from logic.tiers import CRAFT, FORGE, SPARK
 from logic.tuning import TierBounds, Tuning
 from tests.support.fakes import (
     RecordingApprovalGate,
@@ -205,7 +205,7 @@ def test_a_tier_named_with_a_request_is_used_as_given(scripted, tmp_path):
 
 def test_every_tier_the_session_offers_can_actually_run(scripted, tmp_path):
     session = _session(scripted, tmp_path, [answer("a")])
-    assert set(session.implemented_tiers) == {SPARK, CRAFT}
+    assert set(session.implemented_tiers) == {SPARK, CRAFT, FORGE}
 
 
 def test_a_tier_change_is_announced_as_an_event(scripted, tmp_path):

@@ -155,7 +155,7 @@ def test_a_dashboard_over_a_ready_runtime_reports_itself_ready(scripted, tmp_pat
     assert state["ready"] is True
     assert state["model"] == _MODEL.name
     assert state["workspace"] == str(tmp_path)
-    assert [tier["name"] for tier in state["tiers"]] == ["spark", "craft"]
+    assert [tier["name"] for tier in state["tiers"]] == ["spark", "craft", "forge"]
     # DR-012's gated set is read from logic, never re-declared here.
     assert set(state["gated_tools"]) == {"run_command", "web_search", "fetch_url"}
 

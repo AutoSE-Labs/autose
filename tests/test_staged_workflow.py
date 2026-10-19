@@ -14,6 +14,7 @@ from logic.limits import UNLIMITED
 from logic.tiers import CRAFT
 from logic.workflows import WorkflowRequest
 from logic.workflows.craft import CraftWorkflow
+from logic.workflows.forge import ForgeWorkflow
 from logic.workflows.staged import DEFAULT_BOUNDS, StagedWorkflow, WorkflowBounds
 from logic.workflows.stages import EXECUTE, PLAN, STAGES, VALIDATE
 from tests.support.fakes import RecordingApprovalGate, ScriptedChatModel
@@ -877,3 +878,37 @@ def test_the_outcome_records_the_route_with_every_loopback(tmp_path):
     loopback = outcome.route[3]
     assert "untested" in loopback["detail"]
     assert loopback["unmet"] == "R1"
+
+
+# -- forge: the same runner with a Design stage in front (DR-054) -----------------
+
+
+def test_forge_runs_design_first_and_hands_its_note_to_the_later_stages(tmp_path):
+    model = ScriptedChatModel(
+        [
+            _answer(t)
+            for t in ("Use a decorator.", plan("R1"), execute("R1"), validate("R1"))
+        ]
+    )
+    outcome = ForgeWorkflow().run(
+        WorkflowRequest(
+            prompt="restructure retries",
+            workspace=Workspace.at(tmp_path),
+            model=model,
+            events=RecordingEventSink(),
+            approval_gate=RecordingApprovalGate(default=True),
+        )
+    )
+    assert outcome.succeeded
+    assert outcome.artifacts["design_doc"] == "Use a decorator."
+    for later in (1, 2):
+        assert "Use a decorator." in model.requests[later]["messages"][-1]["content"]
+
+
+def test_forge_writes_no_decision_record(tmp_path):
+    request = _request(
+        tmp_path,
+        ["Use a decorator.", plan("R1"), execute("R1"), validate("R1")],
+    )
+    ForgeWorkflow().run(request)
+    assert not (tmp_path / "docs").exists()
