@@ -291,6 +291,12 @@ class SessionRecord:
         identifier = str(document.get("id") or "")
         if not identifier:
             raise SessionStoreError("stored session has no id")
+        # DR-056: a hand-edited file may hold anything here; only a list is a
+        # queue, and anything else is read as none rather than failing the
+        # whole session list.
+        waiting = document.get("queue")
+        if not isinstance(waiting, list):
+            waiting = []
         return cls(
             id=identifier,
             workspace=str(document.get("workspace", "")),
@@ -303,7 +309,7 @@ class SessionRecord:
             name=str(document.get("name", "")),
             queue=tuple(
                 QueuedRequest.from_dict(item)
-                for item in document.get("queue") or ()
+                for item in waiting
                 if isinstance(item, Mapping) and str(item.get("prompt", "")).strip()
             ),
             summary=str(document.get("summary", "")),

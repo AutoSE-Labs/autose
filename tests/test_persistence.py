@@ -499,6 +499,17 @@ def test_a_queued_item_with_no_request_is_dropped_on_read():
     assert [item.prompt for item in SessionRecord.from_dict(document).queue] == ["real"]
 
 
+def test_a_queue_that_is_not_a_list_is_read_as_none_and_the_list_still_loads(store):
+    """A hand-edited file must not take the whole session list down with it."""
+    store.save(_record("good"))
+    broken = _record("bad").to_dict()
+    broken["queue"] = 5
+    (store.root / "bad.json").write_text(json.dumps(broken), encoding="utf-8")
+
+    assert store.load("bad").queue == ()
+    assert {record.id for record in store.list()} == {"good", "bad"}
+
+
 def test_a_kept_queue_is_saved_at_once_and_survives_the_next_turn(make_session, store):
     from logic.persistence import QueuedRequest
 
