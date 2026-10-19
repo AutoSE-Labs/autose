@@ -30,7 +30,7 @@ from .inference.settings import (
 )
 from .prompt_overrides import KNOWN_PROMPT_NAMES, PromptOverrides
 from .tuning import Tuning
-from .user_config import user_config_dir
+from .user_config import update_yaml_scalars, user_config_dir
 
 __all__ = [
     "AutoSEConfig",
@@ -38,6 +38,7 @@ __all__ = [
     "find_config_file",
     "load_config",
     "write_example_config",
+    "save_workspace_context_limit",
     "CONFIG_FILENAME",
     "WORKSPACE_CONFIG_PATH",
 ]
@@ -529,4 +530,42 @@ def write_example_config(path: str | Path) -> Path:
         raise ConfigurationError(f"refusing to overwrite existing config: {target}")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(EXAMPLE_CONFIG, encoding="utf-8")
+    return target
+
+
+def save_workspace_context_limit(workspace_root: str | Path, tokens: int) -> Path:
+    """Make *tokens* the window new sessions in this workspace start with (DR-059).
+
+    Written as ``inference.context_limit`` in the workspace's own
+    ``.autose/config.yaml``, which is layered over every other file
+    (DR-021), creating it if needed. Only that key changes: the rest of the
+    file, comments included, stays as the person wrote it. A configured
+    window is an explicit choice, so a session started from it never moves
+    to a window another client loaded (DR-059). ``AUTOSE_CONTEXT_LIMIT``, if
+    set, still wins for the shell it is set in.
+    """
+    if tokens <= 0:
+        raise ConfigurationError("a context window is a positive number of tokens")
+    root = Path(workspace_root).expanduser().resolve()
+    target = root / WORKSPACE_CONFIG_PATH
+    # The repository may have planted `.autose` or the file as a link to a
+    # file elsewhere, a private one say. Writing through it would copy that
+    # file into the workspace as a plain file (the write replaces the link),
+    # where the agent may read it and a commit may carry it.
+    for part in (target.parent, target):
+        if part.is_symlink():
+            raise ConfigurationError(
+                f"{part} is a link; AutoSE writes the workspace's settings only "
+                "to a file of its own"
+            )
+    try:
+        target.parent.resolve().relative_to(root)
+    except ValueError:
+        raise ConfigurationError(
+            f"{target.parent} is outside the workspace; not writing to it"
+        ) from None
+    # An ordinary project directory, not a private one: the file holds no
+    # secret and may well be committed with the repository.
+    target.parent.mkdir(parents=True, exist_ok=True)
+    update_yaml_scalars(target, {"inference.context_limit": tokens}, new_file_mode=0o644)
     return target

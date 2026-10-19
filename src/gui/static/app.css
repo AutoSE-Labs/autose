@@ -5916,6 +5916,21 @@ body.yolo .app-shell {
   }
 }
 
+/* ---------- context window: a workspace default (DR-059) ---------- */
+
+/* Four buttons can share the row under the picker; let them wrap rather
+   than squeeze the longest label. */
+.context-panel .overlay-actions {
+  flex-wrap: wrap;
+}
+
+/* On a phone the longest label may not fit one line; it wraps inside the
+   button instead of running past the panel. */
+#context-save {
+  max-width: 100%;
+  white-space: normal;
+}
+
 /* ---------- life: small signs of what is going on (life.js) ---------- */
 
 /* The run scrolls under soft edges instead of being cut by a ruler line. */

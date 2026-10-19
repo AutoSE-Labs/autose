@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
-from .catalog import ModelInfo, fetch_json
+from .catalog import LoadedWindow, ModelInfo, fetch_json
 from .settings import InferenceSettings
 
 __all__ = ["OllamaCatalog", "OLLAMA_DEFAULT_BASE_URL", "native_root"]
@@ -88,6 +88,22 @@ class OllamaCatalog:
         rather than treating an empty result as "no cap" (DR-022).
         """
         return {name: loaded.context_length for name, loaded in self._loaded().items()}
+
+    def loaded_window(self, name: str) -> LoadedWindow | None:
+        """The window *name* is loaded with now, from ``/api/ps`` alone (DR-059).
+
+        One small request, cheap enough to make as every turn starts: when
+        another client has loaded the model at a different window, matching
+        it saves the reload a request for the old window would force. A name
+        without a tag also matches its ``:latest``, as Ollama itself resolves it.
+        """
+        loaded = self._loaded()
+        found = loaded.get(name)
+        if found is None and ":" not in name:
+            found = loaded.get(f"{name}:latest")
+        if found is None:
+            return None
+        return LoadedWindow(found.context_length, found.gpu_fraction)
 
     def _loaded(self) -> dict[str, _Loaded]:
         """What ``/api/ps`` says about each loaded model (DR-022, DR-034)."""

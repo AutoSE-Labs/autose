@@ -32,7 +32,7 @@ gui = pytest.importorskip("gui", reason="the GUI adapter is a Pro-edition build"
 
 from gui.bridge import MAX_OPEN_SESSIONS, BridgeError, SessionBridge  # noqa: E402
 from gui.server import STATIC_ROOT, create_dashboard  # noqa: E402
-from logic.config import AutoSEConfig  # noqa: E402
+from logic.config import AutoSEConfig, load_config  # noqa: E402
 from logic.inference.catalog import ModelInfo  # noqa: E402
 from logic.inference.registry import Provider, register_provider  # noqa: E402
 from logic.inference.settings import InferenceSettings  # noqa: E402
@@ -1027,6 +1027,155 @@ def test_a_window_that_is_not_a_number_is_refused_over_http(served):
     status, payload = _request(served, "/api/context", body={"tokens": "lots"})
     assert status == 400
     assert "whole number" in json.dumps(payload)
+
+
+# -- DR-059: making a window the workspace's default ------------------------------
+
+
+def test_a_window_can_be_made_the_default_for_the_workspace(adjustable, tmp_path):
+    config_file = tmp_path / ".autose" / "config.yaml"
+    config_file.parent.mkdir()
+    config_file.write_text("# team settings\ninference:\n  temperature: 0.2  # keep low\n")
+    state = adjustable.save_context_default(65536)
+    assert state["saved_to"] == str(config_file)
+    text = config_file.read_text()
+    assert text == (
+        "# team settings\ninference:\n  temperature: 0.2  # keep low\n"
+        "  context_limit: 65536\n"
+    )
+    # This session uses it now, and the page knows it is the default.
+    assert state["context_limit"] == 65536
+    assert state["context_advice"]["default_window"] == 65536
+    assert state["context_advice"]["saves_default"] is True
+    # A new session in this workspace starts with it, as a choice.
+    state = adjustable.new_session()
+    assert state["context_limit"] == 65536
+    live = adjustable._open[state["session_id"]]
+    assert live.session._configured_window == 65536
+    # And so does the next start of AutoSE here.
+    assert load_config(workspace_root=tmp_path).inference.context_limit == 65536
+
+
+def test_a_new_workspace_file_is_created_for_the_default(adjustable, tmp_path):
+    adjustable.save_context_default(16384)
+    assert (tmp_path / ".autose" / "config.yaml").read_text() == (
+        "inference:\n  context_limit: 16384\n"
+    )
+
+
+def test_a_default_the_model_cannot_serve_is_refused_and_not_saved(adjustable, tmp_path):
+    with pytest.raises(BridgeError):
+        adjustable.save_context_default(262144)
+    assert not (tmp_path / ".autose" / "config.yaml").exists()
+
+
+def test_no_default_is_saved_from_a_session_on_another_provider(adjustable, tmp_path):
+    """The saved window would apply to the default provider, not this one."""
+
+    class _Catalog:
+        def __init__(self, settings):
+            pass
+
+        def list_models(self):
+            return (
+                ModelInfo(
+                    name="other:7b",
+                    context_length=32768,
+                    context_length_measured=True,
+                    max_context_length=262144,
+                    supports_tools=True,
+                ),
+            )
+
+    register_provider(
+        Provider(
+            name="test-window-elsewhere",
+            chat_model=lambda settings: ScriptedChatModel([answer("ok")]),
+            catalog=_Catalog,
+            default_base_url="http://elsewhere/v1",
+            is_local=True,
+            serves_requested_window=True,
+        ),
+        replace=True,
+    )
+    adjustable.select_model("other:7b", provider="test-window-elsewhere")
+    state = adjustable.snapshot()
+    assert state["context_advice"]["saves_default"] is False
+    with pytest.raises(BridgeError):
+        # 262144 is past the default model's maximum, and checked only here.
+        adjustable.save_context_default(262144)
+    assert not (tmp_path / ".autose" / "config.yaml").exists()
+    assert adjustable._config.inference.context_limit is None
+
+
+def test_two_saves_at_once_leave_the_file_and_the_default_agreeing(
+    adjustable, tmp_path, monkeypatch
+):
+    """A second save landing while the first finishes must not split them.
+
+    The file used to be written outside the bridge's lock, so the save that
+    wrote the file last was not always the one that set the default new
+    sessions start with: the file said one window and the dashboard another.
+    """
+    import gui.bridge as bridge_module
+
+    real = bridge_module.save_workspace_context_limit
+    other_done = threading.Event()
+
+    def other() -> None:
+        adjustable.save_context_default(65536)
+        other_done.set()
+
+    second = threading.Thread(target=other)
+    written: list[int] = []
+
+    def save(root, tokens):
+        saved = real(root, tokens)
+        written.append(tokens)
+        if len(written) == 1:
+            # The second save arrives just as the first has written its file.
+            second.start()
+            other_done.wait(0.5)
+        return saved
+
+    monkeypatch.setattr(bridge_module, "save_workspace_context_limit", save)
+    adjustable.save_context_default(16384)
+    second.join(5)
+    assert not second.is_alive()
+    on_disk = load_config(workspace_root=tmp_path).inference.context_limit
+    assert on_disk == adjustable._config.inference.context_limit
+    assert adjustable.snapshot()["context_advice"]["default_window"] == on_disk
+
+
+def test_the_context_panel_shows_the_setting_only_where_it_applies():
+    """A saved window is for the default provider only (DR-059).
+
+    On a session switched to another provider that AutoSE also chooses the
+    window for, the panel used to show the YAML snippet under "To change it",
+    a setting that would not apply to that session at all. Where AutoSE
+    chooses the window, the snippet is shown only beside the save button.
+    """
+    script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    body = script.split("function openContext()", 1)[1].split("\nfunction ", 1)[0]
+    assert "const remedy = (advice && !advice.adjustable && advice.remedy)" in body
+    default = script.split("function renderContextDefault()", 1)[1].split(
+        "\nasync function ", 1
+    )[0]
+    assert "!advice.saves_default" in default
+    # The default may come from the person's own file or the environment,
+    # so the panel does not claim it is kept in the workspace's file.
+    assert "kept in .autose/config.yaml" not in default
+
+
+def test_a_fixed_window_runtime_has_no_default_to_save(served, tmp_path):
+    status, payload = _request(
+        served, "/api/context", body={"tokens": 65536, "action": "save_default"}
+    )
+    assert status == 400
+    assert "started with" in json.dumps(payload)
+    assert not (tmp_path / ".autose" / "config.yaml").exists()
+    status, _ = _request(served, "/api/context", body={"tokens": 65536, "action": "x"})
+    assert status == 400
 
 
 # -- DR-037: the inspector ----------------------------------------------------

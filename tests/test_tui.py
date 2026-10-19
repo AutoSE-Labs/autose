@@ -582,6 +582,22 @@ def test_a_denied_call_is_shown():
     assert "denied" in console.file.getvalue()
 
 
+def test_a_window_matched_to_the_loaded_model_is_mentioned_once():
+    """DR-059: the window changed without being asked, so the terminal says so."""
+    console = _console()
+    indicator = ActivityIndicator(console)
+    indicator.emit(
+        Event(
+            "context_window_changed",
+            data={"previous": 32768, "tokens": 65536, "reason": "matched the loaded model"},
+        )
+    )
+    indicator.emit(Event("context_window_changed", data={"previous": 1, "tokens": 8192}))
+    output = console.file.getvalue()
+    assert "context window 64k tokens — matched the loaded model" in output
+    assert "8k" not in output
+
+
 def test_unknown_events_are_ignored():
     ActivityIndicator(_console()).emit(Event("something_new", data={}))
 
