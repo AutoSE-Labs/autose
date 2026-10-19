@@ -6205,8 +6205,9 @@ body.yolo .app-shell {
   white-space: nowrap;
 }
 
-/* A finished run's card can be picked to show it in the details panel. */
-.work-card[data-run-card]:not(.picked):hover {
+/* A finished run's card can be picked to show it in the details panel, but
+ * not while a run is live: the panel is that run's then. */
+.conversation-inner:not(.run-live) .work-card[data-run-card]:not(.picked):hover {
   outline: 1px dashed var(--pencil);
   outline-offset: 3px;
 }
@@ -6218,7 +6219,7 @@ body.yolo .app-shell {
 
 /* Dark: no lines, so the picked card glows as the running one does, only
  * brighter. */
-:root[data-theme="dark"] .work-card[data-run-card]:not(.picked):hover {
+:root[data-theme="dark"] .conversation-inner:not(.run-live) .work-card[data-run-card]:not(.picked):hover {
   outline: none;
   box-shadow: 0 0 0 1px rgba(137, 180, 250, 0.22), 0 12px 32px -20px rgba(0, 0, 0, 0.9);
 }

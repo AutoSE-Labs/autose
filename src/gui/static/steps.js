@@ -261,7 +261,10 @@ function savedNoteLine(note) {
 /* Mark the picked card, and only it. Cards are cached and reused between
  * paints, so the mark is set on every paint rather than when a card is made. */
 function markPickedCard() {
-  const picked = desk(focusId()).picked;
+  const seat = desk(focusId());
+  const picked = seat.picked;
+  // While a run is live the panel shows it, so no card offers itself.
+  dom.messages.classList.toggle("run-live", Boolean(seat.run));
   dom.messages.querySelectorAll("[data-run-card]").forEach((node) => {
     const on = picked !== undefined && picked !== null && Number(node.dataset.runCard) === picked;
     node.classList.toggle("picked", on);
@@ -272,6 +275,9 @@ function markPickedCard() {
 
 function pickRun(index) {
   const seat = desk(focusId());
+  // A live run keeps the panel (DR-055): a pick made now would mark a card
+  // the panel does not show, then take the panel from the run as it finished.
+  if (seat.run) return;
   // Clicking the picked card again goes back to the latest run.
   seat.picked = seat.picked === index ? undefined : index;
   markPickedCard();

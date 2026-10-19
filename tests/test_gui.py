@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import threading
 import tomllib
 import urllib.error
@@ -1360,6 +1361,21 @@ def test_a_run_joined_part_way_is_shown_from_its_stored_trace():
     assert "seat.lastRun.turnIndex === picked && !seat.lastRun.joined" in chooser
     assert "if (seat.lastRun && seat.lastRun.joined)" in chooser
     assert chooser.index("seat.lastRun.joined)") < chooser.index("if (seat.lastRun) return seat.lastRun;")
+
+
+def test_a_card_cannot_be_picked_while_a_run_is_live():
+    """The panel shows a live run (DR-055). A pick made during one marked a
+    card the panel did not show, then took the panel from the run the moment
+    it finished; the hover outline offered a click that did nothing."""
+    steps = (STATIC_ROOT / "steps.js").read_text(encoding="utf-8")
+    pick = steps[steps.index("function pickRun(index)") :]
+    pick = pick[: pick.index("\n}\n")]
+    assert "if (seat.run) return;" in pick
+    assert pick.index("if (seat.run) return;") < pick.index("seat.picked =")
+    assert 'dom.messages.classList.toggle("run-live", Boolean(seat.run))' in steps
+    css = (STATIC_ROOT / "app.css").read_text(encoding="utf-8")
+    for rule in re.findall(r"[^{}]*\[data-run-card\][^{}]*:hover[^{}]*\{", css):
+        assert ":not(.run-live)" in rule, rule
 
 
 
