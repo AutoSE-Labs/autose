@@ -332,3 +332,41 @@ def test_what_a_headless_run_started_in_the_background_is_stopped_at_the_end(
     assert code == EXIT_OK
     exited = [line for line in lines if line.get("event") == "process_exited"]
     assert exited and exited[0]["data"]["status"] == "stopped"
+
+
+def test_the_error_stays_the_last_line_when_a_background_command_is_stopped(
+    endpoint, tmp_path, monkeypatch
+):
+    """Stopping what the run started emits events of its own; they come
+    before the error, which a script reads as the end of the stream."""
+    from logic.common.tools import background
+    from logic.errors import InferenceError
+
+    monkeypatch.setattr(background, "FIRST_LOOK_SECONDS", 0.1)
+    code, lines = _run(
+        endpoint,
+        tmp_path,
+        [
+            calls(tool_call("run_command", command="sleep 30 &")),
+            InferenceError("the runtime went away"),
+        ],
+        auto_approve=True,
+        authorized_by="test",
+    )
+
+    assert code == EXIT_INCOMPLETE
+    assert _final(lines)["type"] == "error"
+    exited = [line for line in lines if line.get("event") == "process_exited"]
+    assert exited and exited[0]["data"]["status"] == "stopped"
+
+
+def test_nothing_is_written_after_the_last_line():
+    """A background command's thread can tell its end after the result."""
+    from tui.headless import _writer
+
+    stream = io.StringIO()
+    write = _writer(stream)
+    write({"type": "result"}, last=True)
+    write({"type": "event", "event": "process_ended"})
+
+    assert [json.loads(line)["type"] for line in stream.getvalue().splitlines()] == ["result"]

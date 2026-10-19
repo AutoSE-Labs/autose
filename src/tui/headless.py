@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, TextIO
@@ -145,16 +146,21 @@ def run_headless(
         with stop_on_interrupt(session.request_stop), exit_cleanly_on_termination():
             turn = session.run(prompt, tier=tier)
     except AutoSEError as exc:
-        write({"type": "error", "error": str(exc), "kind": type(exc).__name__})
-        return EXIT_INCOMPLETE
+        failure = {"type": "error", "error": str(exc), "kind": type(exc).__name__}
     except KeyboardInterrupt:
-        write({"type": "error", "error": "interrupted", "kind": "interrupted"})
-        return EXIT_INCOMPLETE
+        failure = {"type": "error", "error": "interrupted", "kind": "interrupted"}
+    else:
+        failure = None
     finally:
         # DR-062: one prompt, one process: nothing it started is left behind.
+        # Before the last line, which is the result or the error: stopping
+        # emits `process_exited` events of its own.
         session.close()
 
-    write(_result(turn, session))
+    if failure is not None:
+        write(failure, last=True)
+        return EXIT_INCOMPLETE
+    write(_result(turn, session), last=True)
     return EXIT_OK if turn.succeeded else EXIT_INCOMPLETE
 
 
@@ -162,9 +168,18 @@ def run_headless(
 
 
 def _writer(out: TextIO):
-    """One JSON object per line, flushed, so a consumer can read as it goes."""
+    """One JSON object per line, flushed, so a consumer can read as it goes.
 
-    def write(payload: dict[str, Any]) -> None:
+    Events also arrive from other threads — a background command's exit is
+    told by the thread that waits for it (DR-062) — so a line is written
+    whole under a lock, and nothing is written after the one marked *last*:
+    the result or the error stays the last line however late an event is.
+    """
+    lock = threading.Lock()
+    finished = False
+
+    def write(payload: dict[str, Any], *, last: bool = False) -> None:
+        nonlocal finished
         try:
             line = json.dumps(payload, ensure_ascii=False, default=str)
         except Exception:  # noqa: BLE001 - see below
@@ -176,11 +191,15 @@ def _writer(out: TextIO):
             line = json.dumps(
                 {"type": "warning", "message": "an event could not be serialised"}
             )
-        out.write(line + "\n")
-        try:
-            out.flush()
-        except (OSError, ValueError):  # pragma: no cover - closed stream
-            pass
+        with lock:
+            if finished:
+                return
+            finished = last
+            out.write(line + "\n")
+            try:
+                out.flush()
+            except (OSError, ValueError):  # pragma: no cover - closed stream
+                pass
 
     return write
 
