@@ -18,6 +18,7 @@ from rich.text import Text
 
 from logic.common.approval import EDIT_APPROVAL_TOOLS, ApprovalRequest
 from logic.common.changes import FileChange, RevertReport
+from logic.followups import FollowUp
 from logic.inference.catalog import ModelInfo
 from logic.inference.discovery import DetectedRuntime
 from logic.persistence import SessionRecord
@@ -34,6 +35,7 @@ __all__ = [
     "loopback_notice",
     "classification_line",
     "outcome_panel",
+    "follow_ups_line",
     "changes_summary",
     "diff_panel",
     "revert_report",
@@ -802,3 +804,25 @@ def outcome_panel(
         title=_OUTCOME_TITLES.get(stop_reason, "Not completed"),
         border_style=THEME.warning,
     )
+
+
+def follow_ups_line(follow_ups: tuple[FollowUp, ...]) -> RenderableType | None:
+    """What to ask next, as one dim line under the result (DR-063).
+
+    The terminal has nothing to click, so each is numbered and ``/next <n>``
+    puts its whole request on the next line to edit or send. Typing the label
+    instead would not do: "Carry on from where it stopped" means nothing to a
+    model that never saw the stopped run (DR-004). Dim, because it is the
+    least important thing on the screen once a run has ended.
+    """
+    if not follow_ups:
+        return None
+    line = Text(style=THEME.muted)
+    line.append("  next: ")
+    line.append(
+        f"  {THEME.bullet}  ".join(
+            f"{number} {item.label}" for number, item in enumerate(follow_ups, 1)
+        )
+    )
+    line.append(f"  {THEME.bullet}  /next {1 if len(follow_ups) == 1 else '<n>'} to use one")
+    return line

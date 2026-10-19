@@ -130,6 +130,7 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-060](docs/DecisionRecords/DR-060-a-command-menu.md) | A command menu in the dashboard |
 | [DR-061](docs/DecisionRecords/DR-061-undo-one-file-of-one-run.md) | Undo one file of one run |
 | [DR-062](docs/DecisionRecords/DR-062-commands-that-keep-running-are-managed.md) | Commands that keep running (servers, watchers) are started, watched and stopped by AutoSE |
+| [DR-063](docs/DecisionRecords/DR-063-suggested-follow-ups-are-worked-out-not-generated.md) | Suggested follow-ups are worked out from the run, not generated |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
 

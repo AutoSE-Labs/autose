@@ -121,6 +121,8 @@
       <div class="jump-wrap"><button id="jump-latest" class="jump-latest" type="button" hidden>↓ Jump to the latest</button></div>
 
       <section class="composer-area" aria-label="New request">
+        <!-- DR-063: what to ask next, once a run has ended. -->
+        <div class="follow-ups" id="follow-ups" role="group" aria-label="Suggested next requests" hidden></div>
         <div class="composer" id="composer">
           <textarea id="prompt" rows="2" spellcheck="true" aria-label="Describe your request"
             placeholder="Describe a change, or ask about this workspace"></textarea>

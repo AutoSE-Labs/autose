@@ -19,6 +19,7 @@ from logic.common.events import Event
 from logic.common.trace import RunTrace
 from logic.connections import Connection
 from logic.diagnostics import Diagnosis
+from logic.followups import suggest_follow_ups
 from logic.inference.catalog import ModelInfo
 from logic.inference.discovery import DetectedRuntime
 from logic.persistence import SessionRecord
@@ -85,6 +86,12 @@ def turn_payload(turn: Turn, *, index: int = -1) -> dict[str, Any]:
             for name, text in dict(turn.artifacts).items()
             if text
         },
+        # DR-063: worked out by logic each time the turn is sent, never stored,
+        # so a turn reloaded from disk gets the same suggestions it had live.
+        "follow_ups": [
+            {"label": item.label, "prompt": item.prompt}
+            for item in suggest_follow_ups(turn)
+        ],
     }
 
 

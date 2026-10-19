@@ -6603,6 +6603,75 @@ body.yolo .app-shell {
   width: 24px;
 }
 
+/* ---------- suggested follow-ups above the request box (DR-063) ---------- */
+
+/* Pills in the starter chips' look, lined up with the request box under them.
+ * A chip is cut short with an ellipsis rather than wrapped: its title holds
+ * the whole request, and three of them must fit in one glance. */
+.follow-ups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  max-width: 920px;
+  margin: 0 auto 8px;
+  padding: 0 4px;
+}
+
+.follow-ups-label {
+  margin-right: 2px;
+}
+
+.follow-up-chip {
+  max-width: min(100%, 360px);
+  padding: 5px 12px;
+  overflow: hidden;
+  border: 1px solid var(--edge-2);
+  border-radius: 999px;
+  background: var(--sheet);
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--pen-deep);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.follow-up-chip:hover {
+  border-color: var(--pen);
+  background: var(--pen-soft);
+}
+
+.follow-ups-close {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-2);
+}
+
+.follow-ups-close:hover {
+  border-color: var(--edge-2);
+  background: var(--sheet);
+  color: var(--pen-deep);
+}
+
+/* Dark: filled, never outlined, like every other control at night. */
+:root[data-theme="dark"] .follow-up-chip {
+  border-color: transparent;
+  background: var(--surface0);
+}
+
+:root[data-theme="dark"] .follow-up-chip:hover,
+:root[data-theme="dark"] .follow-ups-close:hover {
+  border-color: transparent;
+  background: var(--surface1);
+}
+
 /* ---------- life: small signs of what is going on (life.js) ---------- */
 
 /* The run scrolls under soft edges instead of being cut by a ruler line. */

@@ -35,6 +35,7 @@ from logic.common.events import CompositeEventSink, EventSink
 from logic.common.processes import exit_cleanly_on_termination
 from logic.config import AutoSEConfig, load_config
 from logic.errors import AutoSEError, ConfigurationError
+from logic.followups import FollowUp, suggest_follow_ups
 from logic.persistence import SESSIONS_DIRECTORY, FileSessionStore, SessionRecord
 from logic.saved_allowances import AllowanceFile
 from logic.session import Session, SessionSetup, setup_from_config
@@ -50,6 +51,7 @@ from .render import (
     banner,
     changes_summary,
     error_panel,
+    follow_ups_line,
     format_tokens,
     outcome_panel,
     runtime_table,
@@ -80,6 +82,11 @@ class App:
         #: Text typed while the last turn was running, waiting to be offered
         #: back at the next prompt rather than discarded.
         self._carried = ""
+        #: Whether the last turn's suggestions still answer the last thing
+        #: that happened (DR-063). A run that ended with no turn — an error, a
+        #: tier not built yet — leaves the turn before it as the latest, and
+        #: its suggestions would answer the wrong run.
+        self._suggesting = True
 
     # -- the loop ---------------------------------------------------------
 
@@ -165,11 +172,32 @@ class App:
         finally:
             readline.set_startup_hook()
 
+    def follow_ups(self) -> tuple[FollowUp, ...]:
+        """What to ask next after the latest run, worked out afresh (DR-063).
+
+        Afresh rather than kept from when the run ended, so an /undo since
+        then is reflected, and a resumed session offers what its last run
+        would have.
+        """
+        history = self.session.history
+        if not self._suggesting or not history:
+            return ()
+        return suggest_follow_ups(history[-1])
+
+    def offer(self, text: str) -> None:
+        """Start the next request line with *text*, to edit or send as it is.
+
+        The line editor holds one line, so a request of several is put on it
+        as one; nothing it says is lost.
+        """
+        self._carried = " ".join(part.strip() for part in text.splitlines() if part.strip())
+
     def _take_carried(self) -> str:
         carried, self._carried = self._carried, ""
         return carried
 
     def _turn(self, prompt: str) -> None:
+        self._suggesting = False
         self.console.print()
         self.activity.start("thinking")
         collected: list[str] = []
@@ -284,8 +312,8 @@ class App:
                 self.console.print(
                     warning_text(
                         "you stopped this run. What it had already produced is "
-                        "above and in the session history — ask a follow-up to "
-                        "carry on from here."
+                        "above, but the model will not remember it — /next 1 "
+                        "puts the request back to carry on from here."
                     )
                 )
         if turn.usage.total_tokens:
@@ -297,6 +325,11 @@ class App:
                     style=THEME.muted,
                 )
             )
+        # DR-063: what to ask next, worked out from how the run ended.
+        self._suggesting = True
+        hint = follow_ups_line(suggest_follow_ups(turn))
+        if hint is not None:
+            self.console.print(hint)
 
     def print_status(self) -> None:
         self.console.print(status_line(self.session))
