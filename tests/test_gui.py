@@ -1336,6 +1336,7 @@ def test_a_step_s_status_is_escaped_where_it_becomes_a_class():
     assert "status-${step.status}" not in source
     assert "status-${escapeHtml(step.status)}" in source
 
+
 def test_a_picked_run_without_checks_shows_none_rather_than_another_run_s():
     """Picking a spark run this page watched showed the last craft run's
     requirements, marked final, in the Checks tab: only a run read back from
@@ -1377,6 +1378,16 @@ def test_a_card_cannot_be_picked_while_a_run_is_live():
     for rule in re.findall(r"[^{}]*\[data-run-card\][^{}]*:hover[^{}]*\{", css):
         assert ":not(.run-live)" in rule, rule
 
+
+def test_the_picked_card_is_not_outlined_in_the_dark_theme():
+    """Dark is Catppuccin Mocha with no lines: surfaces and glows separate
+    things. A solid ring round the picked card is a border by another name."""
+    css = (STATIC_ROOT / "app.css").read_text(encoding="utf-8")
+    (body,) = re.findall(r':root\[data-theme="dark"\] \.work-card\.picked \{([^}]*)\}', css)
+    assert "outline: none" in body
+    shadows = re.search(r"box-shadow:([^;]*);", body).group(1)
+    # A spread-only shadow ("0 0 0 2px …") draws a hard line.
+    assert not re.search(r"\b0 0 0 \d", shadows), shadows
 
 
 def test_no_page_script_writes_inline_styles():
