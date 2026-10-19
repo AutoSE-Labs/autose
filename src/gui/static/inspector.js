@@ -31,18 +31,34 @@ function activityPanelMarkup(run) {
     return `<div class="inspector-empty">Each step of a run appears here with its arguments, its result and
       how long it took.</div>`;
   }
+  // DR-055: a run read back from the session says which run it is.
+  const head = run.stored ? savedRunHeadMarkup(run) : "";
+  if (run.stored && (!run.loaded || run.failed)) {
+    return head + `<div class="inspector-empty">${run.failed ? `Could not read this run's steps: ${escapeHtml(run.failed)}` : "Reading this run's steps…"}</div>`;
+  }
   const steps = run.steps || [];
   const tools = steps.filter((step) => step.type === "tool");
   const failed = tools.filter((step) => step.status === "failed").length;
   // Duration only once the run is over: a ticking clock here would repaint the
   // whole panel every second, and the card already shows one.
   const summary =
+    head +
     `<div class="inspector-summary">` +
     `<span><strong>${tools.length}</strong> tool call${tools.length === 1 ? "" : "s"}</span>` +
     (failed ? `<span class="bad"><strong>${failed}</strong> failed</span>` : "") +
     (run.finishedAt ? `<span>${escapeHtml(formatElapsed(run.finishedAt - run.startedAt))}</span>` : "") +
     `<span class="inspector-state">${run.running ? "running" : "finished"}</span>` +
     `</div>`;
+  if (!steps.length && run.stored) {
+    return (
+      summary +
+      `<div class="inspector-empty">${
+        run.kept
+          ? "This run answered without using any tools."
+          : "No steps were kept for this run. Runs from before steps were saved show only their result."
+      }</div>`
+    );
+  }
   if (!steps.length) {
     return summary + `<div class="inspector-empty">Waiting for the model's first reply. On a laptop GPU, this is the slow part.</div>`;
   }
@@ -67,6 +83,20 @@ function activityPanelMarkup(run) {
     parts.push(step.type === "tool" ? toolStepMarkup(step, run) : noteStepMarkup(step));
   });
   return summary + `<div class="steps">${parts.join("")}</div>`;
+}
+
+/* Which stored run this is, and the way back to the latest one. */
+function savedRunHeadMarkup(run) {
+  const history = (state && state.history) || [];
+  const latest = history.length ? history[history.length - 1].index : -1;
+  return (
+    `<div class="inspector-run"><span class="lbl">${escapeHtml(run.label)}</span>` +
+    `<span class="inspector-run-prompt" title="${escapeHtml(run.prompt)}">${escapeHtml(elideMiddle(run.prompt.split("\n")[0], 60))}</span>` +
+    (run.turnIndex !== latest
+      ? `<button type="button" class="inline-button" data-unpick-run="1">Show the latest run</button>`
+      : "") +
+    `</div>`
+  );
 }
 
 const STEP_STATUS_LABELS = { running: "running", done: "ok", failed: "failed", refused: "refused" };
@@ -308,7 +338,9 @@ function usagePanelMarkup(view) {
     `</div>`;
   const run = view.run;
   let runPart = "";
-  if (run && run.rounds.length) {
+  if (run && run.stored && !run.loaded) {
+    runPart = `<div class="step-group">${escapeHtml(run.label)}</div><div class="inspector-empty">Reading this run's usage…</div>`;
+  } else if (run && run.rounds.length) {
     const titles = new Map((run.stages || []).map((stage) => [stage.name, stage.title]));
   const numbers = new Map((run.stages || []).map((stage, index) => [stage.name, index + 1]));
     const byStage = new Map();
@@ -333,7 +365,7 @@ function usagePanelMarkup(view) {
       })
       .join("");
     runPart =
-      `<div class="step-group">${run.running ? "This run, so far" : "Last run"}</div>` +
+      `<div class="step-group">${run.running ? "This run, so far" : escapeHtml(run.label || "Last run")}</div>` +
       `<table class="usage-table"><thead><tr><th>Stage</th><th>Rounds</th><th>In</th><th>Out</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table>` +
       `<div class="step-group">Context used each round</div>` +
       contextBarsMarkup(run.rounds);

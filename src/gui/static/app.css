@@ -6175,6 +6175,59 @@ body.yolo .app-shell {
   }
 }
 
+/* ---------- a finished run's steps, read back (steps.js, DR-055) ---------- */
+
+/* Which run the details panel shows, when it is not the one running. */
+.inspector-run {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 10px;
+  min-width: 0;
+}
+
+.inspector-run .lbl {
+  flex: none;
+}
+
+.inspector-run-prompt {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.inspector-run .inline-button {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* A finished run's card can be picked to show it in the details panel. */
+.work-card[data-run-card]:not(.picked):hover {
+  outline: 1px dashed var(--pencil);
+  outline-offset: 3px;
+}
+
+.work-card.picked {
+  outline: 2px solid var(--pen);
+  outline-offset: 3px;
+}
+
+/* Dark: no lines, so the picked card glows as the running one does, only
+ * brighter. */
+:root[data-theme="dark"] .work-card[data-run-card]:not(.picked):hover {
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(137, 180, 250, 0.22), 0 12px 32px -20px rgba(0, 0, 0, 0.9);
+}
+
+:root[data-theme="dark"] .work-card.picked {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.6), 0 12px 32px -20px rgba(0, 0, 0, 0.9);
+}
+
 /* ---------- life: small signs of what is going on (life.js) ---------- */
 
 /* The run scrolls under soft edges instead of being cut by a ruler line. */

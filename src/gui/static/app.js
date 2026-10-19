@@ -1407,6 +1407,7 @@ function renderConversation() {
   const queued = queueNode();
   if (queued) nodes.push(queued);
   dom.messages.replaceChildren(...nodes);
+  markPickedCard();
   if (seat.run) renderRun();
   else renderInspector();
   if (pinned) scrollToBottom();
@@ -1527,6 +1528,8 @@ function receiptNode(turn) {
   const node = document.createElement("article");
   node.className = `work-card ${receiptTone(turn)}`;
   node.innerHTML = receiptMarkup(turn);
+  // DR-055: a click on the card shows this run in the details panel.
+  node.dataset.runCard = String(turn.index);
   receiptCache.set(key, node);
   return node;
 }
@@ -1604,6 +1607,8 @@ function receiptMarkup(turn) {
 function startRun(id, current) {
   const seat = desk(id);
   if (seat.run) return; // already tracking this session's turn
+  // A run starting takes the details panel back from a picked one (DR-055).
+  seat.picked = undefined;
   const node = document.createElement("article");
   node.className = "work-card";
   const slip = slipNode(current.prompt || "");
@@ -1919,12 +1924,15 @@ function renderRun() {
 
 let inspectorTab = "requirements";
 
-/* The run the inspector describes: the one in progress, else the last one this
- * tab watched. A turn finished before the page loaded has no step record, so
- * there is nothing to show for it beyond its receipt in the conversation. */
+/* The run the inspector describes: the one in progress, else the one picked in
+ * the conversation, else the last one this tab watched. A run this tab did
+ * not watch is read back from the session (DR-055, steps.js). */
 function inspectedRun() {
   const seat = desk(focusId());
-  return seat.run || seat.lastRun || null;
+  if (seat.run) return seat.run;
+  // steps.js loads after this file, and the panel's first paint comes first.
+  const saved = typeof pickedOrSavedRun === "function" ? pickedOrSavedRun(seat) : undefined;
+  return saved === undefined ? seat.lastRun || null : saved;
 }
 
 /* DR-038: the requirements view — the run this page watched, with each
@@ -1940,6 +1948,9 @@ function requirementsView() {
       live: Boolean(run.running),
     };
   }
+  // A run picked in the conversation that had no checks: not another run's
+  // (DR-055).
+  if (run && run.stored && desk(focusId()).picked !== undefined) return null;
   const turn = [...((state && state.history) || [])]
     .reverse()
     .find((item) => item.requirements && item.requirements.length);
@@ -2084,6 +2095,7 @@ function finishRun(id, turn) {
   stopTimer(run);
   run.running = false;
   run.finishedAt = Date.now();
+  run.turnIndex = turn.index;
   seat.lastRun = run;
   // The next state frame carries this turn in `history`, so the live pair is
   // dropped rather than drawn twice.
@@ -2093,6 +2105,7 @@ function finishRun(id, turn) {
     // stamp once; the cache keeps this node, so later repaints do not replay it.
     run.node.className = `work-card ${receiptTone(turn)} just-finished`;
     run.node.innerHTML = receiptMarkup(turn);
+    run.node.dataset.runCard = String(turn.index);
     receiptCache.set(
       `${id}:${turn.index}:${turn.stop_reason}:${(turn.changes || []).length}:${(turn.undone || []).length}`,
       run.node
