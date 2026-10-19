@@ -6061,6 +6061,13 @@ body.yolo .app-shell {
   white-space: nowrap;
 }
 
+/* A call approved from the menu is read in full, never cut short, and its
+ * spaces are kept as they are typed. */
+.palette-item.wrap .palette-label {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .palette-label mark {
   background: transparent;
   color: var(--pen-deep);

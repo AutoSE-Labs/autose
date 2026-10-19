@@ -25,6 +25,8 @@ const PALETTE_RECENT_MAX = 5;
 const PALETTE_REOPEN_BROWSE = 3;
 const PALETTE_FILES_MAX = 8;
 const PALETTE_GROUP_MAX = 10;
+/* The longest call the menu approves: shown whole, on a row that wraps. */
+const PALETTE_ASK_WHOLE = 160;
 const PALETTE_GROUPS = ["Waiting for you", "This run", "Sessions", "Go to", "Settings", "Files"];
 
 const PALETTE_ON_MAC = /Mac|iPhone|iPad/.test(
@@ -97,6 +99,11 @@ function paletteCommands() {
       keep: false,
       remember: true,
       unavailable: "",
+      // `deliberate`: it answers something that waits (a call, a plan, a
+      // held queue) or stops a run, so it is never the row Enter runs before
+      // anything is typed.
+      deliberate: false,
+      wrap: false,
       ...command,
     });
   if (state) {
@@ -114,25 +121,46 @@ function paletteCommands() {
 function paletteWaiting(add) {
   const group = "Waiting for you";
   approvals.forEach((request) => {
-    const what = elideMiddle(paletteSubject(request), 64);
-    const base = { hint: paletteWhere(request.session), keep: true, remember: false };
+    const subject = paletteSubject(request);
+    // A call is approved here only when every character of it is on screen:
+    // one line, short enough to be shown in full on a row that wraps. A
+    // longer one, or one on several lines (each a command of its own), is
+    // opened where it waits instead.
+    const whole = !/[\r\n]/.test(subject) && subject.length <= PALETTE_ASK_WHOLE;
+    const what = whole ? subject : elideMiddle(subject.replace(/\s+/g, " "), 64);
+    const base = { hint: paletteWhere(request.session), keep: true, remember: false, deliberate: true };
     const tool = String(request.tool || "");
-    add(group, {
-      ...base,
-      id: `ask:${request.id}:once`,
-      icon: PALETTE_ICONS.run,
-      label: `Run it: ${what}`,
-      keywords: `approve yes once ${tool}`,
-      run: () => decide(request.id, "once"),
-    });
-    if (request.allow) {
+    if (whole) {
       add(group, {
         ...base,
-        id: `ask:${request.id}:session`,
-        icon: paletteIcon("open-allowed"),
-        label: `Always allow ${request.allow.label} here`,
-        keywords: `approve yes session ${tool}`,
-        run: () => decide(request.id, "session"),
+        id: `ask:${request.id}:once`,
+        icon: PALETTE_ICONS.run,
+        label: `Run it: ${what}`,
+        keywords: `approve yes once ${tool}`,
+        wrap: true,
+        run: () => decide(request.id, "once"),
+      });
+      if (request.allow) {
+        add(group, {
+          ...base,
+          id: `ask:${request.id}:session`,
+          icon: paletteIcon("open-allowed"),
+          label: `Always allow ${request.allow.label} here`,
+          keywords: `approve yes session ${tool}`,
+          wrap: true,
+          run: () => decide(request.id, "session"),
+        });
+      }
+    } else {
+      add(group, {
+        ...base,
+        id: `ask:${request.id}:look`,
+        icon: PALETTE_ICONS.go,
+        label: `Read it in full: ${what}`,
+        keywords: `approve yes question waiting ${tool}`,
+        keep: false,
+        deliberate: false,
+        run: () => paletteShowAsk(request),
       });
     }
     add(group, {
@@ -156,6 +184,7 @@ function paletteWaiting(add) {
       keywords: "plan review approve yes start",
       keep: true,
       remember: false,
+      deliberate: true,
       run: () => post("/api/plan", { id: review.id, action: "approve" }),
     });
   }
@@ -195,6 +224,7 @@ function paletteWaiting(add) {
         keywords: "queue held resume continue",
         keep: true,
         remember: false,
+        deliberate: true,
         run: () => post("/api/queue", { action: "resume", session: id }),
       });
     }
@@ -216,6 +246,7 @@ function paletteThisRun(add) {
       hint: "keeps what it produced",
       keywords: "cancel interrupt halt end",
       keep: true,
+      deliberate: true,
       unavailable: stopping ? "stopping already" : "",
       run: requestStop,
     });
@@ -444,7 +475,17 @@ function paletteSubject(request) {
   const args = request.arguments || {};
   const keys = Object.keys(args);
   const shown = keys.length === 1 && typeof args[keys[0]] === "string" ? args[keys[0]] : request.summary;
-  return String(shown || humanize(String(request.tool || "a call"))).replace(/\s+/g, " ").trim();
+  // Its line breaks are kept: in a command each one starts another command.
+  return String(shown || humanize(String(request.tool || "a call"))).trim();
+}
+
+/* A call too long to approve from a row, shown where it waits: its card in
+ * the session on screen, or the "Needs you" list, which shows every waiting
+ * call in full. Looking answers nothing. */
+function paletteShowAsk(request) {
+  const card = isFocused(request.session) && approvalCards.get(request.id);
+  if (card && card.isConnected) card.scrollIntoView({ block: "center" });
+  else setRailView("inbox");
 }
 
 function paletteWhere(sessionId) {
@@ -645,7 +686,10 @@ function renderPalette() {
     .join("");
   el("palette-list").innerHTML =
     markup || `<p class="palette-empty">Nothing matches. Try fewer letters, a session's number or a file name.</p>`;
-  const first = paletteView.shown.findIndex((command) => !command.unavailable);
+  // Enter before anything is typed answers nothing that waits and stops
+  // nothing: a reflex Ctrl K, Enter must not run a command or end a run.
+  // Typed, the best fit is chosen.
+  const first = paletteView.shown.findIndex((command) => !command.unavailable && (query || !command.deliberate));
   setPaletteActive(first >= 0 ? first : 0);
   el("palette-list").scrollTop = 0;
 }
@@ -653,7 +697,7 @@ function renderPalette() {
 function paletteItemMarkup(command, index, marks) {
   const off = Boolean(command.unavailable);
   return (
-    `<div class="palette-item${off ? " off" : ""}" role="option" id="palette-option-${index}" ` +
+    `<div class="palette-item${off ? " off" : ""}${command.wrap ? " wrap" : ""}" role="option" id="palette-option-${index}" ` +
     `data-palette-index="${index}" aria-selected="false"${off ? ' aria-disabled="true"' : ""}>` +
     `<span class="palette-icon">${command.icon || ""}</span>` +
     `<span class="palette-label">${paletteMarked(command.label, marks)}</span>` +
