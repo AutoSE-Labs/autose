@@ -229,6 +229,8 @@ def _tools(app: App, argument: str) -> bool:
                 style=THEME.muted,
             )
         )
+    for note in app.approval_gate.workspace_dropped:
+        app.console.print(warning_text(f"will ask again: {note}"))
     return True
 
 

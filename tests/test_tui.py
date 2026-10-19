@@ -422,6 +422,26 @@ def test_tools_lists_workspace_rules(app, tmp_path):
     assert "every session in this workspace: pages on docs.python.org" in output
 
 
+def test_tools_says_which_workspace_rules_will_ask_again(app, tmp_path):
+    """A hand-edited rule today's rules refuse is dropped, and said so."""
+    import json
+
+    from logic.saved_allowances import AllowanceFile
+
+    rules = AllowanceFile.for_workspace(tmp_path)
+    rules.add(Allowance("fetch_url", "docs.python.org"))
+    document = json.loads(rules.path.read_text(encoding="utf-8"))
+    document["workspaces"][str(tmp_path.resolve())].append({"tool": "run_command", "pattern": "rm"})
+    rules.path.write_text(json.dumps(document), encoding="utf-8")
+    app.approval_gate = TerminalApprovalGate(app.console, workspace_rules=rules)
+
+    dispatch(app, "/tools")
+
+    output = app.console.file.getvalue()
+    assert "every session in this workspace: pages on docs.python.org" in output
+    assert "will ask again: rm … commands" in output
+
+
 # -- commands ------------------------------------------------------------------
 
 

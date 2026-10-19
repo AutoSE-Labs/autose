@@ -75,6 +75,14 @@ class TerminalApprovalGate:
         """What runs unasked in every session in this workspace (DR-057)."""
         return tuple(item.label for item in self._workspace())
 
+    @property
+    def workspace_dropped(self) -> tuple[str, ...]:
+        """Workspace rules today's rules refuse, each with why (DR-057)."""
+        if self._workspace_rules is None:
+            return ()
+        self._workspace_rules.rules()
+        return tuple(self._workspace_rules.problems)
+
     def reset(self) -> None:
         """Forget every standing allowance — used when the session changes."""
         self._always_allow.clear()

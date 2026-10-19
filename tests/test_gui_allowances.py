@@ -235,6 +235,21 @@ def test_workspace_rules_are_kept_outside_the_workspace(scripted, tmp_path):
     assert [item["pattern"] for item in bridge.snapshot()["workspace_allowances"]] == ["echo"]
 
 
+def test_a_workspace_rule_today_s_rules_refuse_is_shown_as_asking_again(scripted, tmp_path):
+    """Dropped with its reason, not silently: the Allowed page lists it."""
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    bridge.add_allowance("run_command", "echo", scope="workspace")
+    saved = user_config_dir() / ALLOWANCES_FILENAME
+    document = json.loads(saved.read_text(encoding="utf-8"))
+    document["workspaces"][str(tmp_path.resolve())].append({"tool": "run_command", "pattern": "rm"})
+    saved.write_text(json.dumps(document), encoding="utf-8")
+
+    state = bridge.snapshot()
+
+    assert [item["pattern"] for item in state["workspace_allowances"]] == ["echo"]
+    assert state["dropped_allowances"] == ["rm … commands: rm can only be allowed one call at a time"]
+
+
 def test_an_unattended_run_is_not_answered_by_a_workspace_rule(scripted, tmp_path):
     """DR-047 holds: nobody is there, so the call is refused unless --yes."""
     bridge = _bridge(scripted, tmp_path, [answer("x")])

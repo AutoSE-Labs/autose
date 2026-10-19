@@ -892,9 +892,18 @@ class SessionBridge:
             },
         }
         # DR-057: the rules every session in this workspace runs under, and
-        # the focused session's saved rules that reopening did not restore.
-        state["workspace_allowances"] = self._workspace_allowances_payload()
-        state["dropped_allowances"] = list(session.dropped_allowances) if session else []
+        # the saved rules that will ask again: the focused session's that
+        # reopening did not restore, and the workspace's that today's rules
+        # refuse.
+        workspace_rules = self._workspace_rules()
+        kept = workspace_rules.rules()
+        state["workspace_allowances"] = [
+            item.to_dict() for item in sorted(kept, key=lambda a: a.key)
+        ]
+        state["dropped_allowances"] = [
+            *(session.dropped_allowances if session else ()),
+            *workspace_rules.problems,
+        ]
         if live is None or session is None:
             state.update(
                 {
