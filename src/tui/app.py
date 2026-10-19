@@ -35,6 +35,7 @@ from logic.common.events import CompositeEventSink, EventSink
 from logic.common.processes import exit_cleanly_on_termination
 from logic.config import AutoSEConfig, load_config
 from logic.errors import AutoSEError, ConfigurationError
+from logic.followups import suggest_follow_ups
 from logic.persistence import SESSIONS_DIRECTORY, FileSessionStore, SessionRecord
 from logic.saved_allowances import AllowanceFile
 from logic.session import Session, SessionSetup, setup_from_config
@@ -50,6 +51,7 @@ from .render import (
     banner,
     changes_summary,
     error_panel,
+    follow_ups_line,
     format_tokens,
     outcome_panel,
     runtime_table,
@@ -297,6 +299,10 @@ class App:
                     style=THEME.muted,
                 )
             )
+        # DR-063: what to ask next, worked out from how the run ended.
+        hint = follow_ups_line(suggest_follow_ups(turn))
+        if hint is not None:
+            self.console.print(hint)
 
     def print_status(self) -> None:
         self.console.print(status_line(self.session))

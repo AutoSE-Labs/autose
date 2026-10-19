@@ -18,6 +18,7 @@ from rich.text import Text
 
 from logic.common.approval import EDIT_APPROVAL_TOOLS, ApprovalRequest
 from logic.common.changes import FileChange, RevertReport
+from logic.followups import FollowUp
 from logic.inference.catalog import ModelInfo
 from logic.inference.discovery import DetectedRuntime
 from logic.persistence import SessionRecord
@@ -34,6 +35,7 @@ __all__ = [
     "loopback_notice",
     "classification_line",
     "outcome_panel",
+    "follow_ups_line",
     "changes_summary",
     "diff_panel",
     "revert_report",
@@ -802,3 +804,18 @@ def outcome_panel(
         title=_OUTCOME_TITLES.get(stop_reason, "Not completed"),
         border_style=THEME.warning,
     )
+
+
+def follow_ups_line(follow_ups: tuple[FollowUp, ...]) -> RenderableType | None:
+    """What to ask next, as one dim line under the result (DR-063).
+
+    A hint rather than a menu: the terminal has nothing to click, so it names
+    the requests and the person types the one they want. Dim, because it is
+    the least important thing on the screen once a run has ended.
+    """
+    if not follow_ups:
+        return None
+    line = Text(style=THEME.muted)
+    line.append("  next: ")
+    line.append(f"  {THEME.bullet}  ".join(item.label for item in follow_ups))
+    return line
