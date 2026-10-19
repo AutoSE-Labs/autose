@@ -60,6 +60,7 @@ _ASSETS: dict[str, tuple[str, str]] = {
     "/life.js": ("life.js", "text/javascript; charset=utf-8"),
     "/diff.js": ("diff.js", "text/javascript; charset=utf-8"),
     "/files.js": ("files.js", "text/javascript; charset=utf-8"),
+    "/palette.js": ("palette.js", "text/javascript; charset=utf-8"),
     "/automation.js": ("automation.js", "text/javascript; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
     # Bundled so the page needs nothing from the network (DR-029).

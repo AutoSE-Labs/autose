@@ -58,6 +58,8 @@
 
       <button class="yolo-toggle" id="toggle-yolo" type="button" aria-pressed="false" title="YOLO mode: let everything run without asking"><svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.5 4.8 11h4.6l-1 6.5L15.2 9h-4.6z"/></svg><span id="yolo-word">YOLO</span></button>
       <span class="local-pill" id="status-stamp" title="Where this runs, and what it will do without asking">Local · no cloud</span>
+      <!-- The command menu (palette.js): everything the page can do, by name. -->
+      <button class="palette-key" id="open-palette" type="button" aria-label="Find a command" aria-haspopup="dialog"><svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="5"/><path d="M12.2 12.2 16.5 16.5"/></svg><kbd id="palette-keycap">Ctrl K</kbd></button>
 
       <button id="toggle-notify" class="icon-button" type="button" aria-pressed="false" aria-label="Desktop notifications"
         title="Notify me when something waits for me">
@@ -328,6 +330,20 @@ ollama pull qwen3:8b</code></pre>
     </div>
   </div>
 
+  <div class="overlay palette-overlay" id="palette-overlay" hidden>
+    <div class="overlay-panel palette-panel" role="dialog" aria-modal="true" aria-labelledby="palette-title">
+      <h2 class="sr-only" id="palette-title">Find a command</h2>
+      <div class="palette-search">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="5"/><path d="M12.2 12.2 16.5 16.5"/></svg>
+        <input id="palette-input" type="text" role="combobox" aria-expanded="true" aria-controls="palette-list"
+          aria-autocomplete="list" aria-labelledby="palette-title" autocomplete="off" spellcheck="false"
+          placeholder="Find a command, a session or a file" />
+      </div>
+      <div class="palette-list" id="palette-list" role="listbox" aria-labelledby="palette-title"></div>
+      <div class="palette-foot" aria-hidden="true"><kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Enter</kbd> run · <kbd>Esc</kbd> close</div>
+    </div>
+  </div>
+
   <div class="toast-stack" id="toasts" aria-live="polite"></div>
 
   <script src="/inspector.js"></script>
@@ -339,6 +355,7 @@ ollama pull qwen3:8b</code></pre>
   <script src="/app.js"></script>
   <script src="/diff.js"></script>
   <script src="/files.js"></script>
+  <script src="/palette.js"></script>
 </body>
 
 </html>
