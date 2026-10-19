@@ -1949,8 +1949,8 @@ function requirementsView() {
     };
   }
   // A run picked in the conversation that had no checks: not another run's
-  // (DR-055).
-  if (run && run.stored && desk(focusId()).picked !== undefined) return null;
+  // (DR-055), whether it was read back or watched by this page.
+  if (run && desk(focusId()).picked !== undefined) return null;
   const turn = [...((state && state.history) || [])]
     .reverse()
     .find((item) => item.requirements && item.requirements.length);

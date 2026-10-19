@@ -1335,6 +1335,17 @@ def test_a_step_s_status_is_escaped_where_it_becomes_a_class():
     assert "status-${step.status}" not in source
     assert "status-${escapeHtml(step.status)}" in source
 
+def test_a_picked_run_without_checks_shows_none_rather_than_another_run_s():
+    """Picking a spark run this page watched showed the last craft run's
+    requirements, marked final, in the Checks tab: only a run read back from
+    the session was kept from falling through to the latest turn's checks."""
+    source = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    view = source[source.index("function requirementsView()") :]
+    view = view[: view.index("\n}\n")]
+    assert "if (run && desk(focusId()).picked !== undefined) return null;" in view
+    assert "run.stored && desk(focusId()).picked" not in view
+
+
 
 def test_no_page_script_writes_inline_styles():
     """The CSP is default-src 'self' (DR-029), which drops inline style
