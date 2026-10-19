@@ -18,8 +18,11 @@ from dataclasses import dataclass
 from functools import partial
 
 from ..common.agent import BaseAgent
+from ..common.processes import ProcessManager
 from ..common.tool import ToolHandler
-from ..common.tools import READ_ONLY_TOOL_NAMES, catalog_subset
+from ..common.tools import BACKGROUND_TOOL_NAMES, READ_ONLY_TOOL_NAMES, catalog_subset
+from ..common.tools.background import process_output as _process_output
+from ..common.tools.background import stop_process as _stop_process
 from ..common.tools.editing import MAX_EDITS_PER_CALL
 from ..common.tools.editing import edit_file as _edit
 from ..common.tools.filesystem import write_file as _write
@@ -113,6 +116,13 @@ class StageSpec:
         return bool({"write_file", "edit_file"} & set(self.tool_names))
 
 
+def _shell() -> tuple[str, ...]:
+    """``run_command`` and, with it, the tools for what it starts in the
+    background (DR-062): a stage that can start a server can read it and
+    stop it."""
+    return ("run_command", *BACKGROUND_TOOL_NAMES)
+
+
 def _read_only() -> tuple[str, ...]:
     """Every tool that only observes the workspace, from the one catalog list.
 
@@ -201,7 +211,7 @@ STAGES: Mapping[str, StageSpec] = {
         # Read-only, like Plan: in the free edition it decides, and writes no
         # record. It may run a command to inspect the repository it is
         # deciding about.
-        tool_names=_read_only() + ("run_command",),
+        tool_names=_read_only() + _shell(),
         artifact="design_doc",
     ),
     PLAN: StageSpec(
@@ -210,7 +220,7 @@ STAGES: Mapping[str, StageSpec] = {
         label="Building the plan",
         system_prompt=PLAN_PROMPT,
         # Read-only, per DR-008. A planning stage that could edit would.
-        tool_names=_read_only() + ("run_command",),
+        tool_names=_read_only() + _shell(),
         allowed_statuses=PLAN_STATUSES,
         artifact="plan",
     ),
@@ -219,7 +229,7 @@ STAGES: Mapping[str, StageSpec] = {
         title="Execute",
         label="Implementing",
         system_prompt=EXECUTE_PROMPT,
-        tool_names=_read_only() + ("run_command", "write_file", "edit_file"),
+        tool_names=_read_only() + _shell() + ("write_file", "edit_file"),
         allowed_statuses=EXECUTE_STATUSES,
         artifact="execution_summary",
     ),
@@ -233,7 +243,7 @@ STAGES: Mapping[str, StageSpec] = {
         system_prompt=VALIDATE_PROMPT,
         # `write_file` is confined to throwaway scripts (see
         # validate_scratch_guard), so it cannot change the work under review.
-        tool_names=_read_only() + ("run_command", "write_file"),
+        tool_names=_read_only() + _shell() + ("write_file",),
         guard=validate_scratch_guard,
         allowed_statuses=VALIDATE_STATUSES,
         artifact="validation_report",
@@ -252,6 +262,7 @@ class StageAgent(BaseAgent):
         command_timeout: float = COMMAND_TIMEOUT_SECONDS,
         max_edits_per_call: int = MAX_EDITS_PER_CALL,
         system_prompt_template: str | None = None,
+        processes: ProcessManager | None = None,
         **kwargs,
     ) -> None:
         self.spec = spec
@@ -261,8 +272,14 @@ class StageAgent(BaseAgent):
         self._system_prompt_template = system_prompt_template or spec.system_prompt
         overrides = dict(kwargs.pop("tool_overrides", None) or {})
         overrides.setdefault(
-            "run_command", partial(_run_command, timeout=command_timeout)
+            "run_command",
+            partial(_run_command, timeout=command_timeout, processes=processes),
         )
+        # DR-062: the session's background commands, and only those.
+        overrides.setdefault(
+            "process_output", partial(_process_output, processes=processes)
+        )
+        overrides.setdefault("stop_process", partial(_stop_process, processes=processes))
         overrides.setdefault(
             "edit_file", partial(_edit, max_edits_per_call=max_edits_per_call)
         )

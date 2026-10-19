@@ -28,6 +28,10 @@ own. The standing yes for ``cd app && python gen_docs.py`` is the yes for
 part, and a later chain runs unasked only when every one of its parts is
 allowed.
 
+A command meant to keep running — a trailing ``&``, with or without a
+leading ``nohup`` — is judged without those (DR-062): the process manager
+runs exactly the rest, so ``npm run dev &`` is covered by ``npm run dev``.
+
 Some commands are never covered by a standing yes and must be answered one
 call at a time: anything else using shell syntax (``;``, ``&&``, pipes, redirects,
 ``$(…)``), wrappers that run an arbitrary command (``sudo``, ``env``,
@@ -45,6 +49,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from .approval import ApprovalRequest
+from .processes import background_form
 
 __all__ = ["Allowance", "AllowanceOffer", "allowance_for_rule", "offer_for", "standing_for"]
 
@@ -214,7 +219,11 @@ def offer_for(request: ApprovalRequest) -> AllowanceOffer:
         command = request.arguments.get("command")
         if not isinstance(command, str) or not command.strip():
             return AllowanceOffer(None, "there is no command to describe")
-        parts, reason = _chain_patterns(command)
+        # DR-062: a trailing `&` (and a leading `nohup`) asks for the command
+        # to keep running, and the process manager runs it without them; so
+        # it is judged without them too — no wider, since what runs is the
+        # same words.
+        parts, reason = _chain_patterns(background_form(command) or command)
         if parts is None:
             return AllowanceOffer(None, reason)
         allowances = tuple(Allowance(tool, " ".join(words)) for words in parts)

@@ -32,6 +32,7 @@ from rich.text import Text
 
 from logic import __version__
 from logic.common.events import CompositeEventSink, EventSink
+from logic.common.processes import exit_cleanly_on_termination
 from logic.config import AutoSEConfig, load_config
 from logic.errors import AutoSEError, ConfigurationError
 from logic.persistence import SESSIONS_DIRECTORY, FileSessionStore, SessionRecord
@@ -407,9 +408,15 @@ def run(
                 "(approval.require_edit_approval)"
             )
         )
-    return App(
-        session, console=console, approval_gate=approval_gate, activity=activity
-    ).run(initial_prompt)
+    try:
+        # DR-062: a closed terminal window (SIGHUP) still runs the `finally`.
+        with exit_cleanly_on_termination():
+            return App(
+                session, console=console, approval_gate=approval_gate, activity=activity
+            ).run(initial_prompt)
+    finally:
+        # DR-062: a server a run started does not outlive the app that shows it.
+        session.close()
 
 
 def print_sessions(*, workspace: str | Path | None = None) -> int:

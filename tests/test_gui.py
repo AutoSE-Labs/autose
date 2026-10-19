@@ -20,6 +20,7 @@ import json
 import queue
 import re
 import threading
+import time
 import tomllib
 import urllib.error
 import urllib.request
@@ -33,6 +34,7 @@ gui = pytest.importorskip("gui", reason="the GUI adapter is a Pro-edition build"
 
 from gui.bridge import MAX_OPEN_SESSIONS, BridgeError, SessionBridge  # noqa: E402
 from gui.server import STATIC_ROOT, create_dashboard  # noqa: E402
+from logic.common.processes import SUPPORTED  # noqa: E402
 from logic.config import AutoSEConfig, load_config  # noqa: E402
 from logic.inference.catalog import ModelInfo  # noqa: E402
 from logic.inference.registry import Provider, register_provider  # noqa: E402
@@ -814,7 +816,7 @@ def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
 
 def test_the_dashboard_fetches_nothing_from_the_network():
     """Local-first is a property of the page too, not only of inference."""
-    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js", "palette.js", "steps.js"):
+    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js", "palette.js", "steps.js", "terminals.js"):
         # The SVG namespace inside an inline data: image is a name the SVG
         # parser requires, never a request, so it is the one URL allowed.
         source = (
@@ -1394,7 +1396,7 @@ def test_no_page_script_writes_inline_styles():
     """The CSP is default-src 'self' (DR-029), which drops inline style
     attributes without a word: a bar drawn with style="height:…" renders as
     nothing. Sizes go in SVG attributes or classes instead (DR-041)."""
-    for name in ("app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js", "palette.js", "steps.js"):
+    for name in ("app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js", "palette.js", "steps.js", "terminals.js"):
         source = (STATIC_ROOT / name).read_text(encoding="utf-8")
         assert 'style="' not in source, f"{name} writes an inline style attribute"
 
@@ -2265,3 +2267,149 @@ def test_turning_yolo_off_asks_again(scripted, tmp_path):
     request = _drain(subscriber, "approval")["request"]
     bridge.resolve_approval(request["id"], approved=True)
     assert _drain(subscriber, "turn")["turn"]["answer"] == "done"
+
+
+# -- DR-062: background commands ------------------------------------------------
+
+
+def _event_frame(subscriber, event: str, *, timeout: float = 5.0):
+    """Wait for the next `event` frame carrying the logic event *event*."""
+    deadline = timeout
+    while deadline > 0:
+        try:
+            _, frame = subscriber.frames.get(timeout=0.25)
+        except queue.Empty:
+            deadline -= 0.25
+            continue
+        if frame.get("kind") == "event" and frame.get("event") == event:
+            return frame
+    raise AssertionError(f"no '{event}' event arrived")
+
+
+def _settles(check, timeout: float = 3.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline and not check():
+        time.sleep(0.02)
+    return check()
+
+
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+def test_a_backgrounded_command_is_listed_read_stopped_and_cleared(
+    scripted, tmp_path, monkeypatch
+):
+    from logic.common.tools import background
+
+    monkeypatch.setattr(background, "FIRST_LOOK_SECONDS", 0.1)
+    command = "python3 -u -c \"import time; print('ready'); time.sleep(30)\""
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command=f"{command} &")), answer("it runs")],
+    )
+    subscriber = bridge.subscribe()
+    try:
+        bridge.submit("start the server")
+        request = _drain(subscriber, "approval")["request"]
+        bridge.resolve_approval(request["id"], approved=True)
+        started = _event_frame(subscriber, "process_started")
+        _drain(subscriber, "turn")
+
+        listed = bridge.processes()
+        (row,) = listed["processes"]
+        assert listed["running"] == 1
+        assert row["id"] == started["data"]["id"] and row["command"] == command
+        assert row["session"] == started["session"] == bridge.snapshot()["focus"]
+        assert _settles(lambda: "ready" in bridge.processes(row["id"])["output"]["lines"])
+        later = bridge.processes(row["id"], since=1)["output"]
+        assert later["lines"] == [] and later["cursor"] == 1
+
+        with pytest.raises(BridgeError) as refused:
+            bridge.process_action("clear", row["id"])
+        assert refused.value.status == 409
+
+        bridge.process_action("stop", row["id"])
+        exited = _event_frame(subscriber, "process_exited")
+        assert exited["data"]["status"] == "stopped"
+        assert bridge.processes()["running"] == 0
+
+        assert bridge.process_action("clear", row["id"])["processes"] == []
+        with pytest.raises(BridgeError) as missing:
+            bridge.processes(row["id"])
+        assert missing.value.status == 404
+    finally:
+        bridge.shutdown()
+
+
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+def test_closing_a_session_stops_what_it_started(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    first = bridge.snapshot()["focus"]
+    process = bridge._target(first).session.processes.start("sleep 30", cwd=tmp_path)
+    bridge.new_session()
+
+    bridge.close_session(first)
+
+    assert _settles(lambda: not process.running)
+    assert bridge.processes()["processes"] == []
+
+
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+def test_shutting_the_dashboard_down_stops_every_session_s_processes(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    first = bridge._target(None).session.processes.start("sleep 30", cwd=tmp_path)
+    bridge.new_session()
+    second = bridge._target(None).session.processes.start("sleep 30", cwd=tmp_path)
+    assert bridge.processes()["running"] == 2
+
+    bridge.shutdown()
+
+    assert not first.running and not second.running
+
+
+def test_processes_are_read_and_changed_over_http(served):
+    status, payload = _request(served, "/api/processes")
+    assert status == 200 and payload == {"processes": [], "running": 0}
+
+    status, payload = _request(served, "/api/processes", body={"action": "stop"})
+    assert status == 400
+    status, payload = _request(
+        served, "/api/processes", body={"action": "stop", "id": "p-none"}
+    )
+    assert status == 404
+
+
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+def test_a_run_still_going_at_shutdown_cannot_start_a_server_after_it(
+    scripted, tmp_path, monkeypatch
+):
+    """Shutdown stops what the sessions started; a turn still under way
+    (with auto-approve nothing waits on a person) must not start another
+    server once that has happened, or nothing would stop it."""
+    from dataclasses import replace
+
+    from logic.common.tools import background
+
+    monkeypatch.setattr(background, "FIRST_LOOK_SECONDS", 0.1)
+    hold = threading.Event()
+    slow = _Gated(
+        [calls(tool_call("run_command", command="sleep 30 &")), answer("x")], gate=hold
+    )
+    scripted["model"] = slow
+    config = replace(_config(tmp_path), auto_approve=True, auto_approve_authorized_by="test")
+    bridge = SessionBridge(config, default_tier="spark")
+    subscriber = bridge.subscribe()
+    bridge.submit("start the server")
+    assert slow.entered.wait(5.0)
+    session = bridge._target(None).session
+
+    bridge.shutdown()
+    hold.set()
+    _drain(subscriber, "turn")
+
+    try:
+        assert session.processes.processes() == ()
+    finally:
+        session.close()

@@ -319,6 +319,19 @@ class ActivityIndicator:
         self._detail = ""
         self._refresh()
 
+    def _on_process_started(self, event: Event) -> None:
+        # DR-062: the step said "run_command"; this says it is still going,
+        # and how to find it again.
+        identifier = event.data.get("id", "")
+        line = Text()
+        line.append(f"  {THEME.tool_glyph} ", style=THEME.tool)
+        line.append("started in the background", style=THEME.tool)
+        line.append(
+            f"  {identifier}: {event.data.get('command', '')}  (/terminals {identifier})",
+            style=THEME.muted,
+        )
+        self._print_above(line)
+
     def _on_agent_cancelled(self, event: Event) -> None:
         # DR-030: the stop the user asked for actually landed. Worth a line of
         # its own — between asking and the turn unwinding there can be a whole

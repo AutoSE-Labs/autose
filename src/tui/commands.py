@@ -234,6 +234,53 @@ def _tools(app: App, argument: str) -> bool:
     return True
 
 
+def _terminals(app: App, argument: str) -> bool:
+    """List background commands, show one's output, or stop one (DR-062)."""
+    manager = app.session.processes
+    action, _, rest = argument.partition(" ")
+    if action == "stop":
+        process = manager.get(rest.strip())
+        if not process.alive:
+            app.console.print(
+                Text(f"  {process.id} has already ended ({process.describe()})", style=THEME.muted)
+            )
+            return True
+        manager.stop(process.id)
+        app.console.print(Text(f"  stopped {process.id}: {process.command}", style=THEME.muted))
+        return True
+    if action:
+        process = manager.get(action)
+        app.console.print(
+            Text(f"  {process.id} · {process.describe()} · {process.command}", style=THEME.accent)
+        )
+        for line in process.tail(_TERMINAL_TAIL_LINES) or ["(no output yet)"]:
+            app.console.print(Text(f"  {line}", style=THEME.muted), markup=False, highlight=False)
+        return True
+    listed = manager.processes()
+    if not listed:
+        app.console.print(
+            Text("  nothing has been started in the background in this session", style=THEME.muted)
+        )
+        return True
+    for process in listed:
+        app.console.print(
+            Text(
+                f"  {process.id}  {process.describe():<10}  {process.command}",
+                style=THEME.muted,
+            ),
+            markup=False,
+            highlight=False,
+        )
+    app.console.print(
+        Text("  /terminals <id> shows its output, /terminals stop <id> stops it", style=THEME.muted)
+    )
+    return True
+
+
+#: Lines of a background command's output `/terminals <id>` prints.
+_TERMINAL_TAIL_LINES = 40
+
+
 def _runtimes(app: App, argument: str) -> bool:
     from logic.inference.discovery import discover_local_runtimes
 
@@ -390,6 +437,11 @@ COMMANDS: dict[str, Command] = {
         ),
         Command("runtimes", "re-probe for local model runtimes", _runtimes),
         Command("sessions", "list stored sessions for this workspace", _sessions),
+        Command(
+            "terminals",
+            "commands running in the background: /terminals <id> | stop <id>",
+            _terminals,
+        ),
         Command("status", "show the current model, tier, workspace and usage", _status),
         Command("config", "write this workspace's config file, at its defaults", _config),
         Command("clear", "forget the conversation history", _clear),

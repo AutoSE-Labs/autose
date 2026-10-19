@@ -127,6 +127,8 @@ const TOOL_LABELS = {
   git_log: { icon: "⎇", verb: "Reading the git log", key: "" },
   web_search: { icon: "⌖", verb: "Searching the web for", key: "query" },
   fetch_url: { icon: "⌖", verb: "Fetching", key: "url" },
+  process_output: { icon: "▸", verb: "Reading the output of", key: "process_id" },
+  stop_process: { icon: "■", verb: "Stopping", key: "process_id" },
 };
 
 const el = (id) => document.getElementById(id);
@@ -168,6 +170,7 @@ const overlays = {
   settings: el("settings-overlay"),
   automation: el("automation-overlay"),
   palette: el("palette-overlay"),
+  terminals: el("terminals-overlay"),
 };
 
 let state = null;
@@ -483,6 +486,7 @@ function handleFrame(frame) {
       }
       break;
     case "event":
+      noteProcessEvent(frame); // DR-062: the Terminals list and badge (terminals.js)
       handleEvent(id, frame);
       break;
     default:
@@ -638,6 +642,10 @@ function handleEvent(id, frame) {
     }
     case "approval_requested":
       setThinking(run, "Needs you");
+      break;
+    // DR-062: the command just run went to the background (terminals.js).
+    case "process_started":
+      markBackgroundStep(run, data);
       break;
     case "approval_resolved": {
       // Back to the stage it was in: "Needs you" is only true until the
@@ -2892,7 +2900,7 @@ async function automationClick(event) {
 }
 
 function closeOverlays() {
-  ["diff", "doctor", "tips", "context", "settings", "automation", "allowed", "files", "palette"].forEach((name) => {
+  ["diff", "doctor", "tips", "context", "settings", "automation", "allowed", "files", "palette", "terminals"].forEach((name) => {
     overlays[name].hidden = true;
   });
 }

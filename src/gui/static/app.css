@@ -6228,6 +6228,265 @@ body.yolo .app-shell {
   box-shadow: 0 0 34px -4px rgba(137, 180, 250, 0.55), 0 12px 32px -20px rgba(0, 0, 0, 0.9);
 }
 
+/* ---------- terminals: commands running in the background (terminals.js) ---------- */
+
+.overlay-panel.terminals-panel {
+  width: min(1240px, 100%);
+  height: calc(100vh - 56px);
+  overflow: hidden;
+  gap: 12px;
+  padding: 20px 22px 18px;
+}
+
+.terminals-main {
+  display: grid;
+  grid-template-columns: minmax(230px, 320px) minmax(0, 1fr);
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.terminals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.term-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.term-row:hover {
+  background: var(--sheet-2);
+}
+
+.term-row.on {
+  border-left-color: var(--pen);
+  background: var(--pen-soft);
+}
+
+.term-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.term-command {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.term-row-meta {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.term-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+  background: var(--sheet-2);
+  color: var(--text-2);
+}
+
+.term-pill.running {
+  background: var(--pen-soft);
+  color: var(--pen-deep);
+}
+
+.term-pill.running::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: blink 1.6s ease-in-out infinite;
+}
+
+.term-pill.ok {
+  background: var(--go-soft);
+  color: var(--go-text);
+}
+
+.term-pill.failed {
+  background: var(--red-soft);
+  color: var(--red-text);
+}
+
+.terminals-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminals-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.terminals-head:empty {
+  display: none;
+}
+
+.term-head-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.term-full {
+  display: block;
+  max-height: 7.6em;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.term-head-meta {
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--text-2);
+}
+
+.term-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.terminals-screen {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Always a dark screen, in both themes: it is a terminal. */
+.terminals-output {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre;
+  tab-size: 4;
+}
+
+.terminals-follow {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--pen);
+  color: var(--on-pen);
+  font-size: 12.5px;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+}
+
+/* Under a step that went to the background, level with its title. */
+.step-link {
+  padding: 0 0 4px 52px;
+  font-size: 12.5px;
+}
+
+/* A link to a terminal, in a run's steps. */
+.term-ref {
+  display: inline;
+  margin: 0 1px;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--pen) 13%, transparent);
+  color: var(--pen-deep);
+  font: inherit;
+  font-weight: 600;
+}
+
+.term-ref:hover {
+  background: color-mix(in srgb, var(--pen) 22%, transparent);
+}
+
+:root[data-theme="dark"] .term-row.on {
+  background: var(--surface0);
+}
+
+:root[data-theme="dark"] .term-pill {
+  background: var(--surface0);
+}
+
+:root[data-theme="dark"] .term-pill.running {
+  background: var(--pen-soft);
+}
+
+:root[data-theme="dark"] .term-pill.ok {
+  background: var(--go-soft);
+}
+
+:root[data-theme="dark"] .term-pill.failed {
+  background: var(--red-soft);
+}
+
+:root[data-theme="dark"] .terminals-output {
+  background: var(--paper);
+}
+
+@media (max-width: 760px) {
+  .terminals-main {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 32%) minmax(0, 1fr);
+  }
+
+  .overlay-panel.terminals-panel {
+    padding: 16px 12px 12px;
+  }
+}
+
 /* ---------- life: small signs of what is going on (life.js) ---------- */
 
 /* The run scrolls under soft edges instead of being cut by a ruler line. */

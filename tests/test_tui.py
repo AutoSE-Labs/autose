@@ -13,6 +13,7 @@ from rich.console import Console
 from logic.common.allowances import Allowance
 from logic.common.approval import ApprovalRequest
 from logic.common.events import Event
+from logic.common.processes import SUPPORTED
 from logic.common.workspace import Workspace
 from logic.inference.catalog import ModelInfo
 from logic.inference.discovery import DetectedRuntime
@@ -1258,3 +1259,27 @@ def test_the_session_list_says_when_requests_wait_in_the_dashboard():
 
     assert "2 queued in the dashboard" in output
     assert output.count("queued") == 1
+
+
+# -- background commands (DR-062) ---------------------------------------------
+
+
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+def test_terminals_lists_shows_and_stops_background_commands(app):
+    dispatch(app, "/terminals")
+    assert "nothing has been started" in app.console.file.getvalue()
+
+    process = app.session.processes.start(
+        "echo ready; sleep 30", cwd=app.session.workspace.root
+    )
+    try:
+        dispatch(app, "/terminals")
+        assert process.id in app.console.file.getvalue()
+        dispatch(app, f"/terminals stop {process.id}")
+        assert f"stopped {process.id}" in app.console.file.getvalue()
+        assert not process.running
+        dispatch(app, f"/terminals {process.id}")
+        assert "ready" in app.console.file.getvalue()
+        assert dispatch(app, "/terminals stop p-none") is True
+    finally:
+        app.session.close()

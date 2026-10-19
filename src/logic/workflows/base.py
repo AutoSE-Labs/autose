@@ -20,6 +20,7 @@ from ..common.approval import ApprovalGate, ApprovalPolicy
 from ..common.cancel import CancelToken
 from ..common.changes import ChangeJournal, FileChange
 from ..common.events import EventSink
+from ..common.processes import ProcessManager
 from ..common.workspace import Workspace
 from ..errors import AutoSEError
 from ..inference.base import ChatModel
@@ -81,6 +82,11 @@ class WorkflowRequest:
     #: Asked to approve, revise or replace the plan before Execute (DR-045).
     #: ``None`` — the default — runs straight from Plan to Execute.
     plan_review: PlanReviewGate | None = None
+    #: Where a command meant to keep running is started (DR-062): the
+    #: session's own manager, so what a run starts is stopped with the
+    #: session. ``None`` refuses background commands rather than letting one
+    #: hang ``run_command`` until its timeout.
+    processes: ProcessManager | None = None
 
 
 @dataclass(frozen=True)

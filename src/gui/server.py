@@ -63,6 +63,7 @@ _ASSETS: dict[str, tuple[str, str]] = {
     "/palette.js": ("palette.js", "text/javascript; charset=utf-8"),
     "/automation.js": ("automation.js", "text/javascript; charset=utf-8"),
     "/steps.js": ("steps.js", "text/javascript; charset=utf-8"),
+    "/terminals.js": ("terminals.js", "text/javascript; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
     # Bundled so the page needs nothing from the network (DR-029).
     "/fonts/space-grotesk-latin-wght-normal.woff2": (
@@ -206,6 +207,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "/api/file": lambda: self._bridge.file_text(_first(query.get("path")) or ""),
             "/api/providers": self._bridge.providers,
             "/api/automation": self._bridge.automation,
+            # DR-062: background commands, and one's output after a cursor.
+            "/api/processes": lambda: self._bridge.processes(
+                _first(query.get("id")), since=_int_or_zero(_first(query.get("since")))
+            ),
         }
         reader = readers.get(path)
         if reader is None:
@@ -239,6 +244,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ),
             "/api/providers": self._providers,
             "/api/automation": self._automation,
+            "/api/processes": self._processes,
         }
         writer = writers.get(path)
         if writer is None:
@@ -369,6 +375,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         action = str(body.get("action") or "").strip().lower()
         fields = {key: value for key, value in body.items() if key != "action"}
         return self._bridge.automation_action(action, fields)
+
+    def _processes(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Stop or clear one background command (DR-062)."""
+        identifier = str(body.get("id") or "").strip()
+        if not identifier:
+            raise BridgeError("which process? an id is required")
+        return self._bridge.process_action(
+            str(body.get("action") or "").strip().lower(), identifier
+        )
 
     def _context(self, body: dict[str, Any]) -> dict[str, Any]:
         try:
