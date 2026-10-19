@@ -16,7 +16,8 @@ the terminal app. An ``atexit`` hook is the backstop for an exit that skips
 the orderly close.
 
 What happens is told as events on the session's sink — ``process_started``,
-``process_exited`` and ``process_cleared`` — so an Adapter can keep a list of
+``process_exited``, ``process_ended`` (what an exited command left running has
+gone too) and ``process_cleared`` — so an Adapter can keep a list of
 terminals up to date without asking. Output itself is not an event: a chatty
 server would otherwise flood every Adapter's event log, so it is read on
 demand from the cursor instead.
@@ -175,6 +176,11 @@ class BackgroundProcess:
         self._exited = threading.Event()
         #: Set once the output pipe has closed: nothing in the group holds it.
         self._drained = threading.Event()
+        #: Whether, when its exit was told, something it left was still alive;
+        #: then ``process_ended`` is owed once that has gone too.
+        self._left_running = False
+        self._end_told = False
+        self._on_end = None
 
     # -- what it is --------------------------------------------------------
 
@@ -200,14 +206,31 @@ class BackgroundProcess:
         server.js &`` and exits has "exited 0" while the server it started
         goes on printing. Such a process can still be stopped, and is not
         cleared from the list until it has been, or nothing could stop it.
+        Only while its group still has a member: a pipe held by something
+        that left the group (``setsid``) is beyond a stop's reach, so it is
+        not offered one.
         """
         with self._lock:
             return self._alive()
 
     def _alive(self) -> bool:
-        return self._status == RUNNING or (
-            self._popen is not None and not self._drained.is_set()
-        )
+        if self._status == RUNNING:
+            return True
+        if self._popen is None or self._drained.is_set():
+            return False
+        return self._group_exists()
+
+    def _group_exists(self) -> bool:
+        pid = self.pid
+        if pid is None:
+            return False
+        try:
+            os.killpg(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
 
     @property
     def line_count(self) -> int:
@@ -285,8 +308,13 @@ class BackgroundProcess:
             start_new_session=True,
         )
 
-    def watch(self, on_exit) -> None:
-        """Start reading its output and waiting for it, on two threads."""
+    def watch(self, on_exit, on_end=None) -> None:
+        """Start reading its output and waiting for it, on two threads.
+
+        *on_exit* is called when the command exits; *on_end* later, when what
+        it left running in its group has gone too — only if there was any.
+        """
+        self._on_end = on_end
         threading.Thread(
             target=self._read, name=f"autose-{self.id}-output", daemon=True
         ).start()
@@ -346,7 +374,8 @@ class BackgroundProcess:
                 if last:
                     self._append(last)
                 self._partial = ""
-            self._drained.set()
+                self._drained.set()
+            self._tell_end_if_owed()
 
     def _feed(self, text: str) -> None:
         if not text:
@@ -373,10 +402,30 @@ class BackgroundProcess:
             self.exit_code = code
             self.ended_at = time.time()
             self._status = STOPPED if self._stop_requested else EXITED
+            self._left_running = self._alive()
         try:
             on_exit(self)
         finally:
             self._exited.set()
+            self._tell_end_if_owed()
+
+    def _tell_end_if_owed(self) -> None:
+        """Tell, once, that what the exited command left running has gone.
+
+        Without it a list fetched when the command exited would go on showing
+        it as still running — and counting it — until something else changed.
+        """
+        with self._lock:
+            owed = (
+                self._left_running
+                and not self._end_told
+                and self._exited.is_set()
+                and self._drained.is_set()
+            )
+            if owed:
+                self._end_told = True
+        if owed and self._on_end is not None:
+            self._on_end(self)
 
 
 def _unfinished(raw: str) -> str:
@@ -442,7 +491,9 @@ class ProcessManager:
 
     def start(self, command: str, *, cwd: Path, shown_cwd: str = ".") -> BackgroundProcess:
         """Start *command* in the background. ``OSError`` if it cannot start."""
-        if len(self.running()) >= self._max_running:
+        # Counted as `alive`: a command that exits but leaves its server
+        # running must not be a way past the limit.
+        if sum(1 for process in self.processes() if process.alive) >= self._max_running:
             raise ProcessError(
                 f"{self._max_running} background commands are already running in "
                 "this session; stop one before starting another"
@@ -464,7 +515,7 @@ class ProcessManager:
             pid=process.pid,
             started_at=process.started_at,
         )
-        process.watch(self._on_exit)
+        process.watch(self._on_exit, self._on_end)
         return process
 
     def stop(self, process_id: str, *, wait: bool = True) -> BackgroundProcess:
@@ -513,6 +564,16 @@ class ProcessManager:
             status=status,
             exit_code=process.exit_code,
             ended_at=process.ended_at,
+            lines=process.line_count,
+            alive=process.alive,
+        )
+
+    def _on_end(self, process: BackgroundProcess) -> None:
+        self._emit(
+            "process_ended",
+            f"what {process.command} left running has ended",
+            id=process.id,
+            command=process.command,
             lines=process.line_count,
         )
 

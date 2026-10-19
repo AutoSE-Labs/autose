@@ -234,6 +234,66 @@ def test_closing_reaches_what_an_ended_command_left_running(manager, workspace):
     assert _until(lambda: not process.alive)
 
 
+def test_the_end_of_what_an_ended_command_left_running_is_told(manager, tmp_path):
+    """Without it the dashboard, which fetches the list on process events,
+    would count the command as running until something else happened."""
+    process = manager.start(f"{LOOP.replace('10000', '12')} & echo started", cwd=tmp_path)
+    assert _until(lambda: manager.recorded.of_type("process_exited"))
+    assert manager.recorded.of_type("process_exited")[0].data["alive"] is True
+
+    assert _until(lambda: not process.alive, timeout=3.0)
+    assert _until(lambda: manager.recorded.of_type("process_ended"))
+    time.sleep(0.1)
+    types = [event.type for event in manager.recorded.events]
+    assert types == ["process_started", "process_exited", "process_ended"]
+
+
+def test_an_exit_with_nothing_left_running_owes_no_second_event(manager, tmp_path):
+    process = manager.start("echo done", cwd=tmp_path)
+    assert process.wait(2.0)
+    time.sleep(0.1)
+
+    assert manager.recorded.of_type("process_exited")[0].data["alive"] is False
+    assert manager.recorded.of_type("process_ended") == []
+
+
+def test_a_pipe_held_outside_the_group_is_not_offered_a_stop(manager, workspace):
+    """A child moved to a session of its own (`setsid`) keeps the output
+    open but is out of a stop's reach; saying it was stopped would be false,
+    and refusing to clear it would keep it listed for ever."""
+    process = manager.start(
+        f"{PY} \"import subprocess; "
+        f"print(subprocess.Popen(['sleep', '30'], start_new_session=True).pid)\"",
+        cwd=workspace.root,
+    )
+    assert _until(lambda: bool(process.output().lines))
+    escaped = int(process.output().lines[0])
+    try:
+        assert process.wait(2.0)
+        assert not process.alive
+        said = stop_process(process.id, workspace=workspace, processes=manager)
+        assert "already ended" in said
+        manager.clear(process.id)
+        assert manager.processes() == ()
+    finally:
+        import os
+        import signal
+
+        os.kill(escaped, signal.SIGKILL)
+
+
+def test_what_an_ended_command_left_running_counts_against_the_limit(workspace):
+    capped = ProcessManager(max_running=1, stop_grace=0.5)
+    (workspace.root / "start.sh").write_text(f"{LOOP} &\necho started\n", encoding="utf-8")
+    process = capped.start("sh start.sh", cwd=workspace.root)
+    try:
+        assert _until(lambda: not process.running and process.alive)
+        with pytest.raises(ProcessError, match="already running"):
+            capped.start("sleep 30", cwd=workspace.root)
+    finally:
+        capped.stop_all()
+
+
 def test_a_session_cannot_fill_the_machine_with_copies(tmp_path):
     capped = ProcessManager(max_running=1)
     capped.start("sleep 30", cwd=tmp_path)

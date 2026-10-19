@@ -29,8 +29,11 @@ round and a stray process.
   so a model that starts its server again every round cannot fill the
   machine. A command that exits but leaves something running in its group
   that still holds its output (`./start.sh` that runs `node server.js &`)
-  still counts as running: it can be stopped, and it cannot be cleared from
-  the list until it has been, or nothing would reach what it left behind.
+  still counts as running — against the limit of eight too: it can be
+  stopped, and it cannot be cleared from the list until it has been, or
+  nothing would reach what it left behind. Only while its group still has a
+  member: output held by something that left the group (`setsid`) is out of
+  a stop's reach, so it is not offered one.
 - **What counts as "meant to keep running".** A command ending in a lone `&`
   (optionally starting with `nohup`), or any command called with the new
   `background: true` argument. Both, because the model already writes `&`
@@ -69,7 +72,9 @@ round and a stray process.
   `kill` or a closed terminal window, and an `atexit` hook stops whatever is
   left after any other normal exit.
 - **Events, not output, on the sink.** The manager emits `process_started`,
-  `process_exited` and `process_cleared` through the session's event sink.
+  `process_exited`, `process_ended` (what an exited command left running has
+  gone too, so a list fetched at the exit does not go on counting it) and
+  `process_cleared` through the session's event sink.
   Output itself is read on demand from the cursor: a chatty server as events
   would flood every Adapter's log and the dashboard's frame history.
 - **The dashboard shows them all.** Processes belong to the workspace, so
