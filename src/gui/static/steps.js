@@ -41,9 +41,16 @@ function pickedOrSavedRun(seat) {
       seat.picked = undefined;
     } else {
       // The run this page watched has the fuller record of the same steps.
-      if (seat.lastRun && seat.lastRun.turnIndex === picked) return seat.lastRun;
+      if (seat.lastRun && seat.lastRun.turnIndex === picked && !seat.lastRun.joined) return seat.lastRun;
       return savedRunFor(turn);
     }
+  }
+  if (seat.lastRun && seat.lastRun.joined) {
+    // Joined part-way (a reload mid-run): the page rebuilt it from a bounded
+    // timeline, which drops the oldest events of a long run. The trace stored
+    // with the turn kept them.
+    const turn = history.find((item) => item.index === seat.lastRun.turnIndex);
+    if (turn) return savedRunFor(turn);
   }
   if (seat.lastRun) return seat.lastRun;
   const latest = history[history.length - 1];

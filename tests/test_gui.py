@@ -1346,6 +1346,22 @@ def test_a_picked_run_without_checks_shows_none_rather_than_another_run_s():
     assert "run.stored && desk(focusId()).picked" not in view
 
 
+def test_a_run_joined_part_way_is_shown_from_its_stored_trace():
+    """A page that loads mid-run rebuilds the run from the bridge's bounded
+    timeline, which drops the oldest events of a long run. Once it finishes
+    the stored trace holds all of it, so that is what the panel shows."""
+    app = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    join = app[app.index("// Joined mid-turn") :]
+    join = join[: join.index("replaying = true;")]
+    assert "seat.run.joined = true;" in join
+    steps = (STATIC_ROOT / "steps.js").read_text(encoding="utf-8")
+    chooser = steps[steps.index("function pickedOrSavedRun(seat)") :]
+    chooser = chooser[: chooser.index("\n}\n")]
+    assert "seat.lastRun.turnIndex === picked && !seat.lastRun.joined" in chooser
+    assert "if (seat.lastRun && seat.lastRun.joined)" in chooser
+    assert chooser.index("seat.lastRun.joined)") < chooser.index("if (seat.lastRun) return seat.lastRun;")
+
+
 
 def test_no_page_script_writes_inline_styles():
     """The CSP is default-src 'self' (DR-029), which drops inline style

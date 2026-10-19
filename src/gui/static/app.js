@@ -794,6 +794,9 @@ function adoptState() {
     const current = state.current || {};
     startRun(focusId(), current);
     seat.run.answer = state.answer || "";
+    // Rebuilt from a bounded timeline, so once it finishes the trace stored
+    // with the turn is the fuller record of it (DR-055, steps.js).
+    seat.run.joined = true;
     // DR-033: the snapshot carries what this turn has done so far. Replaying
     // it through the same handler the stream uses draws the card exactly as a
     // tab that watched from the start would have it.
