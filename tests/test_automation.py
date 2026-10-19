@@ -377,6 +377,7 @@ def test_the_prompt_template_gets_the_bounded_output_and_the_exit_code():
     assert render_prompt("{output} {other}", output="{x}", exit_code=0) == "{x} {other}"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="the command is written for a POSIX shell")
 def test_the_real_runner_runs_in_the_workspace_and_reports_the_exit_code(tmp_path):
     (tmp_path / "marker.txt").write_text("here")
     result = run_watch_command("ls; exit 3", root=tmp_path, timeout=10)

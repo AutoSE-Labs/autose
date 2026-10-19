@@ -15,7 +15,8 @@ from logic.errors import WorkspaceEscapeError
 def workspace(tmp_path):
     root = tmp_path / "ws"
     (root / "src").mkdir(parents=True)
-    (root / "src" / "app.py").write_text("print('hi')\n")
+    # Bytes, not text: on Windows write_text would store "\r\n".
+    (root / "src" / "app.py").write_bytes(b"print('hi')\n")
     (root / "README.md").write_text("# hi\n")
     (root / ".git").mkdir()
     (root / ".git" / "config").write_text("[core]\n")

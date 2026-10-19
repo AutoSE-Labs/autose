@@ -463,6 +463,7 @@ def test_the_service_token_lives_in_the_user_config_directory(isolated_user_conf
     assert (isolated_user_config / "autose" / "dashboard.token").read_text().strip() == token
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a systemd unit is written on Linux only")
 def test_install_service_writes_the_unit_and_never_runs_systemctl(
     tmp_path, monkeypatch, isolated_user_config
 ):
