@@ -309,6 +309,139 @@ def test_resetting_clears_standing_allowances(monkeypatch):
     assert gate.always_allowed == ()
 
 
+# -- DR-057: workspace rules, and rules saved with the session ----------------------
+
+
+def test_a_workspace_rule_answers_the_terminal_gate_without_asking(monkeypatch, tmp_path):
+    from logic.saved_allowances import AllowanceFile
+
+    rules = AllowanceFile.for_workspace(tmp_path)
+    rules.add(Allowance("run_command", "pytest"))
+    gate = TerminalApprovalGate(_console(), workspace_rules=rules)
+    monkeypatch.setattr(
+        "tui.approval.Prompt.ask", lambda *a, **k: pytest.fail("should not prompt")
+    )
+
+    decision = gate.request(ApprovalRequest("run_command", {"command": "pytest -q"}))
+
+    assert decision.approved
+    assert "every session in this workspace" in decision.reason
+    assert gate.workspace_allowed == ("pytest … commands",)
+    # It is not a rule of this session's, so it is not saved with it.
+    assert gate.always_allowed == ()
+
+
+def test_a_workspace_rule_added_elsewhere_applies_at_the_next_question(monkeypatch, tmp_path):
+    """The dashboard and a terminal on one workspace read the same file."""
+    from logic.saved_allowances import AllowanceFile
+
+    gate = TerminalApprovalGate(_console(), workspace_rules=AllowanceFile.for_workspace(tmp_path))
+    monkeypatch.setattr("tui.approval.Prompt.ask", lambda *a, **k: "n")
+    assert not gate.request(ApprovalRequest("run_command", {"command": "pytest"})).approved
+
+    AllowanceFile.for_workspace(tmp_path).add(Allowance("run_command", "pytest"))
+    assert gate.request(ApprovalRequest("run_command", {"command": "pytest"})).approved
+
+
+def test_a_workspace_rule_and_a_session_rule_together_cover_a_chain(monkeypatch, tmp_path):
+    from logic.saved_allowances import AllowanceFile
+
+    rules = AllowanceFile.for_workspace(tmp_path)
+    rules.add(Allowance("run_command", "pip install"))
+    gate = TerminalApprovalGate(_console(), workspace_rules=rules)
+    gate.adopt([Allowance("run_command", "pytest")])
+    monkeypatch.setattr(
+        "tui.approval.Prompt.ask", lambda *a, **k: pytest.fail("should not prompt")
+    )
+    assert gate.request(
+        ApprovalRequest("run_command", {"command": "pip install -e . && pytest -q"})
+    ).approved
+
+
+def test_the_gate_starts_from_saved_rules_and_saves_every_change(monkeypatch):
+    kept: list[tuple[Allowance, ...]] = []
+    gate = TerminalApprovalGate(_console())
+    gate.adopt([Allowance("run_command", "pytest")], keep=kept.append)
+    assert gate.always_allowed == ("pytest … commands",)
+
+    monkeypatch.setattr("tui.approval.Prompt.ask", lambda *a, **k: "a")
+    gate.request(ApprovalRequest("run_command", {"command": "git status"}))
+    assert [item.pattern for item in kept[-1]] == ["pytest", "git status"]
+
+    gate.reset()
+    assert kept[-1] == ()
+
+
+def test_a_resumed_terminal_session_comes_back_with_its_rules(monkeypatch, session, tmp_path):
+    from logic.config import AutoSEConfig
+    from logic.persistence import SESSIONS_DIRECTORY, FileSessionStore
+    from logic.session import SessionSetup
+    from tui import app as tui_app
+
+    store = FileSessionStore(tmp_path / SESSIONS_DIRECTORY)
+    earlier = Session(
+        inference=session.inference,
+        workspace=Workspace.at(tmp_path),
+        model_info=_MODEL,
+        auto_classify=False,
+        store=store,
+    )
+    earlier.run("hello")
+    earlier.keep_allowances([Allowance("run_command", "pytest")])
+
+    config = AutoSEConfig(inference=session.inference, workspace_root=tmp_path)
+    monkeypatch.setattr(tui_app, "load_config", lambda path, **kwargs: config)
+    monkeypatch.setattr(
+        tui_app,
+        "_resolve",
+        lambda console, config: SessionSetup(config=config, inference=session.inference, model_info=_MODEL),
+    )
+    seen: dict = {}
+    monkeypatch.setattr(tui_app.App, "run", lambda self, prompt: seen.setdefault("app", self) and 0)
+    console = _console()
+
+    tui_app.run(resume=earlier.session_id, console=console)
+
+    gate = seen["app"].approval_gate
+    assert gate.always_allowed == ("pytest … commands",)
+    assert "still allowed: pytest … commands" in console.file.getvalue()
+    # And a new "always allow" is saved with the resumed session.
+    monkeypatch.setattr("tui.approval.Prompt.ask", lambda *a, **k: "a")
+    gate.request(ApprovalRequest("run_command", {"command": "git status"}))
+    assert ("run_command", "git status") in store.load(earlier.session_id).allowances
+
+
+def test_tools_lists_workspace_rules(app, tmp_path):
+    from logic.saved_allowances import AllowanceFile
+
+    rules = AllowanceFile.for_workspace(tmp_path)
+    rules.add(Allowance("fetch_url", "docs.python.org"))
+    app.approval_gate = TerminalApprovalGate(app.console, workspace_rules=rules)
+    dispatch(app, "/tools")
+    output = app.console.file.getvalue()
+    assert "every session in this workspace: pages on docs.python.org" in output
+
+
+def test_tools_says_which_workspace_rules_will_ask_again(app, tmp_path):
+    """A hand-edited rule today's rules refuse is dropped, and said so."""
+    import json
+
+    from logic.saved_allowances import AllowanceFile
+
+    rules = AllowanceFile.for_workspace(tmp_path)
+    rules.add(Allowance("fetch_url", "docs.python.org"))
+    document = json.loads(rules.path.read_text(encoding="utf-8"))
+    document["workspaces"][str(tmp_path.resolve())].append({"tool": "run_command", "pattern": "rm"})
+    rules.path.write_text(json.dumps(document), encoding="utf-8")
+    app.approval_gate = TerminalApprovalGate(app.console, workspace_rules=rules)
+
+    dispatch(app, "/tools")
+
+    output = app.console.file.getvalue()
+    assert "every session in this workspace: pages on docs.python.org" in output
+    assert "will ask again: rm … commands" in output
+
+
 # -- commands ------------------------------------------------------------------
 
 

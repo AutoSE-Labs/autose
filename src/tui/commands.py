@@ -220,6 +220,17 @@ def _tools(app: App, argument: str) -> bool:
                 style=THEME.muted,
             )
         )
+    # DR-057: rules for every session here, added from the dashboard.
+    everywhere = app.approval_gate.workspace_allowed
+    if everywhere:
+        app.console.print(
+            Text(
+                f"  allowed in every session in this workspace: {', '.join(sorted(everywhere))}",
+                style=THEME.muted,
+            )
+        )
+    for note in app.approval_gate.workspace_dropped:
+        app.console.print(warning_text(f"will ask again: {note}"))
     return True
 
 

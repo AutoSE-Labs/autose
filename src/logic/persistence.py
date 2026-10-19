@@ -236,6 +236,11 @@ class SessionRecord:
     verbatim: tuple[tuple[str, str], ...] = ()
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    #: The session's own "always allow" rules as ``(tool, pattern)`` pairs,
+    #: and the seal that shows AutoSE wrote them on this machine (DR-057).
+    #: Optional on read: a session saved before they were kept has none.
+    allowances: tuple[tuple[str, str], ...] = ()
+    allowances_seal: str = ""
 
     @property
     def title(self) -> str:
@@ -278,6 +283,10 @@ class SessionRecord:
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "turns": [turn.to_dict() for turn in self.turns],
+            "allowances": [
+                {"tool": tool, "pattern": pattern} for tool, pattern in self.allowances
+            ],
+            "allowances_seal": self.allowances_seal,
         }
 
     @classmethod
@@ -324,6 +333,12 @@ class SessionRecord:
             turns=tuple(
                 TurnRecord.from_dict(item) for item in document.get("turns", ())
             ),
+            allowances=tuple(
+                (str(item.get("tool", "")), str(item.get("pattern", "")))
+                for item in _list(document.get("allowances"))
+                if isinstance(item, Mapping)
+            ),
+            allowances_seal=str(document.get("allowances_seal", "")),
         )
 
     def bounded(
@@ -601,6 +616,11 @@ def _safe_id(session_id: str) -> str:
         if character.isalnum() or character in "-_"
     )
     return cleaned or "unnamed"
+
+
+def _list(value: Any) -> list[Any]:
+    """*value* when it is a list, else empty: a hand-edited field reads as none."""
+    return value if isinstance(value, list) else []
 
 
 def _int(value: Any) -> int:

@@ -35,6 +35,7 @@ from logic.common.events import CompositeEventSink, EventSink
 from logic.config import AutoSEConfig, load_config
 from logic.errors import AutoSEError, ConfigurationError
 from logic.persistence import SESSIONS_DIRECTORY, FileSessionStore, SessionRecord
+from logic.saved_allowances import AllowanceFile
 from logic.session import Session, SessionSetup, setup_from_config
 from logic.tiers import SPARK
 from logic.workflows import UnavailableTierError
@@ -344,7 +345,12 @@ def run(
     if setup is None:
         return 1
 
-    approval_gate = TerminalApprovalGate(console)
+    # DR-057: the rules for every session in this workspace, from the user's
+    # config directory rather than from anything in the workspace.
+    approval_gate = TerminalApprovalGate(
+        console,
+        workspace_rules=AllowanceFile.for_workspace(setup.config.resolve_workspace_root()),
+    )
     activity = ActivityIndicator(console)
     events: EventSink = CompositeEventSink(activity)
 
@@ -373,6 +379,9 @@ def run(
     # while an approval prompt is up would sit there waiting for an answer to a
     # call that is no longer going to run.
     approval_gate.watch_for_stop(lambda: session.stop_requested)
+    # DR-057: a resumed session's own rules come back with it, and every
+    # "always allow" is saved with it.
+    approval_gate.adopt(session.allowances, keep=session.keep_allowances)
 
     if record is not None:
         console.print(
@@ -382,6 +391,7 @@ def run(
                 style=THEME.success,
             )
         )
+        _report_restored_rules(console, session)
 
     if setup.config.auto_approve:
         console.print(
@@ -412,6 +422,15 @@ def print_sessions(*, workspace: str | Path | None = None) -> int:
     for problem in store.problems:
         console.print(warning_text(problem))
     return 0
+
+
+def _report_restored_rules(console: Console, session: Session) -> None:
+    """Say what a resumed session runs without asking, and what it dropped."""
+    if session.allowances:
+        labels = ", ".join(item.label for item in session.allowances)
+        console.print(Text(f"  {THEME.ok_glyph} still allowed: {labels}", style=THEME.muted))
+    for note in session.dropped_allowances:
+        console.print(warning_text(f"will ask again: {note}"))
 
 
 def _store_for(workspace_root: Path) -> FileSessionStore:

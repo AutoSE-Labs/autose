@@ -78,6 +78,7 @@ from logic.persistence import (
     QueuedRequest,
     SessionRecord,
 )
+from logic.saved_allowances import AllowanceFile
 from logic.session import (
     Session,
     SessionSetup,
@@ -326,8 +327,9 @@ class _Live:
         self.queue_reopened = False
         # DR-044, DR-048: what the person said may run unasked for the rest of
         # this session, by key: a command's leading words, a host, or a tool.
-        # Per session, never global, and gone when the session closes.
-        self.allowances: dict[str, Allowance] = {}
+        # DR-057: saved with the session, so a reopened one starts from the
+        # rules it had; the workspace's rules are kept apart, outside it.
+        self.allowances: dict[str, Allowance] = {item.key: item for item in session.allowances}
         # DR-045: whether staged turns stop for a plan review, and the plan
         # waiting for one.
         self.review_plans = False
@@ -585,6 +587,17 @@ class SessionBridge:
         holder.append(live)
         _restore_queue(live)
         self._open[live.id] = live
+        if session.dropped_allowances:
+            # DR-057: say which saved rules did not come back, so a question
+            # that returns is not a surprise.
+            self._publish_for(
+                live,
+                {
+                    "kind": "allowances",
+                    "allowances": _allowances_payload(live),
+                    "dropped": list(session.dropped_allowances),
+                },
+            )
         if focus or not self._focus:
             self._focus = live.id
         if record is not None:
@@ -878,6 +891,19 @@ class SessionBridge:
                 "running": self._runner.alive,
             },
         }
+        # DR-057: the rules every session in this workspace runs under, and
+        # the saved rules that will ask again: the focused session's that
+        # reopening did not restore, and the workspace's that today's rules
+        # refuse.
+        workspace_rules = self._workspace_rules()
+        kept = workspace_rules.rules()
+        state["workspace_allowances"] = [
+            item.to_dict() for item in sorted(kept, key=lambda a: a.key)
+        ]
+        state["dropped_allowances"] = [
+            *(session.dropped_allowances if session else ()),
+            *workspace_rules.problems,
+        ]
         if live is None or session is None:
             state.update(
                 {
@@ -1209,6 +1235,7 @@ class SessionBridge:
                     holder.allowances[part.key] = part
                 standing = offer.allowance
                 offer_label = offer.label
+                self._keep_allowances(holder)
         if pending is None:
             # Already resolved, or timed out while the browser was deciding.
             raise BridgeError(
@@ -1233,12 +1260,13 @@ class SessionBridge:
             # Calls already waiting that the new allowance covers are answered
             # by it too, as they would have been had they arrived a moment later.
             with self._lock:
+                rules = self._rules_for(holder)
                 covered = [
                     other
                     for other in holder.pending.values()
                     if other is not pending
                     and other.decision is None
-                    and standing_for(other.request, holder.allowances.values()) is not None
+                    and standing_for(other.request, rules) is not None
                 ]
             for other in covered:
                 other.decision = ApprovalDecision.allow(
@@ -1352,25 +1380,36 @@ class SessionBridge:
         return decision
 
     def add_allowance(
-        self, tool: str, pattern: str, *, session_id: str | None = None
+        self,
+        tool: str,
+        pattern: str,
+        *,
+        session_id: str | None = None,
+        scope: str = "session",
     ) -> dict[str, Any]:
         """Add a standing yes by hand, held to DR-048's rules (DR-050).
 
         Calls already waiting that the new rule covers are answered by it, as
-        when the same yes is given from a card.
+        when the same yes is given from a card. With *scope* ``"workspace"``
+        it is a rule for every session in this workspace (DR-057).
         """
+        _require_scope(scope)
         try:
             standing = allowance_for_rule(tool, pattern)
         except ValueError as error:
             raise BridgeError(str(error)) from error
+        if scope == "workspace":
+            return self._add_workspace_allowance(standing, session_id=session_id)
         with self._lock:
             live = self._target(session_id)
             live.allowances[standing.key] = standing
+            self._keep_allowances(live)
+            rules = self._rules_for(live)
             covered = [
                 pending
                 for pending in live.pending.values()
                 if pending.decision is None
-                and standing_for(pending.request, live.allowances.values()) is not None
+                and standing_for(pending.request, rules) is not None
             ]
             allowances = _allowances_payload(live)
         for pending in covered:
@@ -1382,18 +1421,118 @@ class SessionBridge:
         return {"session": live.id, "allowances": allowances, "added": standing.to_dict()}
 
     def revoke_allowance(
-        self, allowance_id: str, *, session_id: str | None = None
+        self, allowance_id: str, *, session_id: str | None = None, scope: str = "session"
     ) -> dict[str, Any]:
-        """Take back an "allow for this session" (DR-044, DR-048)."""
+        """Take back an "allow for this session" (DR-044, DR-048), or with
+        *scope* ``"workspace"`` a rule for every session here (DR-057)."""
+        _require_scope(scope)
+        if scope == "workspace":
+            return self._revoke_workspace_allowance(allowance_id)
         with self._lock:
             live = self._target(session_id)
             if live.allowances.pop(allowance_id, None) is None:
                 raise BridgeError(
                     f"'{allowance_id}' is not allowed in this session", status=404
                 )
+            self._keep_allowances(live)
             allowances = _allowances_payload(live)
         self._publish_for(live, {"kind": "allowances", "allowances": allowances})
         return {"session": live.id, "allowances": allowances}
+
+    # -- allowances for every session in the workspace (DR-057) ---------------
+
+    def _workspace_rules(self) -> AllowanceFile:
+        """The workspace's rules, in the user's config directory.
+
+        Built on each use rather than held: the file is re-read every time
+        anyway, and the workspace is whatever the configuration says now.
+        """
+        return AllowanceFile.for_workspace(self._config.resolve_workspace_root())
+
+    def _workspace_allowances_payload(self) -> list[dict[str, str]]:
+        rules = self._workspace_rules().rules()
+        return [item.to_dict() for item in sorted(rules, key=lambda a: a.key)]
+
+    def _rules_for(
+        self, live: _Live, workspace: tuple[Allowance, ...] | None = None
+    ) -> list[Allowance]:
+        """Everything that answers a call in *live* without asking.
+
+        Its own rules, and the workspace's unless nobody is watching it: a
+        scheduled or watched run (DR-047) is refused unless the dashboard was
+        started with ``--yes``, and a rule written for the person's own
+        sessions does not change that.
+        """
+        rules = list(live.allowances.values())
+        if not live.unattended:
+            rules.extend(self._workspace_rules().rules() if workspace is None else workspace)
+        return rules
+
+    def _keep_allowances(self, live: _Live) -> None:
+        """Save the session's rules with it. Lock held, so two changes in a
+        row cannot be saved in the wrong order."""
+        live.session.keep_allowances(list(live.allowances.values()))
+
+    def _add_workspace_allowance(
+        self, standing: Allowance, *, session_id: str | None
+    ) -> dict[str, Any]:
+        """Allow *standing* in every session here, and answer what it covers.
+
+        The asking session's own copy of the rule, if it had one, moves to the
+        workspace rather than being listed twice ("Keep for this workspace").
+        """
+        with self._lock:
+            # A workspace rule needs no session; the asking one, if any, is
+            # where a copy of the rule moves from.
+            live = self._target(session_id) if session_id else self._open.get(self._focus)
+        try:
+            workspace = self._workspace_rules().add(standing)
+        except ValueError as error:
+            raise BridgeError(str(error)) from error
+        except OSError as error:
+            raise BridgeError(f"could not save the rule: {error}", status=500) from error
+        with self._lock:
+            moved = False
+            if live is not None and live.allowances.pop(standing.key, None) is not None:
+                moved = True
+                self._keep_allowances(live)
+            covered = [
+                pending
+                for one in self._open.values()
+                for pending in one.pending.values()
+                if pending.decision is None
+                and standing_for(pending.request, self._rules_for(one, workspace)) is not None
+            ]
+            allowances = _allowances_payload(live) if live is not None else []
+        for pending in covered:
+            pending.decision = ApprovalDecision.allow(
+                f"{standing.label} were allowed for every session in this workspace"
+            )
+            pending.answered.set()
+        if moved and live is not None:
+            self._publish_for(live, {"kind": "allowances", "allowances": allowances})
+        rules = self._workspace_allowances_payload()
+        self._publish({"kind": "workspace_allowances", "allowances": rules})
+        return {
+            "session": live.id if live is not None else "",
+            "scope": "workspace",
+            "allowances": allowances,
+            "workspace_allowances": rules,
+            "added": standing.to_dict(),
+        }
+
+    def _revoke_workspace_allowance(self, allowance_id: str) -> dict[str, Any]:
+        try:
+            removed = self._workspace_rules().remove(allowance_id)
+        except OSError as error:
+            raise BridgeError(f"could not save the change: {error}", status=500) from error
+        if not removed:
+            raise BridgeError(
+                f"'{allowance_id}' is not allowed in this workspace", status=404
+            )
+        rules = self._workspace_allowances_payload()
+        self._publish({"kind": "workspace_allowances", "allowances": rules})
+        return {"scope": "workspace", "workspace_allowances": rules}
 
     def select_model(
         self,
@@ -1988,14 +2127,15 @@ class SessionBridge:
             # the request and this answer as events, so nothing runs unseen.
             return ApprovalDecision.allow("YOLO mode: the user lets every call run without asking")
         with self._lock:
-            standing = standing_for(request, live.allowances.values())
+            standing = standing_for(request, self._rules_for(live))
+            own = standing is not None and standing.key in live.allowances
         if standing is not None:
             # DR-044, DR-048: the person already said yes to calls like this
-            # for the rest of the session. The executor still records the
-            # request and the answer as events, so the call is never invisible.
-            return ApprovalDecision.allow(
-                f"{standing.label} were allowed for the rest of this session"
-            )
+            # for the rest of the session, or (DR-057) for every session here.
+            # The executor still records the request and the answer as events,
+            # so the call is never invisible.
+            where = "for the rest of this session" if own else "for every session in this workspace"
+            return ApprovalDecision.allow(f"{standing.label} were allowed {where}")
         if live.unattended:
             # DR-047: a scheduled run is unattended by definition. Parking the
             # call for fifteen minutes would only hold the run hostage to a
@@ -2215,6 +2355,12 @@ def _restore_queue(live: _Live) -> None:
 
 def _allowances_payload(live: _Live) -> list[dict[str, str]]:
     return [item.to_dict() for item in sorted(live.allowances.values(), key=lambda a: a.key)]
+
+
+def _require_scope(scope: str) -> None:
+    """An allowance is for one session or the whole workspace (DR-057)."""
+    if scope not in ("session", "workspace"):
+        raise BridgeError(f"'{scope}' is not session or workspace")
 
 
 def _id_of(fields: dict[str, Any]) -> str:

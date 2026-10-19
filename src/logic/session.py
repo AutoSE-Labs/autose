@@ -22,6 +22,7 @@ from dataclasses import dataclass, field, replace
 from urllib.parse import urlsplit
 
 from .classifier import Classification, TaskClassifier
+from .common.allowances import Allowance
 from .common.approval import (
     ApprovalGate,
     ApprovalPolicy,
@@ -65,6 +66,7 @@ from .persistence import (
     new_session_id,
 )
 from .prompt_overrides import PromptOverrides
+from .saved_allowances import AllowanceFile
 from .tiers import SPARK, TIER_SPECS, normalise_tier, ratchet
 from .tuning import Tuning
 from .workflows import (
@@ -453,9 +455,9 @@ class Session:
         # the session carries on.
         self._store: SessionStore = store or NullSessionStore()
         self._id = session_id or new_session_id()
-        # DR-056: one save at a time. An Adapter saves a changed queue from its
-        # own thread while a turn may be saving on another, and two writes of
-        # one session file at once can leave neither of them on disk.
+        # DR-056, DR-057: one save at a time. An Adapter saves a changed queue
+        # or rule from its own thread while a turn may be saving on another,
+        # and two writes of one session file at once can leave neither on disk.
         self._save_lock = threading.Lock()
         #: Requests waiting to run here, as the Adapter last handed them over
         #: (DR-056). The Adapter decides when one starts; the session only
@@ -470,6 +472,17 @@ class Session:
         self._created_at = time.time()
         #: A name the person gave this session, if any.
         self._name = ""
+        # DR-057: the session's own "always allow" rules, saved with it, and
+        # what reopening it could not restore. The adapters hold the live set
+        # and hand every change here; the file that seals them is opened only
+        # when there is a rule to seal or check.
+        self._allowances: tuple[Allowance, ...] = ()
+        self._dropped_allowances: tuple[str, ...] = ()
+        self._allowance_file: AllowanceFile | None = None
+        #: Whether this session has a file on disk (saved, or reopened from
+        #: one): a change to its rules must then be saved at once, even when
+        #: it has no turns, or reopening would bring back a rule taken back.
+        self._on_disk = False
         # DR-030: one token for the session's lifetime, cleared at the start of
         # every turn. One rather than one-per-turn because an Adapter wires it
         # up once — the dashboard's Stop button holds a reference, the TUI's
@@ -602,6 +615,10 @@ class Session:
         intermediate stage artifact. DR-004's boundary applies to the durable
         copy exactly as it applies to the live one.
         """
+        # Read once: the dashboard may change the rules from another thread
+        # while this runs, and a seal over other rules than the ones saved
+        # beside it would drop them all on reopening (DR-057).
+        allowances = self._allowances
         return SessionRecord(
             id=self._id,
             workspace=str(self._workspace.root),
@@ -636,6 +653,10 @@ class Session:
                 )
                 for turn in self._turns
             ),
+            allowances=tuple((item.tool, item.pattern) for item in allowances),
+            allowances_seal=(
+                self._allowances_file().seal(self._id, allowances) if allowances else ""
+            ),
         )
 
     def restore(self, record: SessionRecord) -> None:
@@ -649,6 +670,16 @@ class Session:
         self._created_at = record.created_at or self._created_at
         self._name = record.name
         self._queued = record.queue
+        self._on_disk = True
+        # DR-057: only rules this machine sealed, and only those today's rules
+        # would still offer.
+        self._allowances, self._dropped_allowances = (
+            self._allowances_file().restore(
+                record.id, record.allowances, record.allowances_seal
+            )
+            if record.allowances
+            else ((), ())
+        )
         self._turns = [
             Turn(
                 prompt=item.prompt,
@@ -696,6 +727,7 @@ class Session:
         """Write the session out. Never raises — a failed save is not a failed run."""
         try:
             with self._save_lock:
+                self._on_disk = True
                 self._store.save(self.snapshot())
         except Exception as exc:  # noqa: BLE001 - see docstring
             self._emit("session_save_failed", str(exc), error=str(exc))
@@ -720,6 +752,32 @@ class Session:
             return
         self._queued = queued
         self.persist()
+
+    @property
+    def allowances(self) -> tuple[Allowance, ...]:
+        """This session's own "always allow" rules (DR-048, DR-057)."""
+        return self._allowances
+
+    @property
+    def dropped_allowances(self) -> tuple[str, ...]:
+        """Saved rules reopening did not restore, each with why (DR-057)."""
+        return self._dropped_allowances
+
+    def keep_allowances(self, allowances: Iterable[Allowance]) -> None:
+        """Hold *allowances* as this session's rules, and save them with it.
+
+        Saved at once when the session is already on disk, with or without
+        turns (clearing the history leaves the file). One never saved is not
+        saved just for this: its rules go with its first turn.
+        """
+        self._allowances = tuple({item.key: item for item in allowances}.values())
+        if self._on_disk or self._turns or self._name:
+            self.persist()
+
+    def _allowances_file(self) -> AllowanceFile:
+        if self._allowance_file is None:
+            self._allowance_file = AllowanceFile.for_workspace(self._workspace.root)
+        return self._allowance_file
 
     @property
     def last_changes(self) -> tuple[FileChange, ...]:

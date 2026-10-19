@@ -278,8 +278,12 @@ ollama pull qwen3:8b</code></pre>
           <option value="web_search">Web searches</option>
         </select>
         <input id="allowed-pattern" type="text" placeholder="pytest, or npm run test" aria-label="Command words or host" autocomplete="off" />
+        <select id="allowed-where" aria-label="Where the rule applies">
+          <option value="session">In this session</option>
+          <option value="workspace">In every session here</option>
+        </select>
         <button class="primary-button" type="submit">Allow</button>
-        <p class="allowed-help">A command rule is its leading words: <code>pytest</code> covers <code>pytest -q tests/</code>, and <code>git status</code> does not cover <code>git push</code>. Commands that delete, publish, chain or run other commands can only be allowed one call at a time. Rules last for this session.</p>
+        <p class="allowed-help">A command rule is its leading words: <code>pytest</code> covers <code>pytest -q tests/</code>, and <code>git status</code> does not cover <code>git push</code>. Commands that delete, publish, chain or run other commands can only be allowed one call at a time. A session's rules are saved with it. Rules for every session here are kept on this computer, not in the project folder, so a project cannot allow anything by itself.</p>
       </form>
       <div class="overlay-actions">
         <button class="ghost-button" id="allowed-close" type="button">Close</button>

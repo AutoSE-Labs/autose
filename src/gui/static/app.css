@@ -5858,6 +5858,64 @@ body.yolo .app-shell {
   font-weight: 700;
 }
 
+/* ---------- allowed rules that last: session and workspace groups (DR-057) ---------- */
+
+.allowed-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.allowed-group + .allowed-group,
+.allowed-dropped + .allowed-group {
+  margin-top: 14px;
+}
+
+.allowed-group h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 2px;
+}
+
+.allowed-group-count {
+  color: var(--pen-deep);
+}
+
+.allowed-group .empty-state {
+  margin: 2px 0 4px;
+}
+
+.allowed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.allowed-dropped {
+  margin-top: 10px;
+}
+
+/* The scope choice sits between the pattern and the Allow button. */
+.allowed-add {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+@media (max-width: 640px) {
+  .allowed-add {
+    grid-template-columns: 1fr;
+  }
+
+  .allowed-row {
+    grid-template-columns: 74px minmax(0, 1fr);
+  }
+
+  .allowed-actions {
+    grid-column: 1 / -1;
+  }
+}
+
 /* ---------- life: small signs of what is going on (life.js) ---------- */
 
 /* The run scrolls under soft edges instead of being cut by a ruler line. */

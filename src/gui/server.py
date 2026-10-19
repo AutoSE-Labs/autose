@@ -298,19 +298,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _allowances(self, body: dict[str, Any]) -> dict[str, Any]:
         action = body.get("action")
+        # DR-057: a rule is for this session (the default) or the workspace.
+        scope = str(body.get("scope") or "session").strip()
         if action == "add":
             # DR-050: a rule written by hand, checked as one given from a card.
             return self._bridge.add_allowance(
                 str(body.get("tool") or "").strip(),
                 str(body.get("pattern") or ""),
                 session_id=_session_of(body),
+                scope=scope,
             )
         if action != "revoke":
             raise BridgeError("an allowance action is add or revoke")
         allowance = str(body.get("id") or "").strip()
         if not allowance:
             raise BridgeError("which allowance? an id is required")
-        return self._bridge.revoke_allowance(allowance, session_id=_session_of(body))
+        return self._bridge.revoke_allowance(
+            allowance, session_id=_session_of(body), scope=scope
+        )
 
     def _model(self, body: dict[str, Any]) -> dict[str, Any]:
         name = str(body.get("model") or "").strip()

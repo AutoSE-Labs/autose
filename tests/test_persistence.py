@@ -605,3 +605,113 @@ def test_a_queued_time_that_is_not_a_number_is_read_as_none():
     assert [item.queued_at for item in record.queue] == [0.0, 0.0]
     assert record.updated_at == 0.0
     json.dumps(record.to_dict(), allow_nan=False)
+
+
+# -- DR-057: a session's "always allow" rules are saved with it -------------------
+
+
+def test_a_session_s_rules_round_trip_and_are_optional_on_read():
+    record = _record("s1", allowances=(("run_command", "pytest"),), allowances_seal="ab")
+    stored = SessionRecord.from_dict(record.to_dict())
+    assert stored.allowances == (("run_command", "pytest"),)
+    assert stored.allowances_seal == "ab"
+    older = record.to_dict()
+    del older["allowances"], older["allowances_seal"]
+    assert SessionRecord.from_dict(older).allowances == ()
+    older["allowances"] = "run anything"
+    assert SessionRecord.from_dict(older).allowances == ()
+
+
+def test_a_session_s_rules_are_saved_and_restored_on_reopening(make_session, store):
+    from logic.common.allowances import Allowance
+
+    first = make_session([answer("done")], store=store)
+    first.run("run the tests")
+    first.keep_allowances([Allowance("run_command", "pytest"), Allowance("fetch_url", "docs.python.org")])
+
+    saved = store.load(first.session_id)
+    assert saved.allowances == (("run_command", "pytest"), ("fetch_url", "docs.python.org"))
+    assert saved.allowances_seal
+
+    second = make_session([answer("later")], store=store)
+    second.restore(saved)
+    assert [item.label for item in second.allowances] == ["pytest … commands", "pages on docs.python.org"]
+    assert second.dropped_allowances == ()
+
+
+def test_rules_are_saved_with_the_next_turn_of_a_session_not_yet_on_disk(make_session, store):
+    from logic.common.allowances import Allowance
+
+    session = make_session([answer("done")], store=store)
+    session.keep_allowances([Allowance("run_command", "pytest")])
+    assert store.load(session.session_id) is None
+    session.run("run the tests")
+    assert store.load(session.session_id).allowances == (("run_command", "pytest"),)
+
+
+def test_a_saved_rule_today_s_rules_refuse_is_dropped_on_reopening(make_session, store, tmp_path):
+    from logic.common.allowances import Allowance
+    from logic.saved_allowances import AllowanceFile
+
+    # Saved when the rules were looser: sealed by this machine, refused today.
+    rm = Allowance("run_command", "rm")
+    seal = AllowanceFile.for_workspace(tmp_path).seal("s1", (Allowance("run_command", "pytest"), rm))
+    record = _record("s1", allowances=(("run_command", "pytest"), ("run_command", "rm")), allowances_seal=seal)
+
+    session = make_session([answer("x")], store=store)
+    session.restore(record)
+
+    assert [item.pattern for item in session.allowances] == ["pytest"]
+    assert session.dropped_allowances == ("rm … commands: rm can only be allowed one call at a time",)
+
+
+def test_rules_in_a_session_file_this_machine_did_not_seal_are_dropped(make_session, store):
+    """A session file can arrive in a clone; it must not grant permissions."""
+    record = _record("s1", allowances=(("run_command", "python evil.py"),), allowances_seal="00" * 32)
+
+    session = make_session([answer("x")], store=store)
+    session.restore(record)
+
+    assert session.allowances == ()
+    assert "not restored" in session.dropped_allowances[0]
+
+
+def test_a_rule_changed_while_saving_does_not_break_the_seal(make_session, store, monkeypatch):
+    """The dashboard keeps a rule from its own thread while a turn ends and saves."""
+    from logic.common.allowances import Allowance
+
+    session = make_session([answer("done")], store=store)
+    session.keep_allowances([Allowance("run_command", "pytest")])
+    real_file = type(session)._allowances_file
+
+    def file_while_a_rule_is_added(self):
+        # Another thread's keep_allowances lands between saving the rules
+        # and sealing them.
+        self._allowances = (*self._allowances, Allowance("fetch_url", "docs.python.org"))
+        return real_file(self)
+
+    monkeypatch.setattr(type(session), "_allowances_file", file_while_a_rule_is_added)
+    record = session.snapshot()
+    monkeypatch.setattr(type(session), "_allowances_file", real_file)
+
+    reopened = make_session([answer("later")], store=store)
+    reopened.restore(record)
+    assert [item.pattern for item in reopened.allowances] == ["pytest"]
+    assert reopened.dropped_allowances == ()
+
+
+def test_a_rule_taken_back_after_clearing_the_history_stays_taken_back(make_session, store):
+    """Clearing leaves the session on disk with no turns; a rule taken back
+    then must be saved, or reopening would bring it back."""
+    from logic.common.allowances import Allowance
+
+    session = make_session([answer("done")], store=store)
+    session.run("run the tests")
+    session.keep_allowances([Allowance("run_command", "pytest")])
+    session.clear_history()
+    session.keep_allowances([])
+
+    assert store.load(session.session_id).allowances == ()
+    reopened = make_session([answer("later")], store=store)
+    reopened.restore(store.load(session.session_id))
+    assert reopened.allowances == ()
