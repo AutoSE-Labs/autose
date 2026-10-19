@@ -16,7 +16,7 @@ import pytest
 gui = pytest.importorskip("gui", reason="the GUI adapter is a Pro-edition build")
 
 from gui.bridge import BridgeError, SessionBridge  # noqa: E402
-from gui.server import create_dashboard  # noqa: E402
+from gui.server import STATIC_ROOT, create_dashboard  # noqa: E402
 from logic.common.allowances import Allowance  # noqa: E402
 from logic.common.approval import ApprovalRequest  # noqa: E402
 from logic.inference.registry import Provider, register_provider  # noqa: E402
@@ -280,3 +280,11 @@ def test_the_allowances_endpoint_takes_a_scope(served):
     )
     assert status == 400
 
+
+def test_the_allowed_page_shows_both_groups():
+    script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    assert "This session" in script and "Every session in this workspace" in script
+    assert "Keep for this workspace" in script
+    assert 'case "workspace_allowances":' in script
+    assert 'id="allowed-where"' in page

@@ -465,6 +465,17 @@ function handleFrame(frame) {
         state.allowances = frame.allowances || [];
         renderNeedsYou();
       }
+      // DR-057: saved rules a reopened session did not get back.
+      if ((frame.dropped || []).length) {
+        toast(`Some saved rules will ask again: ${frame.dropped.join("; ")}`, "", `dropped-${id}`);
+      }
+      break;
+    case "workspace_allowances":
+      // DR-057: rules for every session in this workspace changed.
+      if (state) {
+        state.workspace_allowances = frame.allowances || [];
+        renderNeedsYou();
+      }
       break;
     case "event":
       handleEvent(id, frame);
@@ -1074,7 +1085,8 @@ function renderSessionBar() {
   el("sb-no").textContent = id ? sheetNo(id) : "";
   el("sb-title").textContent = title;
   el("sb-name").title = `Rename this session (${title})`;
-  const allowed = (state.allowances || []).length;
+  // DR-057: this session's rules and the workspace's both count.
+  const allowed = (state.allowances || []).length + (state.workspace_allowances || []).length;
   el("sb-allowed-count").textContent = allowed ? String(allowed) : "";
   el("open-allowed").classList.toggle("has-items", allowed > 0);
   el("open-allowed").title = allowed
@@ -2373,18 +2385,59 @@ function openAllowed() {
 
 function renderAllowed() {
   const allowed = (state && state.allowances) || [];
+  const everywhere = (state && state.workspace_allowances) || [];
+  const dropped = (state && state.dropped_allowances) || [];
   const entry = openEntry(focusId());
-  el("allowed-scope").textContent = `For ${entry ? `${sheetNo(focusId())} · ${entry.title}` : "this session"}. Switch sessions to see theirs.`;
-  el("allowed-list").innerHTML = allowed.length
-    ? allowed
-        .map(
-          (item) =>
-            `<div class="allowed-row"><span class="allowed-kind">${escapeHtml(item.tool === "run_command" ? "command" : item.tool === "fetch_url" ? "host" : "tool")}</span>` +
-            `<span class="allowed-what">${item.tool === "run_command" ? `<code>${escapeHtml(item.pattern)} …</code>` : escapeHtml(item.label)}</span>` +
-            `<button type="button" class="ghost-button small" data-revoke-allowed="${escapeHtml(item.id)}" title="Ask again before ${escapeHtml(item.label)}">Remove</button></div>`
-        )
-        .join("")
-    : `<p class="empty-state">Nothing yet: every command, page fetch and search asks first. Add a rule below, or press "Always allow" on a question.</p>`;
+  const folder = state && state.workspace ? state.workspace.split(/[\\/]/).filter(Boolean).pop() : "";
+  el("allowed-scope").textContent = `Rules for ${entry ? `${sheetNo(focusId())} · ${entry.title}` : "this session"}, and for every session in ${folder ? `the ${folder} folder` : "this workspace"}.`;
+  // DR-057: two groups. A session's rules are saved with it; the workspace's
+  // apply to every session here and are kept on this computer.
+  el("allowed-list").innerHTML =
+    allowedGroup(
+      "This session",
+      allowed,
+      "session",
+      `Nothing yet: press "Always allow" on a question, or add a rule below.`
+    ) +
+    (dropped.length
+      ? `<p class="callout warn allowed-dropped">Saved rules that will ask again: ${escapeHtml(dropped.join("; "))}</p>`
+      : "") +
+    allowedGroup(
+      "Every session in this workspace",
+      everywhere,
+      "workspace",
+      "Nothing yet: keep a session rule for the workspace, or add one below."
+    );
+}
+
+/* One group of rules on the Allowed page (DR-057). */
+function allowedGroup(title, items, scope, empty) {
+  const rows = items
+    .map(
+      (item) =>
+        `<div class="allowed-row"><span class="allowed-kind">${escapeHtml(item.tool === "run_command" ? "command" : item.tool === "fetch_url" ? "host" : "tool")}</span>` +
+        `<span class="allowed-what">${item.tool === "run_command" ? `<code>${escapeHtml(item.pattern)} …</code>` : escapeHtml(item.label)}</span>` +
+        `<span class="allowed-actions">` +
+        (scope === "session"
+          ? `<button type="button" class="ghost-button small" data-keep-allowed="${escapeHtml(item.id)}" data-tool="${escapeHtml(item.tool)}" data-pattern="${escapeHtml(item.pattern)}" title="Let ${escapeHtml(item.label)} run without asking in every session here">Keep for this workspace</button>`
+          : "") +
+        `<button type="button" class="ghost-button small" data-revoke-allowed="${escapeHtml(item.id)}" data-scope="${scope}" title="Ask again before ${escapeHtml(item.label)}">Remove</button>` +
+        `</span></div>`
+    )
+    .join("");
+  return (
+    `<section class="allowed-group"><h3 class="lbl">${escapeHtml(title)}<span class="allowed-group-count">${items.length || ""}</span></h3>` +
+    (rows || `<p class="empty-state">${escapeHtml(empty)}</p>`) +
+    `</section>`
+  );
+}
+
+/* Apply what an allowances call returned to the page. */
+function takeAllowances(result) {
+  if (result.allowances) state.allowances = result.allowances;
+  if (result.workspace_allowances) state.workspace_allowances = result.workspace_allowances;
+  renderNeedsYou();
+  renderAllowed();
 }
 
 el("open-allowed").addEventListener("click", openAllowed);
@@ -2399,24 +2452,40 @@ el("allowed-add").addEventListener("submit", async (event) => {
   event.preventDefault();
   const tool = el("allowed-tool").value;
   const pattern = el("allowed-pattern").value.trim();
-  const result = await post("/api/allowances", { action: "add", tool, pattern, session: focusId() });
+  const scope = el("allowed-where").value;
+  const result = await post("/api/allowances", { action: "add", tool, pattern, scope, session: focusId() });
   if (result) {
-    state.allowances = result.allowances || [];
     el("allowed-pattern").value = "";
-    toast(`${result.added.label} will run without asking in this session.`, "good");
-    renderNeedsYou();
-    renderAllowed();
+    toast(`${result.added.label} will run without asking ${scope === "workspace" ? "in every session here" : "in this session"}.`, "good");
+    takeAllowances(result);
   }
 });
 el("allowed-list").addEventListener("click", async (event) => {
+  const keep = event.target.closest("[data-keep-allowed]");
+  if (keep) {
+    // DR-057: the session's rule moves to every session in the workspace.
+    const result = await post("/api/allowances", {
+      action: "add",
+      tool: keep.dataset.tool,
+      pattern: keep.dataset.pattern,
+      scope: "workspace",
+      session: focusId(),
+    });
+    if (result) {
+      toast(`${result.added.label} will run without asking in every session here.`, "good");
+      takeAllowances(result);
+    }
+    return;
+  }
   const button = event.target.closest("[data-revoke-allowed]");
   if (!button) return;
-  const result = await post("/api/allowances", { action: "revoke", id: button.dataset.revokeAllowed, session: focusId() });
-  if (result) {
-    state.allowances = result.allowances || [];
-    renderNeedsYou();
-    renderAllowed();
-  }
+  const result = await post("/api/allowances", {
+    action: "revoke",
+    id: button.dataset.revokeAllowed,
+    scope: button.dataset.scope || "session",
+    session: focusId(),
+  });
+  if (result) takeAllowances(result);
 });
 
 /* ---------- overlays ---------- */
