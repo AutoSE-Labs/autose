@@ -1108,6 +1108,45 @@ def test_no_default_is_saved_from_a_session_on_another_provider(adjustable, tmp_
     assert adjustable._config.inference.context_limit is None
 
 
+def test_two_saves_at_once_leave_the_file_and_the_default_agreeing(
+    adjustable, tmp_path, monkeypatch
+):
+    """A second save landing while the first finishes must not split them.
+
+    The file used to be written outside the bridge's lock, so the save that
+    wrote the file last was not always the one that set the default new
+    sessions start with: the file said one window and the dashboard another.
+    """
+    import gui.bridge as bridge_module
+
+    real = bridge_module.save_workspace_context_limit
+    other_done = threading.Event()
+
+    def other() -> None:
+        adjustable.save_context_default(65536)
+        other_done.set()
+
+    second = threading.Thread(target=other)
+    written: list[int] = []
+
+    def save(root, tokens):
+        saved = real(root, tokens)
+        written.append(tokens)
+        if len(written) == 1:
+            # The second save arrives just as the first has written its file.
+            second.start()
+            other_done.wait(0.5)
+        return saved
+
+    monkeypatch.setattr(bridge_module, "save_workspace_context_limit", save)
+    adjustable.save_context_default(16384)
+    second.join(5)
+    assert not second.is_alive()
+    on_disk = load_config(workspace_root=tmp_path).inference.context_limit
+    assert on_disk == adjustable._config.inference.context_limit
+    assert adjustable.snapshot()["context_advice"]["default_window"] == on_disk
+
+
 def test_a_fixed_window_runtime_has_no_default_to_save(served, tmp_path):
     status, payload = _request(
         served, "/api/context", body={"tokens": 65536, "action": "save_default"}

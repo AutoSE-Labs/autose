@@ -1825,14 +1825,18 @@ class SessionBridge:
                 live.session.set_context_window(tokens)
             except AutoSEError as exc:
                 raise BridgeError(str(exc)) from exc
-            root = self._config.resolve_workspace_root()
-        try:
-            saved = save_workspace_context_limit(root, tokens)
-        except ConfigurationError as exc:
-            raise BridgeError(str(exc)) from exc
-        except OSError as exc:
-            raise BridgeError(f"could not save the default: {exc}", status=500) from exc
-        with self._lock:
+            # Written under the lock: two saves at once must leave the file
+            # and the default new sessions start with saying the same thing.
+            try:
+                saved = save_workspace_context_limit(
+                    self._config.resolve_workspace_root(), tokens
+                )
+            except ConfigurationError as exc:
+                raise BridgeError(str(exc)) from exc
+            except OSError as exc:
+                raise BridgeError(
+                    f"could not save the default: {exc}", status=500
+                ) from exc
             self._config = self._config.with_inference(
                 replace(self._config.inference, context_limit=tokens)
             )
