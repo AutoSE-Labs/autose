@@ -430,3 +430,30 @@ def test_a_gateway_error_is_retried_before_failing(monkeypatch, status):
     result = OpenAICompatibleChatModel(_settings()).complete([{"role": "user", "content": "hi"}])
     assert result.content == "ok"
     assert len(attempts) == 2
+
+
+class _DroppingResponse(_FakeResponse):
+    """An SSE body that yields one chunk and then loses the connection."""
+
+    def __iter__(self):
+        yield b'data: {"choices":[{"delta":{"content":"Hel"}}]}\n'
+        raise ConnectionResetError(10054, "forcibly closed by the remote host")
+
+
+@pytest.mark.parametrize("mid_stream", [True, False])
+def test_a_connection_reset_while_streaming_is_retried_not_fatal(monkeypatch, mid_stream):
+    calls: list[int] = []
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(1)
+        if len(calls) == 1:
+            if mid_stream:
+                return _DroppingResponse(b"")
+            raise ConnectionResetError(10054, "forcibly closed by the remote host")
+        return _json_response({"choices": [{"message": {"content": "Hello"}}]})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    chunks = list(OpenAICompatibleChatModel(_settings()).stream([]))
+    assert chunks[-1].is_final
+    assert chunks[-1].result.content == "Hello"
+    assert len(calls) == 2

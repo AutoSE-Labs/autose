@@ -8,6 +8,7 @@ opinion about which vendor's client library is present.
 
 from __future__ import annotations
 
+import http.client
 import json
 import time
 import urllib.error
@@ -186,6 +187,7 @@ class OpenAICompatibleChatModel:
         )
         request = self._build_request(payload)
         accumulator = _StreamAccumulator()
+        streamed = False
         try:
             # S310: the URL is the operator's own configured endpoint, not
             # anything a model supplied.
@@ -198,6 +200,7 @@ class OpenAICompatibleChatModel:
                         continue
                     content, reasoning = accumulator.absorb(chunk)
                     if content or reasoning:
+                        streamed = True
                         yield StreamChunk(content=content, reasoning=reasoning)
         except urllib.error.HTTPError as exc:
             # Not every OpenAI-compatible server implements SSE. Falling back
@@ -213,8 +216,30 @@ class OpenAICompatibleChatModel:
                 yield StreamChunk(content=result.content)
             yield StreamChunk(result=result)
             return
-        except (urllib.error.URLError, TimeoutError) as exc:
-            raise InferenceTimeoutError(self._unreachable_message(exc)) from exc
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            ConnectionError,
+            http.client.HTTPException,
+        ) as exc:
+            if not _is_connection_failure(exc) and not isinstance(
+                exc, http.client.HTTPException
+            ):
+                raise InferenceTimeoutError(self._unreachable_message(exc)) from exc
+            # A dropped connection, at the start or part-way through. Streaming
+            # has no retry of its own, so repeat the request the way a
+            # non-streaming one is repeated (with backoff). Anything already
+            # shown stays shown; the final result below is authoritative.
+            result = self.complete(
+                messages,
+                tools=tools,
+                max_output_tokens=max_output_tokens,
+                reasoning_effort=reasoning_effort,
+            )
+            if result.content and not streamed:
+                yield StreamChunk(content=result.content)
+            yield StreamChunk(result=result)
+            return
         yield StreamChunk(result=accumulator.finish())
 
     # -- request construction ------------------------------------------
