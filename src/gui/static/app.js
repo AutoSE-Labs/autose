@@ -3137,9 +3137,18 @@ async function undoFile(turn, path, kind) {
   if (!window.confirm(undoFileQuestion(turn, path, kind))) return;
   const payload = await post("/api/undo", { session: focusId(), turn, path });
   if (!payload) return;
+  // The answer carries the state after the undo; drawing from it rather
+  // than waiting for the stream keeps every count in step at once.
+  if (payload.state) {
+    state = payload.state;
+    adoptState();
+  }
   openChanges.delete(`${turn}:${path}`);
   renderInspector();
-  if (!overlays.diff.hidden && diffView.turn === turn) loadDiffRun(turn, path);
+  if (!overlays.diff.hidden && diffView.turn === turn) {
+    refreshRunPicker(turn);
+    loadDiffRun(turn, path);
+  }
 }
 
 document.addEventListener("click", (event) => {

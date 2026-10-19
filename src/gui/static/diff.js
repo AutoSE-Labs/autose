@@ -48,6 +48,18 @@ function runsWithChanges() {
     .filter((run) => run.files);
 }
 
+/* After a file of the open run is undone on its own (DR-061): the picker's
+ * file counts follow, and the run stays picked even with none left. */
+function refreshRunPicker(turn) {
+  const runs = runsWithChanges();
+  const run = ((state && state.history) || [])[turn];
+  if (run && !runs.some((item) => item.index === turn)) {
+    runs.push({ index: turn, prompt: run.prompt || "", files: 0 });
+    runs.sort((a, b) => a.index - b.index);
+  }
+  renderRunPicker(runs, turn);
+}
+
 function renderRunPicker(runs, chosen) {
   const picker = el("diff-run");
   picker.innerHTML = runs

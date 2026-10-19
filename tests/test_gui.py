@@ -940,6 +940,24 @@ def test_the_page_offers_to_undo_one_file_where_files_are_listed():
     assert "{ session: focusId(), turn, path }" in handler
 
 
+def test_undoing_a_file_in_the_diff_viewer_redraws_its_run_picker():
+    """The picker names each run with its file count. It was drawn only on
+    opening, so undoing a file there left "(2 files)" on a run with one, and
+    a run with none left dropped out of the list it was picked in."""
+    script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    viewer = (STATIC_ROOT / "diff.js").read_text(encoding="utf-8")
+
+    handler = script.split("async function undoFile(", 1)[1].split("\n}\n", 1)[0]
+    assert "state = payload.state;" in handler
+    assert handler.index("state = payload.state;") < handler.index("refreshRunPicker(turn)")
+    assert handler.index("refreshRunPicker(turn)") < handler.index("loadDiffRun(turn, path)")
+
+    picker = viewer.split("function refreshRunPicker(", 1)[1].split("\n}\n", 1)[0]
+    assert "runsWithChanges()" in picker
+    assert "files: 0" in picker  # a run with every file undone stays picked
+    assert "renderRunPicker(runs, turn)" in picker
+
+
 def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
     """Why the Stop button was invisible until it did.
 
