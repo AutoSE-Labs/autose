@@ -26,6 +26,7 @@ turn — and says how much it dropped rather than dropping it silently.
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from collections import deque
@@ -109,6 +110,16 @@ _NOTE_KEYS = frozenset(
     {"type", "kind", "stage", "message", "title", "iteration", "count", "unmet", "agent"}
     | {key for keys in _NOTE_FIELDS.values() for key in keys}
 )
+
+#: What a stored step's fields may hold, by type. A session file sits in the
+#: workspace, where a repository can put one, and an Adapter puts these values
+#: into its markup: a status that is not a status, or a list that is a string,
+#: is dropped on read rather than handed on (DR-055).
+_STEP_STATUSES = frozenset({"done", "failed", "refused"})
+_FLAG_KEYS = frozenset(
+    {"preview_trimmed", "truncated", "passed", "overridden", "ratcheted", "approved"}
+)
+_NUMBER_KEYS = frozenset({"elapsed_ms", "iteration", "count", "attempt", "rounds"})
 
 
 @dataclass(frozen=True)
@@ -527,8 +538,11 @@ def _preview(text: str) -> tuple[str, bool]:
 
 def _compact(value: Any, depth: int = 0) -> Any:
     """A JSON-safe copy of *value* with long strings and collections trimmed."""
-    if value is None or isinstance(value, (bool, int, float)):
+    if value is None or isinstance(value, (bool, int)):
         return value
+    if isinstance(value, float):
+        # NaN and the infinities are not JSON: a page could not read them back.
+        return value if math.isfinite(value) else str(value)
     if isinstance(value, str):
         return _text(value, TRACE_ARGUMENT_CHARS)
     if depth >= _MAX_DEPTH:
@@ -555,17 +569,35 @@ def _step_from(item: Any) -> dict[str, Any] | None:
         return None
     kind = item.get("type")
     if kind == "tool":
-        step = {key: _compact(value) for key, value in item.items() if key in _TOOL_KEYS}
+        step = {key: _field(key, value) for key, value in item.items() if key in _TOOL_KEYS}
         step["args"] = _compact(_mapping(item.get("args")))
+        # Only the statuses a finished trace holds: a call still "running"
+        # when the turn ended was closed as failed (TraceRecorder.finish).
+        if step.get("status") not in _STEP_STATUSES:
+            step["status"] = "failed"
         if "preview" in item:
             step["preview"], cut = _preview(str(item.get("preview") or ""))
-            step["preview_trimmed"] = bool(item.get("preview_trimmed")) or cut
+            step["preview_trimmed"] = item.get("preview_trimmed") is True or cut
         return step
     if kind == "note":
-        note = {key: _compact(value) for key, value in item.items() if key in _NOTE_KEYS}
+        note = {key: _field(key, value) for key, value in item.items() if key in _NOTE_KEYS}
         note["message"] = _text(item.get("message"), _MESSAGE_CHARS)
         return note
     return None
+
+
+def _field(key: str, value: Any) -> Any:
+    """A stored step's field, as the type the recorder wrote it."""
+    if key in _FLAG_KEYS:
+        return value is True
+    if key in _NUMBER_KEYS:
+        return _int(value)
+    if key == "unmet":
+        items = value if isinstance(value, (list, tuple)) else ()
+        return [_text(entry, 80) for entry in list(items)[:_MAX_ITEMS]]
+    if key == "args":
+        return _compact(_mapping(value))
+    return _text(value, _MESSAGE_CHARS if key in {"message", "reason"} else TRACE_ARGUMENT_CHARS)
 
 
 def _round_from(item: Mapping[str, Any]) -> dict[str, Any]:
@@ -591,12 +623,13 @@ def _mapping(value: Any) -> Mapping[str, Any]:
 def _int(value: Any) -> int:
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 
 def _float(value: Any) -> float:
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
         return 0.0
+    return number if math.isfinite(number) else 0.0

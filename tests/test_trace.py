@@ -354,3 +354,66 @@ def test_a_session_stored_before_traces_still_loads(make_session, tmp_path):
 
     assert record.turns[0].trace is None
     assert session.history[0].trace is None
+
+
+# -- a stored trace is data a repository can plant ----------------------------
+
+
+def test_a_planted_trace_cannot_put_markup_or_other_types_in_front_of_the_page():
+    """Session files live in the workspace, so a repository can ship one. The
+    dashboard puts a step's status into a class attribute and joins a note's
+    unmet list: a status that closes the attribute, or a string where a list
+    belongs, must not survive the read."""
+    trace = RunTrace.from_dict(
+        {
+            "started_at": 1.0,
+            "steps": [
+                {"type": "tool", "tool": "read_file", "status": 'x" data-undo-turn="0', "elapsed_ms": "12"},
+                {"type": "tool", "tool": "read_file", "status": "running"},
+                {"type": "note", "kind": "validation_verdict", "passed": "no", "unmet": "R1"},
+                {"type": "note", "kind": "loopback", "target": {"nested": 1}, "unmet": ["R2", 3]},
+            ],
+        }
+    )
+
+    planted, running, verdict, loopback = trace.steps
+    assert planted["status"] == "failed"
+    assert planted["elapsed_ms"] == 12
+    assert running["status"] == "failed"
+    assert verdict["passed"] is False
+    assert verdict["unmet"] == []
+    assert loopback["unmet"] == ["R2", "3"]
+    assert isinstance(loopback["target"], str)
+    # What the recorder writes reads back unchanged.
+    assert RunTrace.from_dict(json.loads(json.dumps(_sample().to_dict()))) == _sample()
+
+
+def test_numbers_json_cannot_carry_are_read_as_nothing(tmp_path):
+    """A page cannot parse NaN or Infinity, and Python has no int for 1e999."""
+    trace = RunTrace.from_dict(
+        {
+            "started_at": float("nan"),
+            "dropped_steps": float("inf"),
+            "steps": [{"type": "tool", "tool": "t", "status": "done", "args": {"x": float("nan")}, "elapsed_ms": float("inf")}],
+            "rounds": [{"prompt": float("inf")}],
+        }
+    )
+    json.dumps(trace.to_dict(), allow_nan=False)
+    assert trace.dropped_steps == 0
+
+    recorder = _recorder()
+    recorder.emit(_event("tool_called", tool="t", call_id="c1", arguments={"x": float("inf")}))
+    json.dumps(recorder.finish().to_dict(), allow_nan=False)
+
+    # And a session file holding such a number is read, not a crash for
+    # everything that lists the sessions.
+    root = tmp_path / "sessions"
+    root.mkdir()
+    (root / "odd.json").write_text(
+        '{"version": 1, "id": "odd", "prompt_tokens": 1e999,'
+        ' "turns": [{"prompt": "p", "trace": {"dropped_steps": 1e999, "steps": []}}]}',
+        encoding="utf-8",
+    )
+    (record,) = FileSessionStore(root).list()
+    assert record.prompt_tokens == 0
+    assert record.turns[0].trace.dropped_steps == 0

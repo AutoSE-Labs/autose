@@ -126,7 +126,7 @@ function toolStepMarkup(step, run) {
       `</div>`
     : "";
   return (
-    `<div class="step tool status-${step.status}${open ? " open" : ""}">` +
+    `<div class="step tool status-${escapeHtml(step.status)}${open ? " open" : ""}">` +
     `<button type="button" class="step-head" data-toggle-step="${escapeHtml(step.id)}" aria-expanded="${Boolean(open)}">` +
     `<span class="step-dot" aria-hidden="true"></span>` +
     `<span class="act-icon">${spec.icon}</span>` +

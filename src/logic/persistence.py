@@ -661,7 +661,8 @@ def _list(value: Any) -> list[Any]:
 def _int(value: Any) -> int:
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError: JSON reads 1e999 as infinity, which has no int.
         return 0
 
 

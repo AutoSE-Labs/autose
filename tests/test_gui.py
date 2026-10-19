@@ -1327,6 +1327,15 @@ def test_steps_are_served_over_http(served):
     assert status == 400
 
 
+def test_a_step_s_status_is_escaped_where_it_becomes_a_class():
+    """A stored trace comes from a session file, which a repository can plant
+    (DR-055): its status must not be able to close the class attribute and add
+    one of the page's action attributes, such as data-undo-turn."""
+    source = (STATIC_ROOT / "inspector.js").read_text(encoding="utf-8")
+    assert "status-${step.status}" not in source
+    assert "status-${escapeHtml(step.status)}" in source
+
+
 def test_no_page_script_writes_inline_styles():
     """The CSP is default-src 'self' (DR-029), which drops inline style
     attributes without a word: a bar drawn with style="height:…" renders as
