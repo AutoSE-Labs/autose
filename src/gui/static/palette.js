@@ -829,7 +829,10 @@ if (el("palette-input")) {
   document.addEventListener(
     "keydown",
     (event) => {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      // ⌘ K on a Mac, where Control-K deletes to the end of the line in any
+      // text field; Ctrl K elsewhere.
+      const held = PALETTE_ON_MAC ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+      if (!held || event.altKey || event.shiftKey) return;
       const key = /^[a-z]$/i.test(event.key) ? event.key.toLowerCase() : event.code === "KeyK" ? "k" : "";
       if (key !== "k") return;
       event.preventDefault();

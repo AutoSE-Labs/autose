@@ -1499,6 +1499,32 @@ out.onlyShort = paletteView.shown[paletteView.active].id;
     assert not out["onlyShort"].startswith(("ask:", "plan:")), out["onlyShort"]
 
 
+@pytest.mark.parametrize(
+    ("platform", "ctrl", "meta", "opens"),
+    [
+        ("Linux x86_64", True, False, True),
+        ("Win32", True, False, True),
+        ("MacIntel", False, True, True),
+        # Control-K is the Mac's own "delete to the end of the line" in every
+        # text field, the composer included: the menu leaves it alone there.
+        ("MacIntel", True, False, False),
+    ],
+)
+def test_the_menu_key_is_the_one_the_platform_shows(platform, ctrl, meta, opens):
+    out = _run_palette(
+        rf"""
+const press = {{ key: "k", code: "KeyK", ctrlKey: {str(ctrl).lower()}, metaKey: {str(meta).lower()}, altKey: false, shiftKey: false,
+  prevented: false, preventDefault() {{ this.prevented = true; }}, stopPropagation() {{}} }};
+documentListeners.filter((item) => item.type === "keydown" && item.capture).forEach((item) => item.fn(press));
+out.open = paletteView.open;
+out.prevented = press.prevented;
+""",
+        platform,
+    )
+
+    assert out == {"open": opens, "prevented": opens}
+
+
 # -- DR-042: a queue per session ---------------------------------------------------
 
 
