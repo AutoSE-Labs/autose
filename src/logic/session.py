@@ -40,7 +40,7 @@ from .connections import provider_settings
 from .credentials import CredentialStore, ProviderKey, mask_key
 from .errors import ConfigurationError
 from .inference.base import ChatModel
-from .inference.catalog import ModelInfo
+from .inference.catalog import LoadedWindow, LoadedWindowReader, ModelInfo
 from .inference.context_advice import (
     COMFORTABLE_CONTEXT_TOKENS,
     ContextAdvice,
@@ -413,6 +413,7 @@ class Session:
         store: SessionStore | None = None,
         session_id: str = "",
         credentials: CredentialStore | None = None,
+        configured_window: int | None = None,
     ) -> None:
         self._inference = inference.require_model()
         #: Where a key for a provider switched to mid-session comes from (DR-036).
@@ -436,6 +437,12 @@ class Session:
         #: A window the user picked this session (DR-035), kept across a
         #: model switch; ``None`` lets each model get the chosen default.
         self._chosen_window: int | None = None
+        #: ``inference.context_limit`` from configuration: as much a choice as
+        #: one made in the picker, so a loaded window never overrides it (DR-059).
+        self._configured_window = configured_window
+        #: Whether the window in use was matched to the one the runtime already
+        #: had the model loaded with, rather than chosen (DR-059).
+        self._window_matched = False
         self._model: ChatModel = create_chat_model(self._inference)
         self._turns: list[Turn] = []
         # DR-021: a repo's `.autose/config.yaml` tuning/prompts apply to every
@@ -530,6 +537,7 @@ class Session:
             store=store,
             session_id=resume.id if resume is not None else "",
             credentials=credentials,
+            configured_window=_configured_window(setup),
         )
         if resume is not None:
             session.restore(resume)
@@ -826,10 +834,13 @@ class Session:
             (model for model in self.available_models() if model.name == name), None
         )
         inference, info = adopt_context_window(
-            self._inference.with_model(name), info, explicit=self._chosen_window
+            self._inference.with_model(name),
+            info,
+            explicit=self._chosen_window or self._configured_window,
         )
         self._inference = inference.require_model()
         self._model_info = info
+        self._window_matched = False
         self._rebuild_model()
         self._emit(
             "model_selected",
@@ -888,6 +899,7 @@ class Session:
         self._inference = inference
         self._model_info = info
         self._key = ProviderKey(self._credentials, inference.provider, inference.api_key)
+        self._window_matched = False
         self._rebuild_model()
         self._emit(
             "model_selected",
@@ -1023,6 +1035,11 @@ class Session:
             )
         previous = self._inference.context_limit
         self._chosen_window = tokens
+        self._window_matched = False
+        if previous == tokens:
+            # Already the window in use, now chosen rather than defaulted: a
+            # loaded window no longer moves it (DR-059), and nothing reloads.
+            return
         self._inference, self._model_info = adopt_context_window(
             self._inference, info, explicit=tokens
         )
@@ -1033,6 +1050,75 @@ class Session:
             previous=previous,
             tokens=tokens,
         )
+
+    @property
+    def window_matched(self) -> bool:
+        """Whether the window was matched to the loaded model's (DR-059)."""
+        return self._window_matched
+
+    def match_loaded_window(self) -> bool:
+        """Use the window the runtime already has the model loaded with (DR-059).
+
+        A runtime that serves the window a request asks for (DR-035) reloads
+        the model whenever a request asks for a different one: tens of seconds
+        to minutes for a large model. Another client of the same server, an
+        OpenAI-compatible one say, loads it at the server's default, and the
+        next request from here would reload it back to the window decided when
+        this session started.
+
+        So when nobody chose the window — not in the picker, not in
+        configuration — and the model is loaded at a window AutoSE can work in
+        (at least the minimum usable, at most the model's maximum), that window
+        is adopted instead. A model that is not loaded, a runtime that cannot
+        say, or one that cannot be reached leaves the window alone. Returns
+        whether it changed.
+        """
+        if self._chosen_window or self._configured_window:
+            return False
+        if not serves_requested_window(self._inference.provider):
+            return False
+        loaded = self._loaded_window()
+        current = self._inference.context_limit
+        if loaded is None or loaded.context_length == current:
+            return False
+        tokens = loaded.context_length
+        floor = max(
+            MIN_USABLE_CONTEXT_TOKENS,
+            count_limit(self._tuning.context.min_usable_context_tokens) or 0,
+        )
+        info = self._model_info
+        maximum = info.max_context_length if info is not None else None
+        if tokens < floor or (maximum and tokens > maximum):
+            return False
+        self._inference = self._inference.with_context_limit(tokens)
+        if info is not None:
+            # Observed at exactly this window, so the GPU share holds for it.
+            self._model_info = replace(
+                info,
+                context_length=tokens,
+                context_length_measured=True,
+                gpu_fraction=loaded.gpu_fraction,
+            )
+        self._window_matched = True
+        self._rebuild_model()
+        self._emit(
+            "context_window_changed",
+            f"{current or 0} -> {tokens}",
+            previous=current,
+            tokens=tokens,
+            reason="matched the loaded model",
+        )
+        return True
+
+    def _loaded_window(self) -> LoadedWindow | None:
+        """What the runtime reports the model is loaded with; ``None`` if it cannot say."""
+        try:
+            catalog = create_model_catalog(self._inference)
+            if not isinstance(catalog, LoadedWindowReader):
+                return None
+            return catalog.loaded_window(self._inference.model)
+        except Exception:  # noqa: BLE001 - a check that saves a reload, never a failure
+            return None
 
     def review_plans_with(self, gate: PlanReviewGate | None) -> None:
         """Have every later staged turn put its plan to *gate* (DR-045).
@@ -1162,6 +1248,9 @@ class Session:
         missing = _missing_key_warning(self._inference)
         if missing:
             raise ConfigurationError(missing)
+        # DR-059: before the first request of the turn (classification is one),
+        # so a model another client loaded at a usable window is not reloaded.
+        self.match_loaded_window()
         classification: Classification | None = None
         if tier:
             # Named with this request: a person's choice (DR-049).
@@ -1502,3 +1591,17 @@ def _recorded_address(provider: str, recorded: str | None) -> str | None:
     ):
         return None
     return url
+
+
+def _configured_window(setup: SessionSetup) -> int | None:
+    """The window configuration chose for *setup*'s provider, if any (DR-059).
+
+    A configured window belongs to the configured provider, as in
+    :func:`setup_for_provider`; a default on another provider started from
+    its own.
+    """
+    inference = setup.inference
+    configured = setup.config.inference
+    if inference is None or inference.provider != configured.provider:
+        return None
+    return configured.context_limit

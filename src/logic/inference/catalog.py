@@ -22,7 +22,14 @@ from typing import Protocol, runtime_checkable
 from ..errors import InferenceTimeoutError
 from .settings import InferenceSettings
 
-__all__ = ["ModelInfo", "ModelCatalog", "OpenAICompatibleCatalog", "fetch_json"]
+__all__ = [
+    "ModelInfo",
+    "ModelCatalog",
+    "LoadedWindow",
+    "LoadedWindowReader",
+    "OpenAICompatibleCatalog",
+    "fetch_json",
+]
 
 
 @dataclass(frozen=True)
@@ -121,6 +128,27 @@ class ModelCatalog(Protocol):
 
     def list_models(self) -> tuple[ModelInfo, ...]:
         """Return the available models. Raises on an unreachable endpoint."""
+
+
+@dataclass(frozen=True)
+class LoadedWindow:
+    """The window a loaded model is served in right now, and its GPU share."""
+
+    context_length: int
+    gpu_fraction: float | None = None
+
+
+@runtime_checkable
+class LoadedWindowReader(Protocol):
+    """A catalog that can say, cheaply, what window a model is loaded with.
+
+    Optional, and only for a runtime that serves the window a request asks
+    for (DR-035): asking for a different one makes it reload the model, so
+    AutoSE checks first and matches a loaded window it can work in (DR-059).
+    """
+
+    def loaded_window(self, name: str) -> LoadedWindow | None:
+        """The loaded window of *name*; ``None`` when it is not loaded or unknown."""
 
 
 class OpenAICompatibleCatalog:

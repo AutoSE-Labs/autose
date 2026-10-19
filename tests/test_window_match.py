@@ -1,0 +1,299 @@
+"""DR-059: a window nobody chose follows the one the model is already loaded with."""
+
+from __future__ import annotations
+
+import io
+import json
+import urllib.error
+
+import pytest
+
+from logic.common.events import RecordingEventSink
+from logic.common.workspace import Workspace
+from logic.config import AutoSEConfig
+from logic.inference.catalog import LoadedWindow, ModelInfo
+from logic.inference.ollama import OllamaCatalog
+from logic.inference.registry import Provider, register_provider
+from logic.inference.settings import InferenceSettings
+from logic.session import Session, SessionSetup
+from tests.support.fakes import ScriptedChatModel, answer
+
+
+class _Response(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+
+def _fake_ollama(ps_models: list[dict] | None, asked: list[str]):
+    """A fake Ollama that answers ``/api/ps``; ``None`` is a server that is down."""
+
+    def fake_urlopen(request, timeout=None):
+        url = request.full_url if hasattr(request, "full_url") else str(request)
+        asked.append(url)
+        if ps_models is None:
+            raise urllib.error.URLError("connection refused")
+        if url.endswith("/api/ps"):
+            return _Response(json.dumps({"models": ps_models}).encode("utf-8"))
+        raise AssertionError(f"only /api/ps may be asked here, not {url}")
+
+    return fake_urlopen
+
+
+def _ps(name: str, window: int, *, vram_share: float = 1.0) -> dict:
+    size = 24_000_000_000
+    return {
+        "name": name,
+        "model": name,
+        "context_length": window,
+        "size": size,
+        "size_vram": int(size * vram_share),
+    }
+
+
+_INFO = ModelInfo(
+    name="qwen3.6:35b-a3b",
+    context_length=32768,
+    context_length_measured=True,
+    max_context_length=262144,
+)
+
+
+def _ollama_session(events=None, **kwargs) -> Session:
+    return Session(
+        inference=InferenceSettings(
+            base_url="http://localhost:11434/v1",
+            model=_INFO.name,
+            provider="ollama",
+            context_limit=32768,
+        ),
+        workspace=Workspace.at(kwargs.pop("root")),
+        model_info=_INFO,
+        events=events,
+        auto_classify=False,
+        **kwargs,
+    )
+
+
+# -- reading the loaded window -----------------------------------------------------
+
+
+def test_ollama_says_what_window_a_model_is_loaded_with(monkeypatch):
+    asked: list[str] = []
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        _fake_ollama([_ps("qwen3.6:35b-a3b", 65536), _ps("llama3:latest", 8192)], asked),
+    )
+    catalog = OllamaCatalog(InferenceSettings(base_url="http://h:11435/v1", provider="ollama"))
+    assert catalog.loaded_window("qwen3.6:35b-a3b") == LoadedWindow(65536, 1.0)
+    # A name without a tag is Ollama's `:latest`.
+    assert catalog.loaded_window("llama3") == LoadedWindow(8192, 1.0)
+    assert catalog.loaded_window("gemma4:12b") is None
+    # Only the cheap listing is asked, never the model itself.
+    assert set(asked) == {"http://h:11435/api/ps"}
+
+
+def test_a_server_that_cannot_be_reached_reports_nothing_loaded(monkeypatch):
+    monkeypatch.setattr("urllib.request.urlopen", _fake_ollama(None, []))
+    catalog = OllamaCatalog(InferenceSettings(base_url="http://h/v1", provider="ollama"))
+    assert catalog.loaded_window("qwen3.6:35b-a3b") is None
+
+
+# -- matching it ---------------------------------------------------------------
+
+
+def test_a_window_another_client_loaded_is_adopted_instead_of_reloading(
+    monkeypatch, tmp_path
+):
+    """Without DR-059 the next request asks for 32k and Ollama reloads the model."""
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        _fake_ollama([_ps("qwen3.6:35b-a3b", 65536, vram_share=0.9)], []),
+    )
+    events = RecordingEventSink()
+    session = _ollama_session(events, root=tmp_path)
+    assert session.match_loaded_window()
+    assert session.context_limit() == 65536
+    # The chat model now asks for 65536, which is what is loaded: no reload.
+    assert session._model._settings.context_limit == 65536
+    assert session.window_matched
+    assert session.model_info.gpu_fraction == pytest.approx(0.9)
+    (changed,) = events.of_type("context_window_changed")
+    assert changed.data == {
+        "previous": 32768,
+        "tokens": 65536,
+        "reason": "matched the loaded model",
+    }
+
+
+@pytest.mark.parametrize(
+    ("loaded", "why"),
+    [
+        (None, "not loaded"),
+        (32768, "already the same"),
+        (4096, "below what AutoSE can work in"),
+        (524288, "past the model's maximum"),
+    ],
+)
+def test_a_window_that_is_not_worth_matching_is_left_alone(
+    monkeypatch, tmp_path, loaded, why
+):
+    models = [_ps("qwen3.6:35b-a3b", loaded)] if loaded else [_ps("other:1b", 65536)]
+    monkeypatch.setattr("urllib.request.urlopen", _fake_ollama(models, []))
+    events = RecordingEventSink()
+    session = _ollama_session(events, root=tmp_path)
+    assert not session.match_loaded_window(), why
+    assert session.context_limit() == 32768
+    assert not events.of_type("context_window_changed")
+
+
+def test_a_window_chosen_in_the_picker_always_wins(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "urllib.request.urlopen", _fake_ollama([_ps("qwen3.6:35b-a3b", 65536)], [])
+    )
+    events = RecordingEventSink()
+    session = _ollama_session(events, root=tmp_path)
+    # Choosing the window already in use reloads nothing and says nothing...
+    session.set_context_window(32768)
+    assert not events.of_type("context_window_changed")
+    # ...but it is a choice now, so the loaded 64k does not move it.
+    assert not session.match_loaded_window()
+    assert session.context_limit() == 32768
+
+
+def test_a_configured_window_always_wins(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "urllib.request.urlopen", _fake_ollama([_ps("qwen3.6:35b-a3b", 65536)], [])
+    )
+    session = _ollama_session(root=tmp_path, configured_window=32768)
+    assert not session.match_loaded_window()
+    assert session.context_limit() == 32768
+
+
+def test_a_configured_window_reaches_the_session_from_the_setup(tmp_path):
+    configured = InferenceSettings(
+        base_url="http://localhost:11434/v1",
+        model=_INFO.name,
+        provider="ollama",
+        context_limit=16384,
+    )
+    setup = SessionSetup(
+        config=AutoSEConfig(inference=configured, workspace_root=tmp_path),
+        inference=configured,
+        model_info=_INFO,
+    )
+    assert Session.from_setup(setup)._configured_window == 16384
+    # A default on another provider started from its own window.
+    other = SessionSetup(
+        config=AutoSEConfig(
+            inference=InferenceSettings(provider="vllm", context_limit=16384),
+            workspace_root=tmp_path,
+        ),
+        inference=configured,
+        model_info=_INFO,
+    )
+    assert Session.from_setup(other)._configured_window is None
+
+
+def test_a_runtime_that_serves_a_fixed_window_is_never_matched(monkeypatch, tmp_path):
+    asked: list[str] = []
+    monkeypatch.setattr("urllib.request.urlopen", _fake_ollama([], asked))
+    register_provider(
+        Provider(
+            name="test-fixed-match",
+            chat_model=lambda settings: ScriptedChatModel([answer("ok")]),
+        ),
+        replace=True,
+    )
+    session = Session(
+        inference=InferenceSettings(
+            base_url="http://test/v1", model="m", provider="test-fixed-match"
+        ),
+        workspace=Workspace.at(tmp_path),
+        auto_classify=False,
+    )
+    assert not session.match_loaded_window()
+    assert asked == []
+
+
+# -- when it happens ---------------------------------------------------------------
+
+
+@pytest.fixture
+def loaded_runtime():
+    """A provider that, like Ollama, serves what it is asked and says what is loaded."""
+    holder: dict = {"built": [], "loaded": None}
+
+    def factory(settings):
+        holder["built"].append(settings)
+        return ScriptedChatModel([answer("ok"), answer("ok")])
+
+    class _Catalog:
+        def __init__(self, settings):
+            pass
+
+        def list_models(self):
+            return ()
+
+        def loaded_window(self, name):
+            return holder["loaded"]
+
+    register_provider(
+        Provider(
+            name="test-loaded-window",
+            chat_model=factory,
+            catalog=_Catalog,
+            serves_requested_window=True,
+        ),
+        replace=True,
+    )
+    return holder
+
+
+def test_each_turn_starts_by_matching_the_loaded_window(loaded_runtime, tmp_path):
+    events = RecordingEventSink()
+    session = Session(
+        inference=InferenceSettings(
+            base_url="http://test/v1",
+            model="m",
+            provider="test-loaded-window",
+            context_limit=32768,
+        ),
+        workspace=Workspace.at(tmp_path),
+        model_info=ModelInfo(name="m", context_length=32768, max_context_length=131072),
+        events=events,
+        auto_classify=False,
+    )
+    loaded_runtime["loaded"] = LoadedWindow(65536, 1.0)
+    session.run("hello")
+    # The turn's requests went to a model built for the loaded window.
+    assert loaded_runtime["built"][-1].context_limit == 65536
+    kinds = [event.type for event in events.events]
+    assert kinds.index("context_window_changed") < kinds.index("turn_started")
+
+    # Unloaded since: the window stays where it is rather than guessing.
+    loaded_runtime["loaded"] = None
+    built = len(loaded_runtime["built"])
+    session.run("again")
+    assert session.context_limit() == 65536
+    assert len(loaded_runtime["built"]) == built
+
+
+def test_switching_models_keeps_a_configured_window(loaded_runtime, tmp_path):
+    session = Session(
+        inference=InferenceSettings(
+            base_url="http://test/v1",
+            model="m",
+            provider="test-loaded-window",
+            context_limit=16384,
+        ),
+        workspace=Workspace.at(tmp_path),
+        model_info=ModelInfo(name="m", context_length=16384, max_context_length=131072),
+        auto_classify=False,
+        configured_window=16384,
+    )
+    session.select_model("n")
+    assert session.context_limit() == 16384

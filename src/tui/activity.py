@@ -358,6 +358,18 @@ class ActivityIndicator:
     def _on_agent_context_thrashing(self, event: Event) -> None:
         self._print_above(Text(f"  {THEME.warn_glyph} {event.message}", style=THEME.warning))
 
+    def _on_context_window_changed(self, event: Event) -> None:
+        # DR-059: a window matched to the loaded model changes without anyone
+        # asking, so say so once; a window the user picked needs no echo.
+        reason = event.data.get("reason")
+        tokens = event.data.get("tokens")
+        if not reason or not isinstance(tokens, int):
+            return
+        size = f"{tokens // 1024}k" if tokens % 1024 == 0 else f"{tokens:,}"
+        self._print_above(
+            Text(f"  context window {size} tokens — {reason}", style=THEME.muted)
+        )
+
     def _on_agent_nudged(self, event: Event) -> None:
         # DR-019: the model went quiet rather than answering; without this,
         # the nudge (and its bounded retry) is invisible and looks like a hang.
