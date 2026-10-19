@@ -63,6 +63,7 @@ from logic.common.approval import (
 from logic.common.browse import list_workspace, read_workspace_file
 from logic.common.context import MIN_USABLE_CONTEXT_TOKENS
 from logic.common.events import CallbackEventSink, Event, EventSink
+from logic.common.processes import ProcessError, UnknownProcessError, stop_managers
 from logic.common.workspace import Workspace
 from logic.config import AutoSEConfig, load_config, save_workspace_context_limit
 from logic.connections import list_connections
@@ -650,6 +651,8 @@ class SessionBridge:
             self._store = FileSessionStore(
                 self._config.resolve_workspace_root() / SESSIONS_DIRECTORY
             )
+            # DR-062: a closed session's background commands go with it.
+            stop_managers([one.session.processes for one in self._open.values()], wait=False)
             self._open.clear()
             self._focus = ""
             # The workspace may have changed, and its automation with it.
@@ -784,6 +787,8 @@ class SessionBridge:
                     status=409,
                 )
             self._deny_pending(live, "the session was closed")
+            # DR-062: what it started in the background stops with it.
+            live.session.close(wait=False)
             del self._open[session_id]
             if self._focus == session_id:
                 self._focus = next(reversed(self._open), "")
@@ -818,12 +823,14 @@ class SessionBridge:
         return {"deleted": session_id, "sessions": self.sessions()}
 
     def shutdown(self) -> None:
-        """Deny anything still parked, so no thread is left waiting."""
+        """Deny anything still parked, so no thread is left waiting, and stop
+        every background command the open sessions started (DR-062)."""
         self._runner.stop()
         with self._lock:
             live = list(self._open.values())
         for one in live:
             self._deny_pending(one, "the dashboard is shutting down")
+        stop_managers([one.session.processes for one in live])
 
     # -- state -------------------------------------------------------------
 
@@ -2047,7 +2054,9 @@ class SessionBridge:
             and one.id != self._focus
         ]
         while len(self._open) >= MAX_OPEN_SESSIONS and idle:
-            del self._open[idle.pop(0).id]
+            closing = idle.pop(0)
+            closing.session.close(wait=False)
+            del self._open[closing.id]
 
     def is_running(self, session_id: str) -> bool:
         with self._lock:
@@ -2057,6 +2066,75 @@ class SessionBridge:
     def publish_automation(self, frame: dict[str, Any]) -> None:
         self._publish(frame)
         self._broadcast_state()
+
+    # -- background commands (DR-062) ---------------------------------------
+
+    def processes(self, process_id: str | None = None, since: int = 0) -> dict[str, Any]:
+        """Every background command of every open session, newest first, and
+        — with *process_id* — that one's output after the cursor *since*.
+
+        Global rather than per session, because a server belongs to the
+        workspace: the Terminals panel lists them all, each with the session
+        that started it.
+        """
+        with self._lock:
+            listed = [
+                (live, process)
+                for live in self._open.values()
+                for process in live.session.processes.processes()
+            ]
+            titles = {live.id: self._live_payload(live)["title"] for live, _ in listed}
+        rows = [
+            {**process.to_dict(), "session": live.id, "session_title": titles[live.id]}
+            for live, process in listed
+        ]
+        rows.sort(key=lambda row: row["started_at"], reverse=True)
+        payload: dict[str, Any] = {
+            "processes": rows,
+            "running": sum(1 for row in rows if row["status"] == "running"),
+        }
+        if process_id:
+            _, process = self._process(process_id)
+            shown = process.output(since)
+            payload["output"] = {
+                "id": process.id,
+                "status": process.status,
+                "lines": list(shown.lines),
+                "start": shown.start,
+                "cursor": shown.cursor,
+                "skipped": shown.skipped,
+                "partial": shown.partial,
+            }
+        return payload
+
+    def process_action(self, action: str, process_id: str) -> dict[str, Any]:
+        """Stop a running background command, or clear a finished one."""
+        live, process = self._process(process_id)
+        manager = live.session.processes
+        try:
+            if action == "stop":
+                # Not waited on: the request returns at once, the SIGKILL that
+                # follows a slow SIGTERM happens on its own thread, and the
+                # exit arrives as a `process_exited` event.
+                manager.stop(process.id, wait=False)
+            elif action == "clear":
+                manager.clear(process.id)
+            else:
+                raise BridgeError("a process action is stop or clear")
+        except ProcessError as exc:
+            raise BridgeError(str(exc), status=409) from exc
+        return self.processes()
+
+    def _process(self, process_id: str):
+        """The open session holding *process_id*, and the process."""
+        with self._lock:
+            sessions = list(self._open.values())
+        for live in sessions:
+            try:
+                return live, live.session.processes.get(process_id)
+            except UnknownProcessError:
+                continue
+        raise BridgeError(f"there is no background process '{process_id}'", status=404)
 
     # -- the turn ----------------------------------------------------------
 
