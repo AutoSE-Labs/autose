@@ -414,14 +414,15 @@ def test_request_extras_reach_the_body_but_cannot_replace_core_fields(monkeypatc
     assert body["model"] == "test-model"
 
 
-def test_a_gateway_error_is_retried_before_failing(monkeypatch):
+@pytest.mark.parametrize("status", [429, 502])
+def test_a_gateway_error_is_retried_before_failing(monkeypatch, status):
     attempts: list[int] = []
 
     def fake_urlopen(request, timeout=None):
         attempts.append(1)
         if len(attempts) == 1:
             raise urllib.error.HTTPError(
-                "http://backend.test/v1/chat/completions", 502, "Bad Gateway", {}, io.BytesIO(b"")
+                "http://backend.test/v1/chat/completions", status, "Transient", {}, io.BytesIO(b"")
             )
         return _json_response({"choices": [{"message": {"content": "ok"}}]})
 

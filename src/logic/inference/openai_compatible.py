@@ -88,8 +88,9 @@ def _reasoning_of(payload: dict) -> str:
 
 
 #: Gateway statuses a proxy in front of the runtime returns while its upstream
-#: is briefly unreachable.
-_TRANSIENT_HTTP_CODES = frozenset({502, 503, 504})
+#: is briefly unreachable, plus 429: a rate limit (a hosted free tier's, say)
+#: clears by itself, and giving up on it would end a long run on a blip.
+_TRANSIENT_HTTP_CODES = frozenset({429, 502, 503, 504})
 #: Seconds to wait before each retry of a transient failure (about 15 minutes
 #: in all), after which the last error is raised as before.
 _TRANSIENT_RETRY_DELAYS = (5, 10, 20, 40, 60, 60, 60, 60, 120, 120, 120, 120, 120)
