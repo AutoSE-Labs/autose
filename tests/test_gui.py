@@ -1525,6 +1525,22 @@ out.prevented = press.prevented;
     assert out == {"open": opens, "prevented": opens}
 
 
+def test_the_command_menu_marks_the_letters_it_matched():
+    """Matching counts UTF-16 units, as JavaScript strings do; the marking
+    walked the label by characters, so after an emoji or another character
+    outside the BMP in a session's name the bold letters were one off."""
+    out = _run_palette(
+        r"""
+const label = "Switch to \u{1F680} Deploy";
+out.marked = paletteMarked(label, paletteMatch("deploy", label).marks);
+out.plain = paletteMarked("Switch to Deploy", paletteMatch("deploy", "Switch to Deploy").marks);
+"""
+    )
+
+    assert out["marked"] == "Switch to \U0001F680 <mark>Deploy</mark>"
+    assert out["plain"] == "Switch to <mark>Deploy</mark>"
+
+
 # -- DR-042: a queue per session ---------------------------------------------------
 
 

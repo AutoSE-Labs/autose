@@ -711,13 +711,17 @@ function paletteMarked(text, marks) {
   if (!marked.size) return escapeHtml(text);
   let out = "";
   let open = false;
-  Array.from(text).forEach((char, index) => {
-    if (marked.has(index) !== open) {
+  // The marks count UTF-16 units, as indexOf does; a character outside the
+  // BMP (an emoji in a session's name) is two of them.
+  let unit = 0;
+  for (const char of text) {
+    if (marked.has(unit) !== open) {
       out += open ? "</mark>" : "<mark>";
       open = !open;
     }
     out += escapeHtml(char);
-  });
+    unit += char.length;
+  }
   return open ? `${out}</mark>` : out;
 }
 
