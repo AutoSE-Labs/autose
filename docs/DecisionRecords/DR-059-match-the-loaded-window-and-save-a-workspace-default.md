@@ -64,7 +64,9 @@ session switches to the size first, which checks it against the model and the
 minimum; then `inference.context_limit` is written to the workspace's own
 `.autose/config.yaml`, which DR-021 layers over every other file. A missing
 file and directory are created with ordinary permissions, since the file holds
-no secret and may be committed. New sessions on the dashboard, and the next
+no secret and may be committed. A `.autose` directory or file that is a link is
+refused rather than written through: replacing it would copy whatever it points
+at, perhaps a private file outside the workspace, into the repository. New sessions on the dashboard, and the next
 start of AutoSE in that workspace, begin with it as an explicit choice. The
 YAML it writes stays on show beneath the picker as reference. The action is
 refused, like any window change, while the session is running a turn and for a

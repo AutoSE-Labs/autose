@@ -546,7 +546,24 @@ def save_workspace_context_limit(workspace_root: str | Path, tokens: int) -> Pat
     """
     if tokens <= 0:
         raise ConfigurationError("a context window is a positive number of tokens")
-    target = Path(workspace_root).expanduser() / WORKSPACE_CONFIG_PATH
+    root = Path(workspace_root).expanduser().resolve()
+    target = root / WORKSPACE_CONFIG_PATH
+    # The repository may have planted `.autose` or the file as a link to a
+    # file elsewhere, a private one say. Writing through it would copy that
+    # file into the workspace as a plain file (the write replaces the link),
+    # where the agent may read it and a commit may carry it.
+    for part in (target.parent, target):
+        if part.is_symlink():
+            raise ConfigurationError(
+                f"{part} is a link; AutoSE writes the workspace's settings only "
+                "to a file of its own"
+            )
+    try:
+        target.parent.resolve().relative_to(root)
+    except ValueError:
+        raise ConfigurationError(
+            f"{target.parent} is outside the workspace; not writing to it"
+        ) from None
     # An ordinary project directory, not a private one: the file holds no
     # secret and may well be committed with the repository.
     target.parent.mkdir(parents=True, exist_ok=True)

@@ -394,3 +394,49 @@ def test_a_window_configured_for_another_provider_does_not_stop_matching(
     loaded_runtime["loaded"] = LoadedWindow(65536, 1.0)
     assert session.match_loaded_window()
     assert session.context_limit() == 65536
+
+
+# -- the workspace file is the workspace's own --------------------------------------
+
+
+@pytest.mark.parametrize("linked", ["file", "directory"])
+def test_a_workspace_file_that_links_outside_is_not_written(tmp_path, linked):
+    """A repository could plant `.autose` as a link to a private file elsewhere.
+
+    Saving through it would copy that file, secrets and all, into the
+    workspace as a plain file the agent may read and a commit may carry.
+    """
+    from logic.config import save_workspace_context_limit
+    from logic.errors import ConfigurationError
+
+    outside = tmp_path / "home"
+    outside.mkdir()
+    private = outside / "config.yaml"
+    private.write_text("token: s3cret\n")
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    if linked == "file":
+        (workspace / ".autose").mkdir()
+        (workspace / ".autose" / "config.yaml").symlink_to(private)
+    else:
+        (workspace / ".autose").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ConfigurationError):
+        save_workspace_context_limit(workspace, 65536)
+    assert private.read_text() == "token: s3cret\n"
+    assert (workspace / ".autose" / "config.yaml").is_symlink() == (linked == "file")
+    assert "s3cret" not in "".join(
+        path.read_text() for path in workspace.rglob("*") if path.is_file()
+        and not path.is_symlink() and outside not in path.resolve().parents
+    )
+
+
+def test_a_workspace_file_linked_inside_the_workspace_is_refused_too(tmp_path):
+    """Replacing the link would quietly detach it from the file it shares."""
+    from logic.config import save_workspace_context_limit
+    from logic.errors import ConfigurationError
+
+    (tmp_path / "shared.yaml").write_text("inference:\n  temperature: 0.2\n")
+    (tmp_path / ".autose").mkdir()
+    (tmp_path / ".autose" / "config.yaml").symlink_to(tmp_path / "shared.yaml")
+    with pytest.raises(ConfigurationError):
+        save_workspace_context_limit(tmp_path, 65536)
