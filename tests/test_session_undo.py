@@ -454,3 +454,41 @@ def test_undoing_one_file_is_saved_with_the_session(scripted, tmp_path):
     (turn,) = store.load(session.session_id).turns
     assert [change.path for change in turn.changes] == ["b.py"]
     assert [change.path for change in turn.undone] == ["a.py"]
+
+
+def test_a_later_run_that_still_holds_the_file_blocks_the_undo(scripted, tmp_path):
+    """Order is enforced even when the content happens to match again.
+
+    Run 2 put the file back by hand and run 3 wrote run 1's content again.
+    Matching bytes are no licence to undo run 1: putting the file back would
+    silently throw away run 3's change, whose record would still claim it.
+    """
+    target = tmp_path / "m.py"
+    target.write_text("value = 1\n", encoding="utf-8", newline="")
+    session = _session(
+        scripted,
+        tmp_path,
+        [
+            _edit("m.py", "value = 1", "value = 2"),
+            answer("Done."),
+            _edit("m.py", "value = 2", "value = 1"),
+            answer("Done."),
+            _edit("m.py", "value = 1", "value = 2"),
+            answer("Done."),
+        ],
+    )
+    for prompt in ("make it 2", "put it back", "make it 2 again"):
+        session.run(prompt)
+
+    report = session.undo_file(0, "m.py")
+
+    assert report.restored == ()
+    assert report.skipped == (
+        ("m.py", "run 3 changed it afterwards; undo run 3's change to it first"),
+    )
+    assert target.read_text(encoding="utf-8") == "value = 2\n"
+    assert [change.path for change in session.history[0].changes] == ["m.py"]
+    # Newest first, it goes through.
+    for turn in (2, 1, 0):
+        assert session.undo_file(turn, "m.py").restored == ("m.py",)
+    assert target.read_text(encoding="utf-8") == "value = 1\n"

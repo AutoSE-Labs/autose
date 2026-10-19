@@ -1262,8 +1262,9 @@ class Session:
         The run's other files stay as they are. The check is the one a
         whole-run undo makes (DR-024): the file must still say what this run
         wrote, so a later run's edit or the person's own is never overwritten.
-        When a later run is why it differs, the reason names that run, since
-        undoing its change first is what makes this one possible.
+        A later run whose record still holds a change to the file comes
+        first, even if the bytes match again: the refusal names that run,
+        since undoing its change first is what makes this one possible.
 
         Raises ``LookupError`` when there is no such run or it never wrote
         *path*. A file that cannot be put back — already undone, changed
@@ -1278,9 +1279,19 @@ class Session:
             if any(item.path == path for item in record.undone):
                 return RevertReport(skipped=((path, "it has already been undone"),))
             raise LookupError(f"run {turn + 1} did not change {path}")
+        # A later run that still holds a change to the file comes first, even
+        # when the bytes happen to match this run's again (it wrote them back
+        # after an earlier run undid them): putting the file back then would
+        # throw that run's change away while its record still claimed it.
+        later = self._later_change(turn, path)
+        if later is not None:
+            number = later + 1
+            reason = f"run {number} changed it afterwards; undo run {number}'s change to it first"
+            return RevertReport(skipped=((path, reason),))
         report = ChangeJournal.from_changes(self._workspace, (change,)).revert()
         if not report.restored:
-            return RevertReport(skipped=((path, self._refusal(report, turn, path)),))
+            reason = report.skipped[0][1] if report.skipped else CHANGED_SINCE
+            return RevertReport(skipped=((path, reason),))
         # Moved from `changes` to `undone` exactly as a whole-run undo moves
         # it, so that undo, which reverts `changes`, now passes this file by.
         self._turns[turn] = replace(
@@ -1298,12 +1309,9 @@ class Session:
         self.persist()
         return report
 
-    def _refusal(self, report: RevertReport, turn: int, path: str) -> str:
-        """Why one file was left alone, naming a later run when that is why."""
-        reason = report.skipped[0][1] if report.skipped else CHANGED_SINCE
-        if reason != CHANGED_SINCE:
-            return reason
-        later = next(
+    def _later_change(self, turn: int, path: str) -> int | None:
+        """The newest run after *turn* whose record still holds a change to *path*."""
+        return next(
             (
                 index
                 for index in range(len(self._turns) - 1, turn, -1)
@@ -1311,10 +1319,6 @@ class Session:
             ),
             None,
         )
-        if later is None:
-            return reason
-        number = later + 1
-        return f"run {number} changed it afterwards; undo run {number}'s change to it first"
 
     def _last_changing_turn(self) -> Turn | None:
         return next(

@@ -27,11 +27,14 @@ earlier one.
   back. The run's other files are not touched.
 - **The same check as the whole-run undo.** The file must still hold exactly
   what that run wrote. If it does not, nothing is written and the reason is
-  given. When a later run is why it differs, the reason names that run
-  ("run 3 changed it afterwards; undo run 3's change to it first"), since
-  undoing that change first is what makes this one possible; otherwise it is
-  the general "it has changed since AutoSE wrote it", which covers the
-  person's own edits. A change whose content was not kept (too large, or
+  given. A later run whose record still holds a change to the file comes
+  first, and the reason names it ("run 3 changed it afterwards; undo run 3's
+  change to it first"), since undoing that change first is what makes this
+  one possible. That holds even when the file's bytes match this run's again
+  (a later run wrote them back): putting the file back then would throw the
+  later run's change away while its record still claimed it. Otherwise the
+  reason is the general "it has changed since AutoSE wrote it", which covers
+  the person's own edits. A change whose content was not kept (too large, or
   trimmed from a stored session by `SessionRecord.bounded`) is refused with
   the reason it carries.
 - **Recorded as a whole-run undo records it.** The change moves from the
