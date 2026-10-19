@@ -136,6 +136,7 @@ def run_headless(
         write({"type": "error", "error": str(exc), "kind": type(exc).__name__})
         return EXIT_CONFIGURATION
 
+    failure: dict[str, str] | None
     try:
         # DR-030: with no caps to stop it, a piped run needs an ordered
         # shutdown too — SIGINT asks the turn to stop and still emits a proper

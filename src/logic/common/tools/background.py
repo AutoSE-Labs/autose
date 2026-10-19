@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from ..processes import ProcessError, ProcessManager
+from ..processes import BackgroundProcess, ProcessError, ProcessManager
 from ..workspace import Workspace
 
 __all__ = [
@@ -145,7 +145,7 @@ def _listing(processes: ProcessManager) -> str:
     return "Background processes in this session:\n" + "\n".join(rows)
 
 
-def _said(process) -> str:
+def _said(process: BackgroundProcess) -> str:
     """Its status as a phrase: "running", "exited with code 1", "stopped"."""
     status = process.status
     if status == "exited":

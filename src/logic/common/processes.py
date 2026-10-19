@@ -28,6 +28,7 @@ from __future__ import annotations
 import atexit
 import codecs
 import contextlib
+import io
 import itertools
 import os
 import re
@@ -40,7 +41,7 @@ from collections import deque
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..errors import AutoSEError
 from .events import Event, EventSink, NullEventSink
@@ -358,7 +359,9 @@ class BackgroundProcess:
         popen = self._popen
         assert popen is not None and popen.stdout is not None
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        stream = popen.stdout
+        # Popen's pipe is a BufferedReader, whose `read1` returns what has
+        # arrived instead of waiting for a whole chunk.
+        stream = cast(io.BufferedReader, popen.stdout)
         try:
             while True:
                 chunk = stream.read1(_READ_CHUNK)
