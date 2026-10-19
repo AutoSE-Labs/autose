@@ -5,11 +5,13 @@ from __future__ import annotations
 import pytest
 
 from logic.common.approval import ApprovalPolicy
+from logic.common.changes import FileChange
 from logic.common.events import RecordingEventSink
 from logic.common.workspace import Workspace
 from logic.inference.catalog import ModelInfo
 from logic.inference.registry import Provider, register_provider
 from logic.inference.settings import InferenceSettings
+from logic.persistence import FileSessionStore, SessionRecord, TurnRecord
 from logic.session import Session
 from logic.tiers import SPARK
 from tests.support.fakes import ScriptedChatModel, answer, calls, tool_call
@@ -246,3 +248,247 @@ def test_an_undo_keeps_what_it_reverted_on_the_record(scripted, tmp_path):
     assert [change.path for change in turn.undone] == ["m.py"]
     # Nothing is left to undo: undone changes are not reverted twice.
     assert session.undo_last_change() is None
+
+
+# -- undoing one file of one run (DR-061) -------------------------------------
+
+
+def _two_file_run(scripted, tmp_path, **kwargs) -> Session:
+    """A session whose first run edited a.py and b.py."""
+    (tmp_path / "a.py").write_text("a = 1\n", encoding="utf-8", newline="")
+    (tmp_path / "b.py").write_text("b = 1\n", encoding="utf-8", newline="")
+    session = _session(
+        scripted,
+        tmp_path,
+        [
+            calls(
+                tool_call(
+                    "edit_file",
+                    call_id="call_a",
+                    path="a.py",
+                    edits=[{"old_str": "a = 1", "new_str": "a = 2"}],
+                ),
+                tool_call(
+                    "edit_file",
+                    call_id="call_b",
+                    path="b.py",
+                    edits=[{"old_str": "b = 1", "new_str": "b = 2"}],
+                ),
+            ),
+            answer("Done."),
+            answer("Done again."),
+        ],
+        **kwargs,
+    )
+    session.run("bump both")
+    return session
+
+
+def _with_change(scripted, tmp_path, change, **kwargs) -> Session:
+    """A session resumed with one run that made exactly *change*."""
+    session = _session(scripted, tmp_path, [answer("ok")], **kwargs)
+    session.restore(
+        SessionRecord(
+            id="s1",
+            turns=(
+                TurnRecord(
+                    prompt="do it",
+                    answer="done",
+                    tier=SPARK,
+                    files_changed=(change.path,),
+                    changes=(change,),
+                ),
+            ),
+        )
+    )
+    return session
+
+
+def test_undoing_one_file_leaves_the_runs_other_files_alone(scripted, tmp_path):
+    session = _two_file_run(scripted, tmp_path)
+
+    report = session.undo_file(0, "a.py")
+
+    assert report.restored == ("a.py",) and report.skipped == ()
+    assert (tmp_path / "a.py").read_text(encoding="utf-8") == "a = 1\n"
+    assert (tmp_path / "b.py").read_text(encoding="utf-8") == "b = 2\n"
+    turn = session.history[0]
+    assert [change.path for change in turn.changes] == ["b.py"]
+    assert [change.path for change in turn.undone] == ["a.py"]
+
+
+def test_undoing_a_file_the_run_created_removes_it(scripted, tmp_path):
+    # Spark has no write_file, so the created file comes from a stored run.
+    (tmp_path / "new.py").write_bytes(b"x = 1\n")
+    session = _with_change(
+        scripted, tmp_path, FileChange(path="new.py", before=None, after=b"x = 1\n")
+    )
+
+    assert session.undo_file(0, "new.py").restored == ("new.py",)
+    assert not (tmp_path / "new.py").exists()
+
+
+def test_undoing_a_file_the_run_deleted_brings_it_back(scripted, tmp_path):
+    session = _with_change(
+        scripted, tmp_path, FileChange(path="gone.py", before=b"kept = 1\n", after=None)
+    )
+
+    assert session.undo_file(0, "gone.py").restored == ("gone.py",)
+    assert (tmp_path / "gone.py").read_bytes() == b"kept = 1\n"
+
+
+def test_a_file_changed_since_is_refused_and_left_as_it_is(scripted, tmp_path):
+    session = _two_file_run(scripted, tmp_path)
+    (tmp_path / "a.py").write_text("a = 99  # mine\n", encoding="utf-8", newline="")
+
+    report = session.undo_file(0, "a.py")
+
+    assert report.restored == ()
+    assert report.skipped == (("a.py", "it has changed since AutoSE wrote it"),)
+    assert (tmp_path / "a.py").read_text(encoding="utf-8") == "a = 99  # mine\n"
+    # Still the run's change, still undoable once the file matches again.
+    assert [change.path for change in session.history[0].changes] == ["a.py", "b.py"]
+
+
+def test_the_refusal_names_the_later_run_that_changed_the_file(scripted, tmp_path):
+    target = tmp_path / "m.py"
+    target.write_text("value = 1\n", encoding="utf-8", newline="")
+    session = _session(
+        scripted,
+        tmp_path,
+        [
+            _edit("m.py", "value = 1", "value = 2"),
+            answer("Done."),
+            _edit("m.py", "value = 2", "value = 3"),
+            answer("Done."),
+        ],
+    )
+    session.run("make it 2")
+    session.run("make it 3")
+
+    (path, reason) = session.undo_file(0, "m.py").skipped[0]
+
+    assert path == "m.py" and "run 2" in reason
+    assert target.read_text(encoding="utf-8") == "value = 3\n"
+    # Undoing the later run's change first is what makes it possible.
+    assert session.undo_file(1, "m.py").restored == ("m.py",)
+    assert session.undo_file(0, "m.py").restored == ("m.py",)
+    assert target.read_text(encoding="utf-8") == "value = 1\n"
+
+
+def test_a_change_whose_content_was_not_stored_is_refused_with_its_reason(
+    scripted, tmp_path
+):
+    """A resumed session cannot put back what the store had no room to keep."""
+    store = FileSessionStore(tmp_path / ".autose" / "sessions", max_change_bytes=4)
+    first = _two_file_run(scripted, tmp_path, store=store)
+    second = _session(scripted, tmp_path, [answer("ok")], store=store)
+    second.restore(store.load(first.session_id))
+
+    report = second.undo_file(0, "a.py")
+
+    assert report.skipped == (
+        ("a.py", "its contents were too large to store with the session"),
+    )
+    assert (tmp_path / "a.py").read_text(encoding="utf-8") == "a = 2\n"
+
+
+def test_a_whole_run_undo_afterwards_passes_the_undone_file_by(scripted, tmp_path):
+    session = _two_file_run(scripted, tmp_path)
+    session.undo_file(0, "a.py")
+    # Had undo reverted a.py again, this edit would be reported as skipped.
+    (tmp_path / "a.py").write_text("a = 7  # mine\n", encoding="utf-8", newline="")
+
+    report = session.undo_last_change()
+
+    assert report is not None
+    assert report.restored == ("b.py",) and report.skipped == ()
+    assert [change.path for change in session.history[0].undone] == ["a.py", "b.py"]
+    assert (tmp_path / "a.py").read_text(encoding="utf-8") == "a = 7  # mine\n"
+
+
+def test_a_file_already_undone_is_refused(scripted, tmp_path):
+    session = _two_file_run(scripted, tmp_path)
+    session.undo_file(0, "a.py")
+
+    report = session.undo_file(0, "a.py")
+
+    assert report.skipped == (("a.py", "it has already been undone"),)
+
+
+def test_an_unknown_run_or_file_is_a_lookup_error(scripted, tmp_path):
+    session = _two_file_run(scripted, tmp_path)
+
+    with pytest.raises(LookupError, match="no run 5"):
+        session.undo_file(4, "a.py")
+    with pytest.raises(LookupError, match=r"did not change c\.py"):
+        session.undo_file(0, "c.py")
+
+
+def test_undoing_one_file_is_announced_with_its_path(scripted, tmp_path):
+    events = RecordingEventSink()
+    session = _two_file_run(scripted, tmp_path, events=events)
+
+    session.undo_file(0, "b.py")
+
+    (event,) = events.of_type("changes_reverted")
+    assert event.data["restored"] == ["b.py"] and event.data["turn"] == 0
+
+
+def test_a_refused_undo_announces_and_saves_nothing(scripted, tmp_path):
+    events = RecordingEventSink()
+    session = _two_file_run(scripted, tmp_path, events=events)
+    (tmp_path / "a.py").write_text("a = 99\n", encoding="utf-8", newline="")
+
+    session.undo_file(0, "a.py")
+
+    assert events.of_type("changes_reverted") == []
+
+
+def test_undoing_one_file_is_saved_with_the_session(scripted, tmp_path):
+    store = FileSessionStore(tmp_path / ".autose" / "sessions")
+    session = _two_file_run(scripted, tmp_path, store=store)
+
+    session.undo_file(0, "a.py")
+
+    (turn,) = store.load(session.session_id).turns
+    assert [change.path for change in turn.changes] == ["b.py"]
+    assert [change.path for change in turn.undone] == ["a.py"]
+
+
+def test_a_later_run_that_still_holds_the_file_blocks_the_undo(scripted, tmp_path):
+    """Order is enforced even when the content happens to match again.
+
+    Run 2 put the file back by hand and run 3 wrote run 1's content again.
+    Matching bytes are no licence to undo run 1: putting the file back would
+    silently throw away run 3's change, whose record would still claim it.
+    """
+    target = tmp_path / "m.py"
+    target.write_text("value = 1\n", encoding="utf-8", newline="")
+    session = _session(
+        scripted,
+        tmp_path,
+        [
+            _edit("m.py", "value = 1", "value = 2"),
+            answer("Done."),
+            _edit("m.py", "value = 2", "value = 1"),
+            answer("Done."),
+            _edit("m.py", "value = 1", "value = 2"),
+            answer("Done."),
+        ],
+    )
+    for prompt in ("make it 2", "put it back", "make it 2 again"):
+        session.run(prompt)
+
+    report = session.undo_file(0, "m.py")
+
+    assert report.restored == ()
+    assert report.skipped == (
+        ("m.py", "run 3 changed it afterwards; undo run 3's change to it first"),
+    )
+    assert target.read_text(encoding="utf-8") == "value = 2\n"
+    assert [change.path for change in session.history[0].changes] == ["m.py"]
+    # Newest first, it goes through.
+    for turn in (2, 1, 0):
+        assert session.undo_file(turn, "m.py").restored == ("m.py",)
+    assert target.read_text(encoding="utf-8") == "value = 1\n"

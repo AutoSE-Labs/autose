@@ -246,7 +246,7 @@ function revisionBlockMarkup(changes, turn) {
         `<td class="rev-sym">${changeBadgeMarkup(change)}</td>` +
         `<td class="rev-file">${change.reverted || turn === undefined ? escapeHtml(change.path) : `<button type="button" class="rev-link" data-open-diff="1" data-turn="${turn}" data-path="${escapeHtml(change.path)}" title="Open this file's diff">${escapeHtml(change.path)}</button>`}</td>` +
         `<td class="rev-kind">${escapeHtml(changeWord(change))}</td>` +
-        `<td class="rev-lines"><span class="added">+${change.added}</span> / <span class="removed">−${change.removed}</span></td>` +
+        `<td class="rev-lines"><span class="added">+${change.added}</span> / <span class="removed">−${change.removed}</span>${undoFileButtonMarkup(turn, change, "rev-undo")}</td>` +
         `</tr>`
     )
     .join("");
@@ -254,6 +254,19 @@ function revisionBlockMarkup(changes, turn) {
     `<table class="revision-block"><caption>Files changed</caption>` +
     `<thead><tr><th scope="col"><span class="visually-hidden">Change</span></th><th scope="col">File</th><th scope="col">Kind</th><th scope="col">Lines</th></tr></thead>` +
     `<tbody>${rows}</tbody></table>`
+  );
+}
+
+/* "Undo this file" for one file of run `turn` (DR-061): in the diff viewer's
+ * file head, the Changes tab and a finished run's files table. Nothing when
+ * it cannot apply: no run, already undone, or the content was not kept. The
+ * click is handled once, in app.js, for all three. */
+function undoFileButtonMarkup(turn, change, cls) {
+  if (turn === undefined || turn < 0 || change.reverted || change.undone || change.restorable === false) return "";
+  return (
+    `<button type="button" class="inline-button undo-file ${cls}" data-undo-file="1" data-turn="${turn}" ` +
+    `data-path="${escapeHtml(change.path)}" data-kind="${escapeHtml(change.kind || "")}" ` +
+    `aria-label="Undo this file: ${escapeHtml(change.path)}">Undo this file</button>`
   );
 }
 

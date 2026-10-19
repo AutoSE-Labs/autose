@@ -758,7 +758,13 @@ function handleEvent(id, frame) {
       toast("The runtime silently trimmed the request — raise its context window (see the machine check).", "bad");
       break;
     case "changes_reverted":
-      toast(`Undid changes to ${plural((data.restored || []).length, "file")}.`, "good");
+      // DR-061: one file undone on its own is named, with its run.
+      toast(
+        data.turn !== undefined && (data.restored || []).length === 1
+          ? `Undid run ${data.turn + 1}'s change to ${data.restored[0]}.`
+          : `Undid changes to ${plural((data.restored || []).length, "file")}.`,
+        "good"
+      );
       break;
     case "model_selected":
       reloadPending = true;
@@ -1992,6 +1998,7 @@ function changesView() {
         kind: change.kind,
         added: change.added || 0,
         removed: change.removed || 0,
+        restorable: change.restorable !== false,
         undone: change.undone,
       }));
       return {
@@ -2014,7 +2021,7 @@ function changesView() {
     const cached = changeDiffs.get(`${session}:${turn.index}`);
     if (cached) diffs.set(turn.index, cached);
   });
-  return { turns, liveEdits, diffs, open: openChanges };
+  return { turns, liveEdits, diffs, open: openChanges, idle: !(state && state.running) };
 }
 
 async function toggleChange(key, turnIndex) {
@@ -3108,6 +3115,48 @@ async function undoChanges() {
 }
 
 el("diff-undo").addEventListener("click", undoChanges);
+
+/* DR-061: "Undo this file", wherever it is drawn (the diff viewer's file
+ * head, the Changes tab, a finished run's files table). It asks first,
+ * naming the file; the server refuses, with the reason, a file that has
+ * changed since the run wrote it. The state frame that follows redraws the
+ * card and the Changes tab with the file struck through. */
+function undoFileQuestion(turn, path, kind) {
+  const run = `run ${turn + 1}`;
+  const rest = "The run's other files stay as they are.";
+  if (kind === "created") return `Delete ${path}, which ${run} created? ${rest}`;
+  if (kind === "deleted") return `Bring back ${path}, which ${run} deleted? ${rest}`;
+  return `Put ${path} back as it was before ${run}? ${rest}`;
+}
+
+async function undoFile(turn, path, kind) {
+  if (state && state.running) {
+    toast("Wait for this session's run to finish first.", "bad");
+    return;
+  }
+  if (!window.confirm(undoFileQuestion(turn, path, kind))) return;
+  const payload = await post("/api/undo", { session: focusId(), turn, path });
+  if (!payload) return;
+  // The answer carries the state after the undo; drawing from it rather
+  // than waiting for the stream keeps every count in step at once.
+  if (payload.state) {
+    state = payload.state;
+    adoptState();
+  }
+  openChanges.delete(`${turn}:${path}`);
+  renderInspector();
+  if (!overlays.diff.hidden && diffView.turn === turn) {
+    refreshRunPicker(turn);
+    loadDiffRun(turn, path);
+  }
+}
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-undo-file]");
+  if (!button) return;
+  event.preventDefault();
+  undoFile(Number(button.dataset.turn), button.dataset.path, button.dataset.kind);
+});
 
 dom.jump.addEventListener("click", scrollToBottom);
 

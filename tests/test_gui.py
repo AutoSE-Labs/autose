@@ -317,6 +317,126 @@ def test_nothing_to_undo_is_a_conflict_not_a_crash(scripted, tmp_path):
     assert raised.value.status == 409
 
 
+# -- DR-061: one file of one run -------------------------------------------------
+
+
+def _two_file_bridge(scripted, tmp_path) -> SessionBridge:
+    """A bridge whose first run edited a.py and b.py, already finished."""
+    (tmp_path / "a.py").write_text("A = 1\n")
+    (tmp_path / "b.py").write_text("B = 1\n")
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(
+                tool_call(
+                    "edit_file",
+                    call_id="call_a",
+                    path="a.py",
+                    edits=[{"old_str": "A = 1", "new_str": "A = 2"}],
+                ),
+                tool_call(
+                    "edit_file",
+                    call_id="call_b",
+                    path="b.py",
+                    edits=[{"old_str": "B = 1", "new_str": "B = 2"}],
+                ),
+            ),
+            answer("changed both"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("set both to 2")
+    _drain(subscriber, "turn")
+    return bridge
+
+
+def test_one_file_of_a_run_can_be_undone(scripted, tmp_path):
+    bridge = _two_file_bridge(scripted, tmp_path)
+
+    report = bridge.undo_file(0, "a.py")
+
+    assert report["restored"] == ["a.py"] and report["turn"] == 0
+    assert (tmp_path / "a.py").read_text() == "A = 1\n"
+    assert (tmp_path / "b.py").read_text() == "B = 2\n"
+    (turn,) = report["state"]["history"]
+    assert [change["path"] for change in turn["changes"]] == ["b.py"]
+    assert [change["path"] for change in turn["undone"]] == ["a.py"]
+    # The diff viewer still lists it, as undone and without a diff.
+    changes = bridge.changes(turn=0)
+    assert [change["path"] for change in changes["changes"]] == ["b.py"]
+    assert [change["path"] for change in changes["undone"]] == ["a.py"]
+
+
+def test_a_file_changed_since_is_a_conflict_that_says_why(scripted, tmp_path):
+    bridge = _two_file_bridge(scripted, tmp_path)
+    (tmp_path / "a.py").write_text("A = 9  # mine\n")
+
+    with pytest.raises(BridgeError) as raised:
+        bridge.undo_file(0, "a.py")
+
+    assert raised.value.status == 409
+    assert "a.py was not undone" in str(raised.value)
+    assert "changed since" in str(raised.value)
+    assert (tmp_path / "a.py").read_text() == "A = 9  # mine\n"
+
+
+def test_a_runs_changes_read_the_history_once(scripted, tmp_path, monkeypatch):
+    """`changes` takes no lock, so another thread may clear the history while
+    it reads. One snapshot answers both the run's changes and its undone
+    files; a second read could find the run gone and fail with a 500."""
+    from logic.session import Session
+
+    bridge = _two_file_bridge(scripted, tmp_path)
+    bridge.undo_file(0, "a.py")
+    snapshot = Session.history.fget(bridge._target(None).session)
+    reads = iter([snapshot])
+    monkeypatch.setattr(Session, "history", property(lambda self: next(reads, ())))
+
+    payload = bridge.changes(turn=0)
+
+    assert [change["path"] for change in payload["changes"]] == ["b.py"]
+    assert [change["path"] for change in payload["undone"]] == ["a.py"]
+
+
+def test_a_file_the_run_did_not_write_is_a_404(scripted, tmp_path):
+    bridge = _two_file_bridge(scripted, tmp_path)
+
+    for turn, path in ((0, "c.py"), (3, "a.py")):
+        with pytest.raises(BridgeError) as raised:
+            bridge.undo_file(turn, path)
+        assert raised.value.status == 404
+
+
+def test_undo_over_http_takes_a_run_and_a_path(scripted, tmp_path):
+    bridge = _two_file_bridge(scripted, tmp_path)
+    dashboard = create_dashboard(
+        bridge, host="127.0.0.1", port=0, token="test-token-1234"
+    )
+    thread = threading.Thread(target=dashboard.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, payload = _request(dashboard, "/api/undo", body={"path": "a.py"})
+        assert status == 400 and "turn" in payload["error"]
+        status, payload = _request(dashboard, "/api/undo", body={"turn": 0})
+        assert status == 400 and "path" in payload["error"]
+
+        status, payload = _request(
+            dashboard, "/api/undo", body={"turn": 0, "path": "a.py"}
+        )
+        assert status == 200 and payload["restored"] == ["a.py"]
+        assert (tmp_path / "b.py").read_text() == "B = 2\n"
+
+        # Without them, the last run that wrote, as before: only b.py is left.
+        status, payload = _request(dashboard, "/api/undo", body={})
+        assert status == 200 and payload["restored"] == ["b.py"]
+        assert (tmp_path / "a.py").read_text() == "A = 1\n"
+        assert (tmp_path / "b.py").read_text() == "B = 1\n"
+    finally:
+        dashboard.stop()
+        dashboard.server_close()
+
+
 
 # -- many sessions at once (DR-031) --------------------------------------------
 
@@ -798,6 +918,58 @@ def test_the_page_offers_two_ways_to_stop_a_run():
     assert "/api/interrupt" in script
     assert 'state.running ? "Queue" : "Start"' in script
     assert "dom.send.disabled = !state.ready;" in script
+
+
+def test_the_page_offers_to_undo_one_file_where_files_are_listed():
+    """DR-061: the diff viewer, the Changes tab and a finished run's card.
+
+    All three draw the one button, and one handler asks first, naming the
+    file, then posts the run and the path to the undo endpoint.
+    """
+    script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    for name in ("diff.js", "inspector.js", "route.js"):
+        source = (STATIC_ROOT / name).read_text(encoding="utf-8")
+        assert "undoFileButtonMarkup(" in source, f"{name} offers no file undo"
+    route = (STATIC_ROOT / "route.js").read_text(encoding="utf-8")
+    card = route.split("function revisionBlockMarkup(", 1)[1].split("\nfunction ", 1)[0]
+    assert "undoFileButtonMarkup(" in card
+
+    handler = script.split("async function undoFile(", 1)[1].split("\n}\n", 1)[0]
+    assert "window.confirm(" in handler
+    assert handler.index("window.confirm(") < handler.index('"/api/undo"')
+    assert "{ session: focusId(), turn, path }" in handler
+
+
+def test_undoing_a_file_in_the_diff_viewer_redraws_its_run_picker():
+    """The picker names each run with its file count. It was drawn only on
+    opening, so undoing a file there left "(2 files)" on a run with one, and
+    a run with none left dropped out of the list it was picked in."""
+    script = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    viewer = (STATIC_ROOT / "diff.js").read_text(encoding="utf-8")
+
+    handler = script.split("async function undoFile(", 1)[1].split("\n}\n", 1)[0]
+    assert "state = payload.state;" in handler
+    assert handler.index("state = payload.state;") < handler.index("refreshRunPicker(turn)")
+    assert handler.index("refreshRunPicker(turn)") < handler.index("loadDiffRun(turn, path)")
+
+    picker = viewer.split("function refreshRunPicker(", 1)[1].split("\n}\n", 1)[0]
+    assert "runsWithChanges()" in picker
+    assert "files: 0" in picker  # a run with every file undone stays picked
+    assert "renderRunPicker(runs, turn)" in picker
+
+
+def test_on_a_touch_screen_undo_this_file_leaves_the_line_counts_readable():
+    """With no hover, "Undo this file" is always shown. It sat over a run's
+    line counts on the card and replaced them in the Changes tab, so on a
+    phone or tablet a file's counts could never be read at all."""
+    css = (STATIC_ROOT / "app.css").read_text(encoding="utf-8")
+    start = css.index("@media (hover: none)", css.index(".rev-undo {"))
+    touch = css[start : css.index("\n}\n", start)]
+
+    card = touch.split(".rev-undo {", 1)[1].split("}", 1)[0]
+    assert "position: static;" in card, "the button covers the counts"
+    tab = touch.split(".step-meta {", 1)[1].split("}", 1)[0]
+    assert "display: none" not in tab and "display: inline;" in tab
 
 
 def test_the_page_learns_a_turn_is_running_from_the_busy_frame():

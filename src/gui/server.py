@@ -407,7 +407,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
 
     def _undo(self, body: dict[str, Any]) -> dict[str, Any]:
-        return self._bridge.undo(_session_of(body))
+        # DR-061: a run and a path undo that one file; neither, the last run
+        # that wrote, as before.
+        turn, path = body.get("turn"), body.get("path")
+        if turn is None and path is None:
+            return self._bridge.undo(_session_of(body))
+        if not isinstance(turn, int) or isinstance(turn, bool):
+            raise BridgeError("which run? turn must be a whole number")
+        if not isinstance(path, str) or not path.strip():
+            raise BridgeError("which file? a path is required")
+        return self._bridge.undo_file(turn, path, session_id=_session_of(body))
 
     def _clear(self, body: dict[str, Any]) -> dict[str, Any]:
         return self._bridge.clear_history(_session_of(body))

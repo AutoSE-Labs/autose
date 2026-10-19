@@ -7,7 +7,9 @@
  *   numbers, the hunks' gaps shown as "N lines unchanged", unified or side by
  *   side. Long files start folded.
  * - Any run with changes can be picked; Undo is offered for the latest one,
- *   which is what the undo endpoint puts back.
+ *   which is what the undo endpoint puts back. Each file's head also offers
+ *   "Undo this file" (DR-061); a file undone that way stays listed, struck
+ *   through, after the run's other files.
  * - Keys while it is open: j / k (or ↓ / ↑) next and previous file, s for
  *   side by side, Esc closes.
  *
@@ -46,6 +48,18 @@ function runsWithChanges() {
     .filter((run) => run.files);
 }
 
+/* After a file of the open run is undone on its own (DR-061): the picker's
+ * file counts follow, and the run stays picked even with none left. */
+function refreshRunPicker(turn) {
+  const runs = runsWithChanges();
+  const run = ((state && state.history) || [])[turn];
+  if (run && !runs.some((item) => item.index === turn)) {
+    runs.push({ index: turn, prompt: run.prompt || "", files: 0 });
+    runs.sort((a, b) => a.index - b.index);
+  }
+  renderRunPicker(runs, turn);
+}
+
 function renderRunPicker(runs, chosen) {
   const picker = el("diff-run");
   picker.innerHTML = runs
@@ -70,7 +84,10 @@ async function loadDiffRun(turn, path) {
   } catch (error) {
     toast(String(error.message || error), "bad");
   }
-  diffView.changes = payload.changes || [];
+  // DR-061: files put back one by one come last, marked, with no diff.
+  diffView.changes = (payload.changes || []).concat(
+    (payload.undone || []).map((change) => ({ ...change, undone: true, diff: "" }))
+  );
   diffView.changes.forEach((change, index) => {
     const lines = (change.diff || "").split("\n").length;
     if (lines > FOLD_OVER_LINES) diffView.folded.add(index);
@@ -82,13 +99,15 @@ async function loadDiffRun(turn, path) {
       diffView.folded.delete(at);
     }
   }
+  const written = (payload.changes || []).length;
+  const undone = (payload.undone || []).length;
   el("diff-stat").textContent = diffView.changes.length
-    ? `${plural(diffView.changes.length, "file")} · +${payload.added} −${payload.removed}`
+    ? `${plural(written, "file")} · +${payload.added} −${payload.removed}${undone ? ` · ${undone} undone` : ""}`
     : "";
   const history = (state && state.history) || [];
   const latest = turn === history.length - 1 || turn < 0;
   el("diff-undo").hidden = !latest;
-  el("diff-undo").disabled = !diffView.changes.length;
+  el("diff-undo").disabled = !written;
   renderDiffView();
   if (path) window.requestAnimationFrame(() => showDiffFile(diffView.current, false));
 }
@@ -110,9 +129,10 @@ function renderDiffView() {
       const slash = change.path.lastIndexOf("/");
       const name = change.path.slice(slash + 1);
       const folder = slash > 0 ? change.path.slice(0, slash) : "";
+      const kind = change.undone ? "undone" : change.kind;
       return (
-        `<button type="button" class="diff-file-row${index === diffView.current ? " on" : ""}" data-diff-file="${index}" title="${escapeHtml(change.path)}">` +
-        `<span class="diff-kind ${escapeHtml(change.kind)}">${escapeHtml(kindWord(change.kind))}</span>` +
+        `<button type="button" class="diff-file-row${index === diffView.current ? " on" : ""}${change.undone ? " undone" : ""}" data-diff-file="${index}" title="${escapeHtml(change.path)}">` +
+        `<span class="diff-kind ${escapeHtml(kind)}">${escapeHtml(kindWord(kind))}</span>` +
         `<span class="diff-name">${escapeHtml(name)}</span>` +
         (folder ? `<span class="diff-folder">${escapeHtml(folder)}</span>` : "") +
         `<span class="diff-counts"><span class="added">+${change.added}</span> <span class="removed">−${change.removed}</span></span>` +
@@ -128,6 +148,7 @@ function kindWord(kind) {
 }
 
 function diffFileMarkup(change, index) {
+  if (change.undone) return undoneFileMarkup(change, index);
   const folded = diffView.folded.has(index);
   const lines = (change.diff || "").split("\n").length;
   const head =
@@ -136,6 +157,7 @@ function diffFileMarkup(change, index) {
     `<span class="path">${escapeHtml(change.path)}</span>` +
     `<span class="diff-kind ${escapeHtml(change.kind)}">${escapeHtml(kindWord(change.kind))}</span>` +
     `<span class="stat"><span class="added">+${change.added}</span> <span class="removed">−${change.removed}</span></span>` +
+    undoFileButtonMarkup(diffView.turn, change, "diff-undo-file") +
     `</div>`;
   const content = folded
     ? `<button type="button" class="diff-unfold" data-diff-fold="${index}">${lines} lines folded · show them</button>`
@@ -143,6 +165,18 @@ function diffFileMarkup(change, index) {
       ? splitMarkup(parseDiff(change.diff || ""))
       : unifiedMarkup(parseDiff(change.diff || ""));
   return `<section class="diff-file" id="diff-file-${index}" data-file-index="${index}">${head}${content}</section>`;
+}
+
+/* DR-061: a file of this run that was put back on its own. */
+function undoneFileMarkup(change, index) {
+  return (
+    `<section class="diff-file undone" id="diff-file-${index}" data-file-index="${index}">` +
+    `<div class="diff-head"><span class="diff-fold-gap" aria-hidden="true"></span>` +
+    `<span class="path">${escapeHtml(change.path)}</span>` +
+    `<span class="diff-kind undone">undone</span></div>` +
+    `<p class="panel-note diff-none">Put back as it was before this run. The run's other files are kept.</p>` +
+    `</section>`
+  );
 }
 
 /* A unified diff as hunks of typed lines with their old and new numbers. */
