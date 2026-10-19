@@ -409,6 +409,9 @@ def test_the_snapshot_holds_only_what_the_session_promoted(make_session, store):
         "route",
         # Changes an undo reverted: a canonical outcome, kept for the record.
         "undone",
+        # DR-055: a bounded record of the steps for a person to read back,
+        # never read into a prompt; checked field by field in test_trace.py.
+        "trace",
     }
 
 

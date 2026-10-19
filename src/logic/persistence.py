@@ -29,7 +29,9 @@ resumed.
 **Only what a session promoted is stored.** The record holds the same distilled
 `(prompt, answer)` pairs `SessionMemory` holds, never raw tool transcripts or
 intermediate stage artifacts — DR-004's boundary applies to the durable copy
-exactly as it applies to the live one.
+exactly as it applies to the live one. A turn's step trace (DR-055) is a
+bounded record of what it did for a person to read back: trimmed arguments and
+result previews rather than the transcript itself, and never read into a prompt.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from .common.changes import FileChange
+from .common.trace import RunTrace
 
 __all__ = [
     "SESSION_FORMAT_VERSION",
@@ -76,6 +79,12 @@ DEFAULT_MAX_STORED_CHANGE_BYTES = 256 * 1024
 
 #: Ceiling on stored change content for one whole session.
 DEFAULT_MAX_STORED_SESSION_BYTES = 8 * 1024 * 1024
+
+#: Ceiling on stored step traces for one whole session (DR-055). Each trace
+#: is already capped per turn; this keeps a long session's file from growing
+#: by a trace per run without end. Past it, older turns keep their stage
+#: times and a count of what was there, and lose the steps themselves.
+DEFAULT_MAX_STORED_TRACE_BYTES = 2 * 1024 * 1024
 
 #: How many sessions a store keeps before pruning the oldest.
 DEFAULT_MAX_SESSIONS = 50
@@ -125,13 +134,16 @@ class TurnRecord:
     route: tuple[dict[str, str], ...] = ()
     #: Changes an undo reverted, kept for the record. Optional on read.
     undone: tuple[FileChange, ...] = ()
+    #: What the turn did step by step (DR-055). Optional on read: a turn
+    #: stored before traces were kept has none, which is not a format change.
+    trace: RunTrace | None = None
 
     @property
     def succeeded(self) -> bool:
         return self.stop_reason == "completed"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        document = {
             "prompt": self.prompt,
             "answer": self.answer,
             "tier": self.tier,
@@ -147,9 +159,13 @@ class TurnRecord:
                 for item in self.route
             ],
         }
+        if self.trace is not None:
+            document["trace"] = self.trace.to_dict()
+        return document
 
     @classmethod
     def from_dict(cls, document: Mapping[str, Any]) -> TurnRecord:
+        trace = document.get("trace")
         return cls(
             prompt=str(document.get("prompt", "")),
             answer=str(document.get("answer", "")),
@@ -174,6 +190,7 @@ class TurnRecord:
                 for item in document.get("route", ())
                 if isinstance(item, Mapping)
             ),
+            trace=RunTrace.from_dict(trace) if isinstance(trace, Mapping) else None,
         )
 
 
@@ -346,15 +363,19 @@ class SessionRecord:
         *,
         max_change_bytes: int = DEFAULT_MAX_STORED_CHANGE_BYTES,
         max_session_bytes: int = DEFAULT_MAX_STORED_SESSION_BYTES,
+        max_trace_bytes: int = DEFAULT_MAX_STORED_TRACE_BYTES,
     ) -> SessionRecord:
-        """Return a copy whose stored change content fits the caps.
+        """Return a copy whose stored change content and traces fit the caps.
 
         A change past a cap keeps its path and its place in the history and
         loses its content, marked with the reason — so a resumed session says
         "this file changed, and I can no longer put it back" rather than
-        either lying about it or holding a 40 MB blob in a JSON file.
+        either lying about it or holding a 40 MB blob in a JSON file. A trace
+        past the session's trace budget keeps its stage times and says how
+        many steps and rounds it no longer holds (DR-055).
         """
         budget = max_session_bytes
+        trace_budget = max_trace_bytes
         turns: list[TurnRecord] = []
         # Newest first: if the session budget runs out, the recent turns —
         # the ones a user might actually undo — are the ones that keep their
@@ -377,7 +398,16 @@ class SessionRecord:
                     continue
                 budget -= size
                 trimmed.append(change)
-            turns.append(replace(turn, changes=tuple(trimmed)))
+            trace = turn.trace
+            if trace is not None and trace.has_steps:
+                # The same newest-first rule: the runs a person is most likely
+                # to look back at are the recent ones.
+                size = _trace_size(trace)
+                if size > trace_budget:
+                    trace = trace.without_detail()
+                else:
+                    trace_budget -= size
+            turns.append(replace(turn, changes=tuple(trimmed), trace=trace))
         return replace(self, turns=tuple(reversed(turns)))
 
 
@@ -592,6 +622,11 @@ def _change_from_dict(document: Any) -> FileChange:
         restorable=bool(document.get("restorable", True)),
         reason=str(document.get("reason", "")),
     )
+
+
+def _trace_size(trace: RunTrace) -> int:
+    """Roughly what a trace costs on disk: its JSON length, in characters."""
+    return len(json.dumps(trace.to_dict(), ensure_ascii=False))
 
 
 def _encode(content: bytes | None) -> str | None:
