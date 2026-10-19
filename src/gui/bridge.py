@@ -1492,8 +1492,9 @@ class SessionBridge:
         except OSError as error:
             raise BridgeError(f"could not save the rule: {error}", status=500) from error
         with self._lock:
-            moved = live is not None and live.allowances.pop(standing.key, None) is not None
-            if moved:
+            moved = False
+            if live is not None and live.allowances.pop(standing.key, None) is not None:
+                moved = True
                 self._keep_allowances(live)
             covered = [
                 pending
@@ -1508,7 +1509,7 @@ class SessionBridge:
                 f"{standing.label} were allowed for every session in this workspace"
             )
             pending.answered.set()
-        if moved:
+        if moved and live is not None:
             self._publish_for(live, {"kind": "allowances", "allowances": allowances})
         rules = self._workspace_allowances_payload()
         self._publish({"kind": "workspace_allowances", "allowances": rules})
