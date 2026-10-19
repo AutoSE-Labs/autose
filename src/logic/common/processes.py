@@ -648,7 +648,10 @@ def stop_managers(managers: Iterable[ProcessManager], *, wait: bool = True) -> N
     What an Adapter closing several sessions at once calls — the dashboard
     shutting down — so six sessions' servers take one grace, not six.
     """
-    processes = [process for manager in managers for process in manager._close()]
+    # The managers' own module: closing them together is why _close exists.
+    processes = [
+        process for manager in managers for process in manager._close()  # noqa: SLF001
+    ]
     _stop_together(processes, STOP_GRACE_SECONDS, wait=wait)
 
 
