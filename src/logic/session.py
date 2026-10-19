@@ -16,8 +16,9 @@ interfaces behaving identically.
 from __future__ import annotations
 
 import time
-from collections.abc import Generator, Iterator, Mapping
+from collections.abc import Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from urllib.parse import urlsplit
 
 from .classifier import Classification, TaskClassifier
 from .common.approval import (
@@ -34,7 +35,7 @@ from .common.memory import SessionMemory
 from .common.workspace import Workspace
 from .config import AutoSEConfig
 from .connections import provider_settings
-from .credentials import CredentialStore
+from .credentials import CredentialStore, ProviderKey, mask_key
 from .errors import ConfigurationError
 from .inference.base import ChatModel
 from .inference.catalog import ModelInfo
@@ -48,6 +49,7 @@ from .inference.registry import (
     available_providers,
     create_chat_model,
     create_model_catalog,
+    get_provider,
     local_providers,
 )
 from .inference.settings import InferenceSettings
@@ -76,6 +78,7 @@ from .workflows.review import PlanReviewGate
 __all__ = [
     "Session",
     "Turn",
+    "RecordedModel",
     "SessionSetup",
     "setup_from_config",
     "setup_for_provider",
@@ -128,6 +131,26 @@ class Turn:
     @property
     def changed_anything(self) -> bool:
         return bool(self.changes)
+
+
+@dataclass(frozen=True)
+class RecordedModel:
+    """What became of the provider and model a stored session used (DR-058).
+
+    Returned by :meth:`Session.return_to_recorded_model` when the record named
+    something other than what the session was opened on.
+    """
+
+    provider: str
+    model: str
+    restored: bool
+    #: Why the session stayed where it was, as the end of a sentence; empty
+    #: when it went back.
+    reason: str = ""
+    #: The models the provider listed while it was checked, for a picker.
+    models: tuple[ModelInfo, ...] = ()
+    #: The sentence ``provider_not_restored`` carried; empty when it went back.
+    notice: str = ""
 
 
 @dataclass(frozen=True)
@@ -390,6 +413,10 @@ class Session:
         self._inference = inference.require_model()
         #: Where a key for a provider switched to mid-session comes from (DR-036).
         self._credentials = credentials or CredentialStore()
+        #: The key in use, followed as the credentials file changes (DR-058).
+        self._key = ProviderKey(
+            self._credentials, self._inference.provider, self._inference.api_key
+        )
         self._workspace = workspace
         self._events = events or NullEventSink()
         # DR-012: no gate means refuse, never means run unreviewed.
@@ -721,7 +748,12 @@ class Session:
         )
 
     def use_provider(
-        self, provider: str, model: str, *, base_url: str | None = None
+        self,
+        provider: str,
+        model: str,
+        *,
+        base_url: str | None = None,
+        listed: Sequence[ModelInfo] | None = None,
     ) -> None:
         """Run this session's next request on *model* at *provider* (DR-036).
 
@@ -733,6 +765,8 @@ class Session:
 
         Refuses with :class:`ConfigurationError`, changing nothing, when the
         provider is unknown, has no address, or needs a key and has none.
+        *listed* is the provider's models when the caller has just listed them,
+        so they are not asked for twice.
         """
         previous = self._inference
         settings = provider_settings(
@@ -742,10 +776,11 @@ class Session:
             base_url=base_url,
             credentials=self._credentials,
         ).require_model()
-        try:
-            listed = create_model_catalog(settings).list_models()
-        except Exception:  # noqa: BLE001 - a listing is a convenience here too
-            listed = ()
+        if listed is None:
+            try:
+                listed = create_model_catalog(settings).list_models()
+            except Exception:  # noqa: BLE001 - a listing is a convenience here too
+                listed = ()
         info = next((entry for entry in listed if entry.name == model), None)
         inference, info = adopt_context_window(
             settings,
@@ -760,6 +795,7 @@ class Session:
         )
         self._inference = inference
         self._model_info = info
+        self._key = ProviderKey(self._credentials, inference.provider, inference.api_key)
         self._rebuild_model()
         self._emit(
             "model_selected",
@@ -769,6 +805,92 @@ class Session:
             base_url=inference.base_url,
             previous_provider=previous.provider,
         )
+
+    def return_to_recorded_model(self, record: SessionRecord) -> RecordedModel | None:
+        """Go back to the provider and model *record* was using (DR-058).
+
+        Called on a session just opened on the default for new sessions.
+        ``None`` when the record names nothing else. On the provider the
+        session is already on, the current address is kept rather than the
+        recorded one: the default may have moved (an SSH tunnel on another
+        port), and the old address may be dead. Otherwise the switch happens
+        only when the provider is registered, has a key if it needs one, and
+        answers with the model among those it offers — one listing, bounded
+        by the discovery timeout. If not, the session stays where it is and
+        ``provider_not_restored`` says why, once.
+        """
+        provider = (record.provider or "").strip().lower()
+        model = (record.model or "").strip()
+        current = self._inference
+        if not provider or not model:
+            return None
+        if provider == current.provider.lower() and model == current.model:
+            return None
+        same = provider == current.provider.lower()
+        try:
+            settings = provider_settings(
+                current,
+                provider,
+                model,
+                base_url=None if same else _recorded_address(provider, record.base_url),
+                credentials=self._credentials,
+            )
+        except ConfigurationError as exc:
+            return self._stay(
+                provider, model, _unusable_reason(provider, exc, self._credentials)
+            )
+        try:
+            listed = tuple(create_model_catalog(settings).list_models())
+        except Exception:  # noqa: BLE001 - an unreachable provider is a reason, not a crash
+            return self._stay(provider, model, f"nothing answered at {settings.base_url}")
+        if not any(entry.name == model for entry in listed):
+            return self._stay(provider, model, f"{provider} does not offer {model} now")
+        if same:
+            self.select_model(model)
+        else:
+            self.use_provider(provider, model, base_url=settings.base_url, listed=listed)
+        return RecordedModel(provider, model, restored=True, models=listed)
+
+    def _stay(self, provider: str, model: str, reason: str) -> RecordedModel:
+        current = self._inference
+        notice = (
+            f"This session used {provider} · {model}; it is on "
+            f"{current.provider} · {current.model} now because {reason}."
+        )
+        self._emit(
+            "provider_not_restored",
+            notice,
+            provider=provider,
+            model=model,
+            reason=reason,
+            current_provider=current.provider,
+            current_model=current.model,
+        )
+        return RecordedModel(
+            provider, model, restored=False, reason=reason, notice=notice
+        )
+
+    def refresh_api_key(self) -> bool:
+        """Use the provider's current key from the next request on (DR-058).
+
+        A key saved or removed since this session last looked — from the
+        dashboard, or by editing the credentials file — replaces the one in
+        its settings, and the chat model is rebuilt over it. Cheap when nothing
+        changed (one ``stat``). Call it only between requests: never while a
+        turn is running. Returns whether the key changed.
+        """
+        if not self._key.check():
+            return False
+        self._inference = replace(self._inference, api_key=self._key.key)
+        self._rebuild_model()
+        # The masked tail only: an event reaches the browser and the logs.
+        self._emit(
+            "api_key_changed",
+            self._inference.provider,
+            provider=self._inference.provider,
+            masked=mask_key(self._key.key),
+        )
+        return True
 
     def _rebuild_model(self) -> None:
         """A new chat model for the current settings, and a classifier over it.
@@ -942,6 +1064,12 @@ class Session:
         # ctrl-c, a Stop clicked as the last turn finished — must not cancel
         # the turn the user is asking for now.
         self._cancel.clear()
+        # DR-058: a key rotated since the last turn — even by hand, in the
+        # credentials file — is used from this one on, never mid-request.
+        self.refresh_api_key()
+        missing = _missing_key_warning(self._inference)
+        if missing:
+            raise ConfigurationError(missing)
         classification: Classification | None = None
         if tier:
             # Named with this request: a person's choice (DR-049).
@@ -1230,6 +1358,18 @@ def _missing_key_warning(settings: InferenceSettings) -> str:
     )
 
 
+def _unusable_reason(
+    provider: str, error: ConfigurationError, credentials: CredentialStore
+) -> str:
+    """Why a recorded provider cannot be used now, as the end of a sentence."""
+    registered = available_providers().get(provider)
+    if registered is None:
+        return f"{provider} is not available here"
+    if registered.requires_api_key and not credentials.resolve(provider):
+        return f"no API key is saved for {provider}"
+    return str(error)
+
+
 def _no_runtime_message(runtimes: tuple[DetectedRuntime, ...]) -> str:
     reachable = [runtime for runtime in runtimes if runtime.reachable]
     if reachable:
@@ -1248,3 +1388,25 @@ def _no_runtime_message(runtimes: tuple[DetectedRuntime, ...]) -> str:
         f"{probed}. Start one (e.g. `ollama serve`), or configure a different "
         "endpoint with AUTOSE_BASE_URL or a config file."
     )
+
+
+def _recorded_address(provider: str, recorded: str | None) -> str | None:
+    """The address in a session record, when it is safe to follow (DR-058).
+
+    Session files live in the workspace, so a repository can plant one. Its
+    address is followed only when it is http(s) and, for a provider that needs
+    a key, only when it is that provider's usual address: otherwise the stored
+    key would go wherever the file says. ``None`` means the usual address.
+    """
+    url = (recorded or "").strip()
+    if not url or urlsplit(url).scheme not in ("http", "https"):
+        return None
+    try:
+        registered = get_provider(provider)
+    except ConfigurationError:
+        return None
+    if registered.requires_api_key and url.rstrip("/") != (
+        registered.default_base_url.rstrip("/")
+    ):
+        return None
+    return url

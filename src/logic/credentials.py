@@ -38,6 +38,7 @@ __all__ = [
     "CREDENTIALS_FILENAME",
     "CredentialStore",
     "KeyView",
+    "ProviderKey",
     "mask_key",
     "validate_api_key",
 ]
@@ -148,6 +149,20 @@ class CredentialStore:
             return KeyView(True, mask_key(configured), "config")
         return KeyView(False)
 
+    def stamp(self) -> tuple[int, int, int] | None:
+        """What changes whenever the file does: inode, size and mtime (DR-058).
+
+        A ``stat``, not a read, so it is cheap enough to ask before every turn.
+        Every save replaces the file with a new one (a new inode), so a save is
+        seen even within the filesystem's timestamp resolution; an edit made by
+        hand changes the size or the time. ``None`` when there is no file.
+        """
+        try:
+            info = os.stat(self.path)
+        except OSError:
+            return None
+        return (info.st_ino, info.st_size, info.st_mtime_ns)
+
     def providers(self) -> tuple[str, ...]:
         """Names with a stored key."""
         try:
@@ -198,6 +213,47 @@ class CredentialStore:
             _HEADER + yaml.safe_dump(document, sort_keys=False),
             mode=0o600,
         )
+
+
+class ProviderKey:
+    """One provider's key in use, kept in step with the credentials file (DR-058).
+
+    Whoever holds a key for a while — an open session, the dashboard's default
+    for new ones — asks :meth:`check` before it next uses it. When the file
+    has not changed that is one ``stat``. When it has, and the key resolved
+    for this provider differs from the one seen last, the holder moves to the
+    new one; a key that was removed falls back to the key that came from
+    elsewhere (``AUTOSE_API_KEY``, a legacy config entry), if there was one.
+
+    A change to *another* provider's key leaves this one alone, so a key given
+    on the command line is not displaced by an unrelated save.
+    """
+
+    def __init__(self, store: CredentialStore, provider: str, key: str) -> None:
+        self._store = store
+        self.provider = _name(provider)
+        #: The key the holder uses now. Never logged or displayed.
+        self.key = key
+        self._stamp = store.stamp()
+        self._seen = store.resolve(self.provider)
+        #: A key that did not come from the file or the provider's variable.
+        self._elsewhere = key if key != self._seen else ""
+
+    def check(self) -> bool:
+        """Whether the key changed since the last check; :attr:`key` is the new one."""
+        stamp = self._store.stamp()
+        if stamp == self._stamp:
+            return False
+        self._stamp = stamp
+        fresh = self._store.resolve(self.provider)
+        if fresh == self._seen:
+            return False
+        self._seen = fresh
+        key = fresh or self._elsewhere
+        if key == self.key:
+            return False
+        self.key = key
+        return True
 
 
 def _name(provider: str) -> str:

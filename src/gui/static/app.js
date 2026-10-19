@@ -748,6 +748,13 @@ function handleEvent(id, frame) {
 
 function adoptState() {
   if (!state) return;
+  // A reopened session that could not go back to the provider and model it
+  // used says why, once per opening, until its next turn (DR-058). It comes
+  // with the state rather than as an event, so a session reopened when the
+  // dashboard started reaches the first page too.
+  (state.open || []).forEach((entry) => {
+    if (entry.notice) toast(entry.notice, "", `restore-${entry.session_id}-${entry.opened_at}`);
+  });
   // Sessions the server no longer has open cannot receive frames again, so
   // their cards are dropped rather than kept as a leak.
   const live = new Set((state.open || []).map((entry) => entry.session_id));

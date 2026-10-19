@@ -66,7 +66,7 @@ from logic.common.events import CallbackEventSink, Event, EventSink
 from logic.common.workspace import Workspace
 from logic.config import AutoSEConfig, load_config
 from logic.connections import list_connections
-from logic.credentials import CredentialStore
+from logic.credentials import CredentialStore, ProviderKey
 from logic.diagnostics import diagnose
 from logic.errors import AutoSEError, ConfigurationError, WorkspaceEscapeError
 from logic.inference.catalog import ModelInfo
@@ -333,6 +333,10 @@ class _Live:
         #: The schedule or watcher that opened it, and the name it shows.
         self.origin: dict[str, Any] | None = None
         self.title = ""
+        #: Why a reopened session is not on the provider it used (DR-058),
+        #: kept until its next turn: one reopened at start-up says so before
+        #: any page is there to hear the event.
+        self.notice = ""
 
     def queue_payload(self) -> dict[str, Any]:
         return {"queue": [dict(item) for item in self.queue], "held": self.queue_held}
@@ -474,7 +478,11 @@ class SessionBridge:
             command_runner=command_runner,
         )
         self._clock = clock
+        #: The default's key, followed as the credentials file changes, so a
+        #: new session never starts on a key that was replaced (DR-058).
+        self._default_key: ProviderKey | None = None
         self._resolve(resume=resume)
+        self._pick_up_keys()
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -521,6 +529,11 @@ class SessionBridge:
         emits carries the id of the session it came from. Without that a second
         run's activity would land in the first run's card.
         """
+        # DR-058: every way a session opens (a schedule, closing the last one,
+        # a retry) starts it on the file's current key. A session built on a
+        # key the file no longer holds would take it for one given elsewhere
+        # and keep it — through a later removal, too.
+        self._pick_up_keys()
         setup = self._setup
         assert setup is not None  # only called once a ready setup exists
         holder: list[_Live] = []
@@ -561,7 +574,33 @@ class SessionBridge:
         self._open[live.id] = live
         if focus or not self._focus:
             self._focus = live.id
+        if record is not None:
+            self._return_to_record(live, record)
         return live
+
+    def _return_to_record(self, live: _Live, record: SessionRecord) -> None:
+        """Put a reopened session back on the provider and model it used (DR-058).
+
+        The default for new sessions is left alone: reopening an old session
+        is not a choice of what the next one starts on. When it cannot go back,
+        the session says so (``provider_not_restored``, and its ``notice``
+        until its next turn) and stays here.
+        """
+        outcome = live.session.return_to_recorded_model(record)
+        if outcome is None:
+            return
+        if not outcome.restored:
+            live.notice = outcome.notice
+            return
+        setup = self._setup
+        inference = live.session.inference
+        on_default = (
+            setup is not None
+            and setup.inference is not None
+            and (inference.provider, inference.base_url)
+            == (setup.inference.provider, setup.inference.base_url)
+        )
+        live.models = None if on_default else outcome.models
 
     def reload(self) -> dict[str, Any]:
         """Re-read config, re-run discovery, and rebuild the desk.
@@ -939,6 +978,7 @@ class SessionBridge:
             "opened_at": live.opened_at,
             "focused": live.id == self._focus,
             "strip": live.strip_payload(),
+            "notice": live.notice,
         }
 
     def sessions(self) -> dict[str, Any]:
@@ -1036,6 +1076,9 @@ class SessionBridge:
         with self._lock:
             live = self._target(session_id)
             session = live.session
+            # DR-058: a key edited in the credentials file by hand is noticed
+            # here, when a turn starts — one stat when nothing changed.
+            self._pick_up_keys()
             if live.running and queue:
                 item = {
                     "id": secrets.token_hex(6),
@@ -1053,6 +1096,7 @@ class SessionBridge:
                     status=409,
                 )
             live.running = True
+            live.notice = ""
             live.unattended = unattended
             live.reset_turn()
             live.mark("working")
@@ -1365,6 +1409,9 @@ class SessionBridge:
             except AutoSEError as exc:
                 raise BridgeError(str(exc)) from exc
             after = (session.inference.provider, session.inference.base_url)
+            # "It is on X now because ..." stops being true once the person
+            # has moved the session themselves (DR-058).
+            live.notice = ""
             on_default = (
                 setup is not None
                 and setup.inference is not None
@@ -1415,12 +1462,13 @@ class SessionBridge:
             raise BridgeError(str(exc)) from exc
         with self._lock:
             self._adopt_key(name, self._credentials.resolve(name))
+            self._pick_up_keys()
             self._retry_if_idle()
         self._broadcast_state()
         return self.providers()
 
     def delete_key(self, provider: str) -> dict[str, Any]:
-        """Forget *provider*'s stored key. Open sessions keep theirs until switched."""
+        """Forget *provider*'s stored key; open sessions stop using it (DR-058)."""
         name = self._registered(provider)
         removed = self._credentials.stored(name)
         if not self._credentials.delete(name):
@@ -1428,6 +1476,7 @@ class SessionBridge:
         with self._lock:
             if self._config.inference.api_key == removed:
                 self._adopt_key(name, self._credentials.resolve(name))
+            self._pick_up_keys()
         self._broadcast_state()
         return self.providers()
 
@@ -1504,6 +1553,37 @@ class SessionBridge:
             and setup.inference.provider == provider
         ):
             self._setup = replace(setup, inference=replace(setup.inference, api_key=key))
+
+    def _pick_up_keys(self) -> None:
+        """Bring a changed key to the default and every idle session (DR-058).
+
+        Caller holds the lock (or is the constructor). A session that is
+        running keeps its key for the rest of the turn — a run never sends
+        some requests with one key and the rest with another — and picks the
+        new one up before its next turn. Cheap when nothing changed: one
+        ``stat`` per holder, no read of the file.
+        """
+        setup = self._setup
+        default = (
+            setup.inference
+            if setup is not None and setup.inference is not None
+            else self._config.inference
+        )
+        follower = self._default_key
+        if follower is None or (follower.provider, follower.key) != (
+            default.provider.lower(),
+            default.api_key,
+        ):
+            # The default changed some other way (set as the default, the
+            # configuration reloaded): follow it from here.
+            self._default_key = ProviderKey(
+                self._credentials, default.provider, default.api_key
+            )
+        elif follower.check():
+            self._adopt_key(follower.provider, follower.key)
+        for live in self._open.values():
+            if not live.running:
+                live.session.refresh_api_key()
 
     def _retry_if_idle(self) -> None:
         """With nothing open (a hosted default that had no key, say), try again."""
