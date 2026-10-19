@@ -674,3 +674,27 @@ def test_rules_in_a_session_file_this_machine_did_not_seal_are_dropped(make_sess
 
     assert session.allowances == ()
     assert "not restored" in session.dropped_allowances[0]
+
+
+def test_a_rule_changed_while_saving_does_not_break_the_seal(make_session, store, monkeypatch):
+    """The dashboard keeps a rule from its own thread while a turn ends and saves."""
+    from logic.common.allowances import Allowance
+
+    session = make_session([answer("done")], store=store)
+    session.keep_allowances([Allowance("run_command", "pytest")])
+    real_file = type(session)._allowances_file
+
+    def file_while_a_rule_is_added(self):
+        # Another thread's keep_allowances lands between saving the rules
+        # and sealing them.
+        self._allowances = (*self._allowances, Allowance("fetch_url", "docs.python.org"))
+        return real_file(self)
+
+    monkeypatch.setattr(type(session), "_allowances_file", file_while_a_rule_is_added)
+    record = session.snapshot()
+    monkeypatch.setattr(type(session), "_allowances_file", real_file)
+
+    reopened = make_session([answer("later")], store=store)
+    reopened.restore(record)
+    assert [item.pattern for item in reopened.allowances] == ["pytest"]
+    assert reopened.dropped_allowances == ()

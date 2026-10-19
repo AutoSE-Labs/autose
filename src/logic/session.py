@@ -611,6 +611,10 @@ class Session:
         intermediate stage artifact. DR-004's boundary applies to the durable
         copy exactly as it applies to the live one.
         """
+        # Read once: the dashboard may change the rules from another thread
+        # while this runs, and a seal over other rules than the ones saved
+        # beside it would drop them all on reopening (DR-057).
+        allowances = self._allowances
         return SessionRecord(
             id=self._id,
             workspace=str(self._workspace.root),
@@ -645,11 +649,9 @@ class Session:
                 )
                 for turn in self._turns
             ),
-            allowances=tuple((item.tool, item.pattern) for item in self._allowances),
+            allowances=tuple((item.tool, item.pattern) for item in allowances),
             allowances_seal=(
-                self._allowances_file().seal(self._id, self._allowances)
-                if self._allowances
-                else ""
+                self._allowances_file().seal(self._id, allowances) if allowances else ""
             ),
         )
 
