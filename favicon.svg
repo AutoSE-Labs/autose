@@ -1,7 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect width="64" height="64" rx="12" fill="#efebe0"/>
-  <g transform="rotate(45 32 32)">
-    <rect x="16" y="16" width="32" height="32" fill="none" stroke="#16233d" stroke-width="5"/>
-    <rect x="24" y="24" width="16" height="16" fill="#e2603a"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 1 40 40" width="64" height="64">
+  <!-- The AutoSE nib: pen blue on white, readable on light and dark tabs. -->
+  <path d="M12 4h16v14l-4 4H16l-4-4z" fill="#ffffff" stroke="#2552fc" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M16 22l4 16 4-16" fill="#ffffff" stroke="#2552fc" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M20 30v8" stroke="#2552fc" stroke-width="2"/>
+  <circle cx="17" cy="11" r="2.2" fill="#2552fc"/>
+  <circle cx="23" cy="11" r="2.2" fill="#2552fc"/>
+  <path d="M17 15.5q3 2 6 0" fill="none" stroke="#2552fc" stroke-width="1.8" stroke-linecap="round"/>
 </svg>

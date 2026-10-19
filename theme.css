@@ -1,0 +1,172 @@
+/* AutoSE site theme: the same tokens as the dashboard (src/gui/static/app.css
+ * on main), so the site and the product look like one thing.
+ *
+ * Light: drafting paper. A pale blue table (--paper) under white sheets
+ * (--sheet) with pen-blue ink frames (--frame, an inner --frame-rule, and a
+ * hard offset --stack shadow), a faint drafting grid, red for corrections.
+ * Dark: Catppuccin Mocha with NO borders: surfaces separate things (Crust page,
+ * Mantle panels, Base cards), controls filled with --surface0, blue for what
+ * matters. Frames, grid and stack resolve to transparent there on purpose.
+ *
+ * Light by default, like the dashboard; dark only when the visitor picks it
+ * with the theme switch (html[data-theme="dark"], stored in localStorage as
+ * "autose-site-theme"). The system's dark setting does not switch it.
+ *
+ * Fonts are served from the site (fonts/, with their OFL licences), as the
+ * dashboard bundles them: no request leaves for a font service.
+ */
+
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("fonts/atkinson-hyperlegible-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("fonts/atkinson-hyperlegible-latin-700-normal.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+  font-weight: 400 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Architects Daughter";
+  src: url("fonts/architects-daughter-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  --paper: #e3e9f6;
+  --sheet: #ffffff;
+  --sheet-2: #f2f5fd;
+  --panel: #ffffff;
+  --surface0: #f2f5fd;
+  --surface1: #e8eeff;
+  --grid: rgba(37, 82, 252, 0.06);
+  --grid-2: rgba(37, 82, 252, 0.11);
+  --edge: #d3dcef;
+  --edge-2: #c9d3ea;
+  --pencil: #c9d3ea;
+  --pen: #2552fc;
+  --pen-deep: #1f3fbf;
+  --pen-soft: #e8eeff;
+  --text: #0f1a33;
+  --text-2: #4b5a78;
+  --red: #c42e26;
+  --red-soft: #fdeceb;
+  --red-text: #a3221b;
+  --go: #1a7f4b;
+  --go-soft: #eef8f2;
+  --go-text: #136338;
+  --tok-string: #136338;
+  --tok-number: #a34a00;
+  --tok-call: #6a3fc0;
+  --on-pen: #ffffff;
+  --code-bg: #0f1a33;
+  --code-text: #eaf0ff;
+  --shadow: 0 0 0 1px rgba(15, 26, 51, 0.03), 0 2px 4px rgba(15, 26, 51, 0.06), 0 14px 32px -14px rgba(37, 82, 252, 0.3);
+  --scrim: rgba(15, 26, 51, 0.32);
+  --frame: #93a8dc;
+  --frame-rule: rgba(37, 82, 252, 0.2);
+  --stack: #c2cff0;
+
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Atkinson Hyperlegible", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-hand: "Architects Daughter", "Atkinson Hyperlegible", cursive;
+
+  /* The drawing-sheet frame every panel wears in light mode; nothing in dark. */
+  --sheet-frame: inset 0 0 0 3px var(--sheet), inset 0 0 0 4px var(--frame-rule), 5px 5px 0 -1px var(--stack);
+
+  color-scheme: light;
+}
+
+
+:root[data-theme="dark"] {
+  --paper: #11111b;
+  --sheet: #1e1e2e;
+  --sheet-2: #181825;
+  --panel: #181825;
+  --surface0: #313244;
+  --surface1: #45475a;
+  --grid: transparent;
+  --grid-2: transparent;
+  --edge: transparent;
+  --edge-2: transparent;
+  --pencil: #585b70;
+  --pen: #89b4fa;
+  --pen-deep: #b4befe;
+  --pen-soft: #2a2f4a;
+  --text: #cdd6f4;
+  --text-2: #a6adc8;
+  --red: #f38ba8;
+  --red-soft: #3a2433;
+  --red-text: #f38ba8;
+  --go: #a6e3a1;
+  --go-soft: #24332c;
+  --go-text: #a6e3a1;
+  --tok-string: #a6e3a1;
+  --tok-number: #fab387;
+  --tok-call: #cba6f7;
+  --on-pen: #11111b;
+  --code-bg: #181825;
+  --code-text: #cdd6f4;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 36px -16px rgba(0, 0, 0, 0.85);
+  --scrim: rgba(17, 17, 27, 0.66);
+  --frame: transparent;
+  --frame-rule: transparent;
+  --stack: transparent;
+  color-scheme: dark;
+}
+
+/* The dashboard's cursor: a small white dot ringed in pen blue, opening into
+ * a soft ring over anything you can press. Drawn by the system, so it never
+ * lags behind the pointer. Text keeps the ordinary caret. */
+html {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Ccircle cx='9' cy='9' r='5.5' fill='white' stroke='%232552fc' stroke-width='2'/%3E%3C/svg%3E") 9 9, auto;
+}
+
+:root[data-theme="dark"] {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Ccircle cx='9' cy='9' r='5.5' fill='white' stroke='%2389b4fa' stroke-width='2'/%3E%3C/svg%3E") 9 9, auto;
+}
+
+a,
+button,
+select,
+summary,
+label,
+[role="tab"] {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Ccircle cx='14' cy='14' r='10' fill='%232552fc' fill-opacity='0.12' stroke='%232552fc' stroke-width='2'/%3E%3Ccircle cx='14' cy='14' r='2.5' fill='%232552fc'/%3E%3C/svg%3E") 14 14, pointer;
+}
+
+:root[data-theme="dark"] a,
+:root[data-theme="dark"] button,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] summary,
+:root[data-theme="dark"] label,
+:root[data-theme="dark"] [role="tab"] {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Ccircle cx='14' cy='14' r='10' fill='white' fill-opacity='0.14' stroke='%2389b4fa' stroke-width='2'/%3E%3Ccircle cx='14' cy='14' r='2.5' fill='white'/%3E%3C/svg%3E") 14 14, pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+textarea,
+input[type="text"],
+input[type="search"],
+input:not([type]),
+pre,
+code,
+[contenteditable="true"] {
+  cursor: text;
+}

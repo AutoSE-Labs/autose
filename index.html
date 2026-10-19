@@ -11,6 +11,13 @@
 
     gtag('config', 'G-22NTRXTQ1S');
   </script>
+  <!-- Light unless dark was chosen; a chosen theme applies before first paint. -->
+  <script>
+    try {
+      var t = localStorage.getItem("autose-site-theme");
+      if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    } catch (e) {}
+  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AutoSE: Autonomous Software Engineering Under Your Control</title>
@@ -20,7 +27,8 @@
     content="autonomous software engineering, local-first AI coding, sovereign AI, self-hosted code generation, Ollama, small language models, architecture decision records, human-in-the-loop, offline AI developer tool" />
   <meta name="author" content="AutoSE Labs / SA4S Research Group" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
-  <meta name="theme-color" content="#efebe0" />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#e3e9f6" />
   <link rel="canonical" href="https://autose.dev/" />
 
   <!-- Icons -->
@@ -48,11 +56,7 @@
     content="A sovereign, local-first SDLC runtime. Plain-English intent to reviewed, governed code. No cloud." />
   <meta name="twitter:image" content="https://autose.dev/og-image.png" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
-    rel="stylesheet" />
+  <link rel="stylesheet" href="theme.css" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="demo.css" />
 
@@ -98,479 +102,569 @@
 </head>
 
 <body>
-  <!-- blueprint grid backdrop -->
-  <div class="blueprint-grid" aria-hidden="true"></div>
+  <!-- Drawings used across the page: the AutoSE nib, the tier icons, the theme icons. -->
+  <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
+    <symbol id="nib" viewBox="0 0 40 48">
+      <path d="M12 4h16v14l-4 4H16l-4-4z" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+      <path d="M16 22l4 16 4-16" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+      <path d="M20 30v8" stroke="currentColor" stroke-width="1.6" />
+      <circle cx="17" cy="11" r="1.9" fill="currentColor" />
+      <circle cx="23" cy="11" r="1.9" fill="currentColor" />
+      <path d="M17 15.5q3 2 6 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+    </symbol>
+    <symbol id="i-spark" viewBox="0 0 20 20"><path d="M11.2 2.5 4.8 11h4.6l-1 6.5L15.2 9h-4.6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+    <symbol id="i-craft" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11.8 3.2l5 5-2.3 2.3-5-5z" /><path d="M10.6 7.4 3.4 14.6a1.4 1.4 0 0 0 2 2l7.2-7.2" /></g></symbol>
+    <symbol id="i-forge" viewBox="0 0 20 20"><path d="M10 2.5c.6 2.8 4.5 4.4 4.5 8.7a4.5 4.5 0 0 1-9 0c0-2.1 1-3.4 2.1-4.3.1 1.6.9 2.6 2.2 2.8-.6-2.4-.5-4.6.2-7.2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+    <symbol id="i-moon" viewBox="0 0 20 20"><path d="M16 11.5A6.5 6.5 0 0 1 8.5 4a6.5 6.5 0 1 0 7.5 7.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+    <symbol id="i-sun" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="3.4" /><path d="M10 1.8v2.1M10 16.1v2.1M1.8 10h2.1M16.1 10h2.1M4.2 4.2l1.5 1.5M14.3 14.3l1.5 1.5M4.2 15.8l1.5-1.5M14.3 5.7l1.5-1.5" /></g></symbol>
+  </svg>
 
-  <nav class="nav">
+  <a class="skip-link" href="#main">Skip to the content</a>
+
+  <nav class="site-nav" aria-label="Main">
     <div class="wrap nav-inner">
-      <a class="brand" href="#top">
-        <span class="brand-mark" aria-hidden="true"></span>
-        Auto<span class="brand-accent">SE</span>
+      <a class="brand" href="#top" aria-label="AutoSE, back to the top">
+        <svg class="brand-nib" aria-hidden="true"><use href="#nib" /></svg><span class="brand-name">AutoSE</span>
       </a>
       <div class="nav-links">
         <a href="#try">Try it</a>
-        <a href="#workflow">Workflow</a>
-        <a href="#features">Capabilities</a>
-        <a href="#install">Install</a>
+        <a href="#workflow">How it works</a>
+        <a href="#features">Features</a>
+        <a href="#editions">Editions</a>
         <a href="research.html">Research</a>
-        <a href="https://github.com/AutoSE-Labs/autose" class="nav-ext">GitHub ↗</a>
+        <a href="https://github.com/AutoSE-Labs/autose" class="nav-ext">GitHub <span aria-hidden="true">↗</span></a>
       </div>
+      <a class="btn btn-primary btn-small nav-install" href="#install">Install</a>
+      <button class="theme-btn" id="theme-btn" type="button" aria-label="Switch to the dark theme" title="Light or dark">
+        <svg class="i-moon" width="18" height="18" aria-hidden="true"><use href="#i-moon" /></svg>
+        <svg class="i-sun" width="18" height="18" aria-hidden="true"><use href="#i-sun" /></svg>
+      </button>
     </div>
   </nav>
 
+  <main id="main">
   <header class="hero" id="top">
-    <div class="wrap">
-      <p class="eyebrow"><span class="tick"></span>SOVEREIGN ENGINEERING RUNTIME / v0.2 FREE EDITION</p>
-      <h1 class="hero-title">
-        Autonomous software<br />engineering, <span class="ink-underline">under your&nbsp;control.</span>
-      </h1>
-      <p class="hero-sub">
-        AutoSE turns a plain-English requirement into reviewed, validated code. A complexity
-        classifier routes each request to the right-sized pipeline — from a quick single-agent
-        fix to a full plan → execute → validate loop — driven from a dashboard in your browser,
-        all on your machine. No cloud. Nothing leaves your infrastructure.
-      </p>
-
-      <!-- primary action: the one-line installer -->
-      <div class="download-row" aria-label="Get AutoSE">
-        <a class="dl dl-primary" href="#install-card">
-          <span class="dl-top">
-            <span class="dl-name">Install AutoSE, free</span>
-          </span>
-          <span class="dl-meta">macOS · Linux · Windows · one line</span>
-        </a>
-        <a class="dl dl-cli" href="#editions">
-          <span class="dl-top"><span class="dl-name">AutoSE Pro</span></span>
-          <span class="dl-meta">ADRs and standards, for teams</span>
-        </a>
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="lbl eyebrow">Free edition · v0.2 · runs on your machine</p>
+        <h1 class="hero-title">
+          Autonomous software engineering, <span class="pen-underline">under your&nbsp;control.</span>
+        </h1>
+        <p class="hero-sub">
+          AutoSE turns a request in plain English into reviewed, checked code. It sizes up each
+          request, plans the work, does it, and checks it against numbered requirements, and it asks
+          you before it runs anything. All from a dashboard in your browser, on models you run
+          yourself. Nothing leaves your machine.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#try">Try it in your browser</a>
+          <a class="btn btn-ghost" href="#editions">AutoSE Pro, for teams</a>
+        </div>
       </div>
 
       <!-- the installer, for every OS -->
-      <p class="install-alt-label">Installs AutoSE, adds a desktop shortcut, and opens the dashboard</p>
-      <div class="install-card" id="install-card">
-        <div class="install-tabs" role="tablist" aria-label="Operating system">
-          <button class="tab is-active" data-os="unix" role="tab" aria-selected="true">macOS / Linux</button>
-          <button class="tab" data-os="win" role="tab" aria-selected="false">Windows</button>
+      <div class="install-card sheet" id="install-card">
+        <div class="install-head">
+          <h2 class="lbl install-title">Install, free</h2>
+          <div class="seg" role="tablist" aria-label="Operating system">
+            <button class="tab is-active" data-os="unix" role="tab" aria-selected="true" type="button">macOS / Linux</button>
+            <button class="tab" data-os="win" role="tab" aria-selected="false" type="button">Windows</button>
+          </div>
         </div>
         <div class="install-body">
           <pre class="install-cmd"
-            data-os="unix"><span class="prompt">$</span> <code>curl -fsSL https://autose.dev/install.sh | sh</code></pre>
+            data-os="unix"><span class="prompt" aria-hidden="true">$</span> <code>curl -fsSL https://autose.dev/install.sh | sh</code></pre>
           <pre class="install-cmd is-hidden"
-            data-os="win"><span class="prompt">&gt;</span> <code>irm https://autose.dev/install.ps1 | iex</code></pre>
-          <button class="copy-btn" id="copy-btn" aria-label="Copy install command">
-            <span class="copy-label">Copy</span>
-          </button>
+            data-os="win"><span class="prompt" aria-hidden="true">&gt;</span> <code>irm https://autose.dev/install.ps1 | iex</code></pre>
+          <div class="install-actions">
+            <p class="hand install-note" aria-hidden="true">run it again any time to update</p>
+            <span class="select-hint">Click to select</span>
+          </div>
         </div>
-        <p class="install-foot">Needs <strong>git</strong>; the installer sets up <strong>uv</strong> and Python for
-          you. Bring a local model from <a href="https://ollama.com">Ollama</a>, LM Studio, vLLM, or llama.cpp.</p>
+        <p class="install-foot">Installs AutoSE, adds a desktop shortcut and opens the dashboard. Needs
+          <strong>git</strong>; the installer sets up <strong>uv</strong> and Python for you. Bring a local
+          model from <a href="https://ollama.com">Ollama</a>, LM Studio, vLLM or llama.cpp.</p>
       </div>
+    </div>
 
-      <div class="hero-meta">
-        <span><span class="dot"></span>Runs offline</span>
-        <span><span class="dot"></span>Browser dashboard</span>
-        <span><span class="dot"></span>Human-in-the-loop</span>
-        <span><span class="dot"></span>Small local models</span>
-        <span><span class="dot"></span>Made in India</span>
-      </div>
+    <div class="wrap">
+      <ul class="hero-meta" aria-label="At a glance">
+        <li>Runs offline</li>
+        <li>Browser dashboard or terminal</li>
+        <li>Asks before it runs anything</li>
+        <li>Small local models</li>
+        <li>Made in India</li>
+      </ul>
     </div>
   </header>
 
-  <!-- provenance: drawn like the title block of an engineering sheet -->
-  <aside class="research-band" aria-label="Research provenance">
-    <div class="wrap prov-block">
+  <!-- where it comes from -->
+  <aside class="wrap prov" aria-label="Research provenance">
+    <div class="prov-block sheet">
       <a class="prov-cell" href="research.html">
-        <span class="prov-label">Research</span>
-        <span class="prov-value">Peer-reviewed publications <span class="prov-arrow">→</span></span>
+        <span class="lbl">Research</span>
+        <span class="prov-value">Peer-reviewed publications <span class="prov-arrow" aria-hidden="true">→</span></span>
       </a>
       <a class="prov-cell" href="https://sa4s-serc.github.io">
-        <span class="prov-label">From the lab of</span>
-        <span class="prov-value">SA4S research group <span class="prov-arrow">↗</span></span>
+        <span class="lbl">From the lab of</span>
+        <span class="prov-value">SA4S research group <span class="prov-arrow" aria-hidden="true">↗</span></span>
       </a>
       <a class="prov-cell" href="https://anrfonline.in/">
-        <span class="prov-label">Supported by</span>
-        <span class="prov-value">ANRF · PMECRG: SustAInd <span class="prov-arrow">↗</span></span>
+        <span class="lbl">Supported by</span>
+        <span class="prov-value">ANRF · PMECRG: SustAInd <span class="prov-arrow" aria-hidden="true">↗</span></span>
       </a>
     </div>
   </aside>
 
   <!-- INTERACTIVE DEMO -->
-  <section class="try-section" id="try">
+  <section class="section try-section" id="try" aria-labelledby="try-title">
     <div class="wrap">
-      <p class="section-label"><span class="tick"></span>TRY IT</p>
-      <h2 class="section-title">Run a session, right here.</h2>
-      <p class="section-lede">Pick a requirement and watch AutoSE read the project, sketch a plan, do the
-        work, and file its report, the same worklog you'd see in the app. Stop it mid-run if you like.
-        The CLI gives you this exact runtime in any terminal, on any OS.</p>
+      <div class="section-head">
+        <p class="lbl eyebrow">Try it</p>
+        <h2 class="section-title" id="try-title">Run a session, right here.</h2>
+        <p class="section-lede">Pick a request and watch a session play out the way it does in the
+          dashboard. It all happens in this page: no model behind it, nothing installed.</p>
+      </div>
 
       <div class="demo-frame">
         <div class="demo-shell" id="demo-shell">
-          <div class="shell-titlebar">
-            <span class="shell-brand"><span class="brand-mark" aria-hidden="true"></span>AutoSE</span>
-            <span class="shell-caps">
+          <svg class="d-defs" width="0" height="0" aria-hidden="true">
+            <defs>
+              <symbol id="d-nib" viewBox="0 0 40 48">
+                <path d="M12 4h16v14l-4 4H16l-4-4z" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+                <path d="M16 22l4 16 4-16" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+                <path d="M20 30v8" stroke="currentColor" stroke-width="1.6" />
+                <circle cx="17" cy="11" r="1.9" fill="currentColor" />
+                <circle cx="23" cy="11" r="1.9" fill="currentColor" />
+                <path d="M17 15.5q3 2 6 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </symbol>
+            </defs>
+          </svg>
+
+          <div class="d-titlebar">
+            <span class="d-addr"><svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="10" rx="2" /><path d="M7 17h6M10 14v3" /></svg>127.0.0.1:8765<span class="d-addr-note">· a scripted replay, nothing leaves this page</span></span>
+            <span class="d-caps">
               <button class="d-cap" id="d-cap-min" type="button" aria-label="Minimize" title="Minimize">─</button>
               <button class="d-cap" id="d-cap-max" type="button" aria-label="Maximize" title="Maximize">□</button>
-              <button class="d-cap" id="d-cap-close" type="button" aria-label="Close" title="Close">✕</button>
+              <button class="d-cap d-cap-close" id="d-cap-close" type="button" aria-label="Close" title="Close">✕</button>
             </span>
           </div>
 
-          <div class="d-header">
-            <button class="d-iconbtn" id="d-railtoggle" type="button" aria-label="Show or hide the worklog"
-              title="Show or hide the worklog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none"
-                stroke="currentColor" stroke-width="1.5">
-                <path d="M2 4.5h12M2 8h12M2 11.5h7" />
-              </svg></button>
-            <span class="d-brand"><span class="brand-mark" aria-hidden="true"></span>Auto<span
-                class="d-brand-accent">SE</span></span>
-            <button class="d-iconbtn d-push-right" id="d-usagebtn" type="button" aria-label="Usage"
-              title="Usage"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"
-                stroke-width="1.5">
-                <path d="M2.75 13.25V8.5M8 13.25V2.75M13.25 13.25V6" />
-              </svg></button>
-            <button class="d-iconbtn" id="d-settingsbtn" type="button" aria-label="Settings"
-              title="Settings"><svg viewBox="0 0 16 16" width="16" height="16" fill="none"
-                stroke="currentColor" stroke-width="1.5">
-                <path d="M2 5h12M2 11h12M10.5 2.75v4.5M5.5 8.75v4.5" />
-              </svg></button>
-          </div>
+          <div class="d-app" id="d-app">
+            <header class="d-top">
+              <span class="d-brand"><svg class="d-brand-nib" aria-hidden="true"><use href="#d-nib" /></svg><span class="d-brand-name">AutoSE</span></span>
+              <span class="d-presence" id="d-presence" aria-live="polite"><span class="d-presence-dot"></span><span id="d-presence-text">Ready</span></span>
+              <span class="d-ctx" title="How full the context window was last round">
+                <span class="d-lbl d-ctx-word">Context</span>
+                <span class="d-ruler" aria-hidden="true"><span class="d-ctx-fill" id="d-ctx-fill"></span><span class="d-ticks"></span></span>
+                <em id="d-ctx-label">64k window</em>
+              </span>
+              <span class="d-machine" title="The model AutoSE thinks with"><svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="10" rx="2" /><path d="M7 17h6M10 14v3" /></svg><span class="d-model">qwen3.6:35b-a3b</span><span class="d-rate" id="d-rate" hidden></span></span>
+              <span class="d-local" title="Where this runs">Local · no cloud</span>
+            </header>
 
-          <div class="d-body">
-            <aside class="d-rail" aria-label="Previous tasks">
-              <div class="d-rail-head"><span class="d-eyebrow"><span class="d-tick"></span>Worklog</span>
+            <nav class="d-sections" aria-label="Sections">
+              <button class="d-sec on" type="button" data-sec="sessions" aria-current="true"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h6A2.5 2.5 0 0 1 14 5.5v3a2.5 2.5 0 0 1-2.5 2.5H8l-3 2.5V11A2.5 2.5 0 0 1 3 8.5z" /><path d="M14 7.5h.5A2.5 2.5 0 0 1 17 10v3a2.5 2.5 0 0 1-2.5 2.5H14V18l-3-2.5H9.5" /></svg><span class="d-sec-label">Sessions</span></button>
+              <button class="d-sec" type="button" data-sec="inbox"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5l2.2-6.6A1.5 1.5 0 0 1 6.6 3.8h6.8a1.5 1.5 0 0 1 1.4 1.1l2.2 6.6V15a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 15z" /><path d="M3 11.5h4l1 2h4l1-2h4" /></svg><span class="d-sec-label">Needs you</span><span class="d-sec-badge" id="d-inbox-count" hidden></span></button>
+              <button class="d-sec" type="button" data-sec="Schedules"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="13" rx="2" /><path d="M3 8h14M7 2.5v3M13 2.5v3M10 10.5v2.5l1.8 1.1" /></svg><span class="d-sec-label">Schedules</span></button>
+              <button class="d-sec" type="button" data-sec="Files"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h3.6l1.6 1.8H16a1.5 1.5 0 0 1 1.5 1.5v7.2A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5z" /><path d="M6 10h8M6 13h5" /></svg><span class="d-sec-label">Files</span></button>
+              <span class="d-sec-sep" aria-hidden="true"></span>
+              <button class="d-sec" type="button" data-sec="Machine"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="10" height="10" rx="1.5" /><rect x="8" y="8" width="4" height="4" rx="0.5" /><path d="M8 2.5V5M12 2.5V5M8 15v2.5M12 15v2.5M2.5 8H5M2.5 12H5M15 8h2.5M15 12h2.5" /></svg><span class="d-sec-label">Machine</span></button>
+              <button class="d-sec" type="button" data-sec="Settings"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.6" /><path d="M10 1.8l1.6 2.1 2.6-.6.6 2.6 2.1 1.6-1.2 2.4 1.2 2.4-2.1 1.6-.6 2.6-2.6-.6L10 18.2l-1.6-2.1-2.6.6-.6-2.6-2.1-1.6 1.2-2.4-1.2-2.4 2.1-1.6.6-2.6 2.6.6z" /></svg><span class="d-sec-label">Settings</span></button>
+              <button class="d-sec d-push-down" type="button" data-sec="tips"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5a5 5 0 0 0-2.9 9.1c.6.4.7.9.7 1.3v.9h4.4v-.9c0-.4.1-.9.7-1.3A5 5 0 0 0 10 2.5z" /><path d="M8 16.5h4" /></svg><span class="d-sec-label">Tips</span></button>
+            </nav>
+
+            <aside class="d-rail" aria-label="Sessions">
+              <div class="d-rail-head">
+                <span class="d-rail-title">Sessions</span>
+                <button class="d-new" id="d-new" type="button">+ New session</button>
               </div>
-              <button class="d-newtask" id="d-newtask" type="button">+ New requirement</button>
-              <div class="d-sessions" id="d-sessions"></div>
+              <div class="d-list" id="d-list"></div>
             </aside>
 
             <div class="d-main">
-              <div class="d-conversation" id="demo-stream" aria-live="polite"></div>
+              <div class="d-sbar" aria-label="This session">
+                <span class="d-sb-who"><span id="d-sb-badge"></span><span class="d-sb-no" id="d-sb-no"></span></span>
+                <span class="d-sb-name" id="d-sb-name"></span>
+                <span class="d-sb-actions">
+                  <button class="d-sb-btn" id="d-sb-allowed" type="button" title="What runs without asking in this session"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5 4 5v4.6c0 3.6 2.5 6.6 6 7.9 3.5-1.3 6-4.3 6-7.9V5z" /><path d="M7.4 10.2l1.9 1.9 3.4-3.6" /></svg><span class="d-sb-label">Allowed</span><b class="d-sb-count" id="d-sb-allowed-count"></b></button>
+                  <button class="d-sb-btn" id="d-sb-changes" type="button" title="What this session changed: the diff of every file"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2.5h7l3 3v12H5z" /><path d="M8 8h4M10 6v4M8 13.5h4" /></svg><span class="d-sb-label">Changes</span><b class="d-sb-count" id="d-sb-changes-count"></b></button>
+                  <button class="d-sb-btn" id="d-sb-clear" type="button" title="Clear this session's history (files stay as they are)"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4h4v2M6 6l.7 10.5h6.6L14 6" /></svg><span class="d-sb-label">Clear</span></button>
+                </span>
+              </div>
 
-              <div class="d-composer-area">
-                <div class="d-composer d-cropped">
-                  <div class="d-composer-label"><span class="d-eyebrow"><span class="d-tick"></span>New
-                      requirement</span></div>
-                  <div class="d-textarea" id="d-textarea"><span class="d-placeholder"
-                      id="d-placeholder">Describe a feature, a bug, or a question about your project. Plain
-                      English is perfect.</span><span class="d-typed" id="composer-text"></span><span
-                      class="d-caret" id="d-caret" hidden></span></div>
-                  <div class="d-composer-foot">
-                    <span class="d-hint" id="d-hint">ENTER ↵ STARTS · SHIFT+ENTER FOR A NEW LINE</span>
-                    <button class="d-send" id="d-send" type="button" disabled>Start work</button>
-                  </div>
+              <div class="d-conv" id="d-conv">
+                <div class="d-conv-inner" id="d-stream" aria-live="polite"></div>
+              </div>
+
+              <div class="d-toast" id="d-toast" role="status" hidden></div>
+
+              <div class="d-composer" id="d-composer">
+                <textarea id="d-prompt" rows="2" spellcheck="false" aria-label="Describe your request"
+                  placeholder="Describe a change, or ask about this workspace"></textarea>
+                <div class="d-composer-foot">
+                  <div class="d-tiers" id="d-tiers" role="group" aria-label="Tier"></div>
+                  <label class="d-switch" title="Craft stops after planning so you can approve the plan before any file is touched">
+                    <input type="checkbox" id="d-review" /><span class="d-switch-track" aria-hidden="true"></span>Review the plan
+                  </label>
+                  <span class="d-hint" id="d-hint">Enter starts · Shift+Enter for a new line</span>
+                  <button class="d-btn d-btn-stop" id="d-stop" type="button" hidden title="Stop after the current step, keeping everything produced so far">Stop</button>
+                  <button class="d-btn d-btn-primary" id="d-start" type="button">Start</button>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div class="d-statusbar">
-            <span class="d-cell d-presence" id="d-presence"><span class="d-presence-dot"></span><span
-                id="d-presence-text">Ready</span></span>
-            <span class="d-cell" title="The model AutoSE thinks with">MODEL <em
-                id="d-model">qwen3-coder:30b</em></span>
-            <button class="d-cell d-linkcell" id="d-dirbtn" type="button"
-              title="Change the project folder">DIR <em id="d-dir">…\projects\bookstore</em></button>
-            <button class="d-cell d-right d-linkcell" id="d-tokens-cell" type="button"
-              title="Tokens used this task. Click for the usage sheet." hidden>TOKENS <em
-                id="d-tokens">0</em><span class="d-ctx" aria-hidden="true"><span class="d-ctx-fill"
-                  id="d-ctx-fill"></span></span><em id="d-ctx-label">CTX 0%</em></button>
-            <span class="d-cell d-stamp">LOCAL / NO CLOUD</span>
-          </div>
-
-          <div class="d-overlay" id="d-settings" hidden>
-            <div class="d-panel d-cropped">
-              <span class="d-eyebrow"><span class="d-tick"></span>Configuration</span>
-              <h4>Settings</h4>
-              <label class="d-field"><span>Model server address<small>Where your AI model runs, e.g.
-                    http://localhost:11434/v1</small></span>
-                <input id="ds-baseurl" type="text" value="http://localhost:11434/v1" spellcheck="false" />
-              </label>
-              <label class="d-field"><span>Model name<small>e.g. qwen3-coder:30b</small></span>
-                <input id="ds-model" type="text" value="qwen3-coder:30b" spellcheck="false" />
-              </label>
-              <label class="d-field"><span>Project folder<small>The folder AutoSE works in</small></span>
-                <input id="ds-dir" type="text" value="C:\Users\you\projects\bookstore" spellcheck="false" />
-              </label>
-              <label class="d-togglefield">
-                <input id="ds-handsfree" type="checkbox" />
-                <span class="d-toggletext">Work hands-free<small>Let AutoSE run commands (tests, builds,
-                    installs) on its own. Turn this off and it will skip any command instead of running
-                    it.</small></span>
-              </label>
-              <div class="d-panel-actions">
-                <button class="d-ghost" id="ds-cancel" type="button">Cancel</button>
-                <button class="d-primary" id="ds-save" type="button">Save changes</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="d-overlay" id="d-usage" hidden>
-            <div class="d-panel d-cropped">
-              <span class="d-eyebrow"><span class="d-tick"></span>Instrumentation</span>
-              <h4>Usage</h4>
-              <div class="d-stats" id="d-usage-stats"></div>
-              <div class="d-panel-actions"><button class="d-ghost" id="du-close" type="button">Close</button>
-              </div>
+            <div class="d-overlay" id="d-overlay" hidden>
+              <div class="d-panel" id="d-panel" role="dialog" aria-modal="true" aria-labelledby="d-panel-title"></div>
             </div>
           </div>
         </div>
 
         <div class="d-relaunch" id="d-relaunch" hidden>
-          <button class="d-primary" id="d-relaunch-btn" type="button">⟲ Relaunch AutoSE</button>
+          <button class="d-btn d-btn-primary" id="d-relaunch-btn" type="button">Open AutoSE again</button>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- SIGNATURE: the SDLC pipeline as a blueprint diagram -->
-  <section class="pipeline-section" id="workflow">
+  <!-- HOW IT WORKS: the route a run takes, as the dashboard draws it -->
+  <section class="section" id="workflow" aria-labelledby="workflow-title">
     <div class="wrap">
-      <p class="section-label"><span class="tick"></span>THE WORKFLOW</p>
-      <h2 class="section-title">One request flows through the right-sized pipeline.</h2>
-      <p class="section-lede">A classifier reads your prompt and automatically scales the pipeline to match —
-        simple asks stay fast and light, everyday work gets a plan and independent validation, including a
-        loop that sends work back for another pass before it ever reaches you.</p>
+      <div class="section-head">
+        <p class="lbl eyebrow">How it works</p>
+        <h2 class="section-title" id="workflow-title">Every request takes the route it needs.</h2>
+        <p class="section-lede">AutoSE sizes up each request first, so a quick question stays quick and
+          real work gets a plan and an independent check. When a check fails, the work goes back for
+          another pass before it ever reaches you. The dashboard draws every run this way, with the time
+          each step took.</p>
+      </div>
 
-      <ol class="pipeline" aria-label="AutoSE SDLC pipeline">
-        <li class="stage">
-          <span class="stage-id">PH-00</span>
-          <h3>Classify</h3>
-          <p>A single call sizes up the request and allocates just enough pipeline for it.</p>
-        </li>
-        <li class="stage">
-          <span class="stage-id">PH-01</span>
-          <h3>Design <span class="pro-chip">PRO</span></h3>
-          <p>For bigger changes, the approach is decided against your ADRs and standards, and recorded as a new ADR.</p>
-        </li>
-        <li class="stage">
-          <span class="stage-id">PH-02</span>
-          <h3>Plan</h3>
-          <p>An ordered implementation plan, with a requirements ledger every later stage is checked against.</p>
-        </li>
-        <li class="stage">
-          <span class="stage-id">PH-03</span>
-          <h3>Execute</h3>
-          <p>Every step of the plan is implemented against your codebase.</p>
-        </li>
-        <li class="stage">
-          <span class="stage-id">PH-04</span>
-          <h3>Validate</h3>
-          <p>An independent stage with no write access verifies each requirement; failures loop back.</p>
-        </li>
-        <li class="stage is-gate">
-          <span class="stage-id">GATE</span>
-          <h3>Your review</h3>
-          <p>Approve every command, inspect the diff, and undo any turn in one click.</p>
-        </li>
-      </ol>
+      <div class="route-sheet sheet">
+        <svg class="route-svg" viewBox="0 16 1020 226" aria-hidden="true" focusable="false">
+          <defs>
+            <marker id="route-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path class="redhead" d="M0 1 L10 5 L0 9 Z" />
+            </marker>
+          </defs>
+          <line class="r-done" x1="85" y1="70" x2="935" y2="70" />
+
+          <path class="redloop" d="M765 158 V170 C 765 204, 595 204, 595 170 V159" marker-end="url(#route-arrow)" />
+          <circle class="revdot" cx="680" cy="195.5" r="10" />
+          <text class="revtxt" x="680" y="199.5" text-anchor="middle">1</text>
+          <text class="margin-note" x="680" y="228" text-anchor="middle">sent back until every check holds</text>
+
+          <circle class="wp done" cx="85" cy="70" r="9" />
+          <text class="wp-l" x="85" y="106" text-anchor="middle">Start</text>
+          <text class="wp-n" x="85" y="127" text-anchor="middle">Classify</text>
+          <text class="wp-s" x="85" y="147" text-anchor="middle">picks a tier</text>
+
+          <circle class="wp pro" cx="255" cy="70" r="9" />
+          <text class="wp-l" x="255" y="106" text-anchor="middle">Forge · Pro</text>
+          <text class="wp-n" x="255" y="127" text-anchor="middle">Design</text>
+          <text class="wp-s" x="255" y="147" text-anchor="middle">records an ADR</text>
+
+          <circle class="wp done" cx="425" cy="70" r="9" />
+          <text class="wp-l" x="425" y="106" text-anchor="middle">Step 1</text>
+          <text class="wp-n" x="425" y="127" text-anchor="middle">Plan</text>
+          <text class="wp-s" x="425" y="147" text-anchor="middle">numbers the checks</text>
+
+          <circle class="wp done" cx="595" cy="70" r="9" />
+          <text class="wp-l" x="595" y="106" text-anchor="middle">Step 2</text>
+          <text class="wp-n" x="595" y="127" text-anchor="middle">Execute</text>
+          <text class="wp-s" x="595" y="147" text-anchor="middle">does the work</text>
+
+          <circle class="wp done" cx="765" cy="70" r="9" />
+          <text class="wp-l" x="765" y="106" text-anchor="middle">Step 3</text>
+          <text class="wp-n" x="765" y="127" text-anchor="middle">Validate</text>
+          <text class="wp-s" x="765" y="147" text-anchor="middle">proves each check</text>
+
+          <circle class="wp you" cx="935" cy="70" r="11" />
+          <text class="wp-l" x="935" y="106" text-anchor="middle">Then you</text>
+          <text class="wp-n" x="935" y="127" text-anchor="middle">Your review</text>
+          <text class="wp-s ink" x="935" y="147" text-anchor="middle">keep or undo</text>
+
+          <g class="nib-on-route" transform="translate(582 25)"><use href="#nib" width="26" height="31" /></g>
+        </svg>
+
+        <ol class="route-steps" aria-label="The route a request takes">
+          <li class="rs">
+            <h3><span class="lbl">Start</span> Classify</h3>
+            <p>Auto reads the request and picks a tier: Spark for a question or a small edit, Craft for
+              anything that needs a plan. You can pick one yourself instead.</p>
+          </li>
+          <li class="rs rs-pro">
+            <h3><span class="lbl">Forge</span> Design <span class="pro-chip">Pro</span></h3>
+            <p>With Forge, a bigger change is decided against your ADRs and standards first, and the
+              decision is written down as a new ADR.</p>
+          </li>
+          <li class="rs">
+            <h3><span class="lbl">Step 1</span> Plan</h3>
+            <p>An ordered plan with numbered checks that every later step is held to. Read it before any
+              work starts, if you like.</p>
+          </li>
+          <li class="rs rs-execute">
+            <span class="rs-loop" aria-hidden="true"></span>
+            <h3><span class="lbl">Step 2</span> Execute</h3>
+            <p>The plan is carried out in your project. Every command waits for your answer, unless you
+              have allowed it.</p>
+          </li>
+          <li class="rs rs-validate">
+            <h3><span class="lbl">Step 3</span> Validate</h3>
+            <p>A separate step that cannot write files checks each requirement, with evidence. If one
+              fails, the work goes back to Execute.</p>
+            <p class="hand rs-back" aria-hidden="true">sent back until every check holds</p>
+          </li>
+          <li class="rs rs-you">
+            <h3><span class="lbl">Then you</span> Your review</h3>
+            <p>See the diff of every file it changed, then keep it or undo the run.</p>
+          </li>
+        </ol>
+      </div>
     </div>
   </section>
 
-  <!-- SMART ROUTING: automatic effort scaling, no user-facing modes -->
-  <section class="features" id="tiers">
+  <!-- TIERS: how much effort a request gets -->
+  <section class="section" id="tiers" aria-labelledby="tiers-title">
     <div class="wrap">
-      <p class="section-label"><span class="tick"></span>SMART ROUTING</p>
-      <h2 class="section-title">Right-sized effort for every request.</h2>
-      <p class="section-lede">Not every change needs an architecture review. AutoSE classifies
-        each prompt behind the scenes and only spends as much reasoning — and as much compute — as
-        the task actually needs. You never pick a mode; it just fits the work.</p>
+      <div class="section-head">
+        <p class="lbl eyebrow">Tiers</p>
+        <h2 class="section-title" id="tiers-title">The right amount of effort for every request.</h2>
+        <p class="section-lede">Not every change needs a plan, let alone an architecture review. Auto picks a
+          tier for each request, or you choose one yourself. Every session shows its tier as an icon, so
+          you can tell them apart at a glance.</p>
+      </div>
 
-      <div class="spec-grid">
-        <article class="spec">
-          <span class="spec-tag">SMALL ASKS</span>
-          <h3>Quick, focused fixes</h3>
-          <p>Small edits, typos, and one-off tweaks are handled directly — no plan, no ceremony,
-            just the change.</p>
+      <div class="card-grid tier-grid">
+        <article class="card sheet tier">
+          <span class="tier-badge tier-spark" aria-hidden="true"><svg width="20" height="20"><use href="#i-spark" /></svg></span>
+          <h3>Spark</h3>
+          <p class="lbl tier-runs">Answer, or one small edit</p>
+          <p>A question about your code, or a change small enough for one direct pass: a line, a value,
+            a comment. No plan, just the answer or the edit.</p>
         </article>
-        <article class="spec">
-          <span class="spec-tag">EVERYDAY WORK</span>
-          <h3>Planned, tested changes</h3>
-          <p>Typical features get a drafted plan, the code written against it, and tests added and
-            run before you see the result.</p>
+        <article class="card sheet tier">
+          <span class="tier-badge tier-craft" aria-hidden="true"><svg width="20" height="20"><use href="#i-craft" /></svg></span>
+          <h3>Craft</h3>
+          <p class="lbl tier-runs">Plan → Execute → Validate</p>
+          <p>Everything that needs a plan, from a bug fix to a change across many files. Planned, done and
+            checked before you see it.</p>
         </article>
-        <article class="spec">
-          <span class="spec-tag">BIGGER CHANGES · PRO</span>
-          <h3>Designed, recorded, validated*</h3>
-          <p>Architecture-level work gets a design stage first: the approach is decided against your
-            existing ADRs and standards, written down as a new ADR, then planned and validated.</p>
+        <article class="card sheet tier">
+          <span class="tier-badge tier-forge" aria-hidden="true"><svg width="20" height="20"><use href="#i-forge" /></svg></span>
+          <h3>Forge <span class="pro-chip">Pro</span></h3>
+          <p class="lbl tier-runs">Design, then as Craft</p>
+          <p>Architecture-level work gets a Design step first: decided against your ADRs and standards,
+            and recorded as a new ADR before it is planned and checked.</p>
         </article>
       </div>
-      <p class="tier-footnote">* Part of <a href="#editions">AutoSE Pro</a>. In the free edition, bigger changes run
-        through the planned, tested pipeline.</p>
+      <p class="footnote">Forge is part of <a href="#editions">AutoSE Pro</a>. In the free edition, bigger
+        changes run as Craft.</p>
     </div>
   </section>
 
-
-  <!-- CAPABILITIES: spec cards with crop marks -->
-  <section class="features" id="features">
+  <!-- FEATURES -->
+  <section class="section" id="features" aria-labelledby="features-title">
     <div class="wrap">
-      <p class="section-label"><span class="tick"></span>CAPABILITIES</p>
-      <h2 class="section-title">Engineering you can account for.</h2>
+      <div class="section-head">
+        <p class="lbl eyebrow">Features</p>
+        <h2 class="section-title" id="features-title">Engineering you can account for.</h2>
+        <p class="section-lede">Everything happens in a dashboard in your browser, in a light theme or a
+          Catppuccin Mocha dark one, or in the terminal if you prefer. You decide what runs, and you can
+          see what changed.</p>
+      </div>
 
-      <div class="spec-grid">
-        <article class="spec">
-          <span class="spec-tag">SOVEREIGNTY</span>
+      <div class="card-grid feature-grid">
+        <article class="card sheet">
+          <p class="lbl">Local</p>
           <h3>Runs on what you own</h3>
-          <p>All inference goes through Ollama on your machine or an org-hosted endpoint. It calls no third-party APIs
-            and sends no telemetry.</p>
+          <p>AutoSE finds Ollama, LM Studio, vLLM or llama.cpp on your machine by itself. By default
+            nothing leaves it: no third-party service, no telemetry.</p>
         </article>
-        <article class="spec">
-          <span class="spec-tag">CONTEXT · PRO</span>
-          <h3>Grounded in your org</h3>
-          <p>Your coding standards, approved libraries, and recorded decisions are retrieved into every run, and
-            every claim about them must cite its source.</p>
+        <article class="card sheet">
+          <p class="lbl">Models</p>
+          <h3>Made for small local models</h3>
+          <p>It plans for the context window your runtime really serves, and tells you when that is
+            smaller than the model allows. Small models sized to the task use far less energy than a
+            giant cloud model.</p>
         </article>
-        <article class="spec">
-          <span class="spec-tag">GOVERNANCE</span>
-          <h3>Traceable by default</h3>
-          <p>Each change is planned as ID'd requirements, implemented against them, and verified one by one. Every
-            file it writes is journalled, so you can review the diff and undo it.</p>
+        <article class="card sheet">
+          <p class="lbl">Sessions</p>
+          <h3>Several sessions at once</h3>
+          <p>Run a long change in one session and ask a question in another. Rename them as you like;
+            each shows its tier, and they pick up again after you close the window.</p>
         </article>
-        <article class="spec">
-          <span class="spec-tag">CONTROL</span>
-          <h3>You hold the pen</h3>
-          <p>Human review is a built-in step. Agents prepare and propose. You approve, refine, or reject.</p>
+        <article class="card sheet">
+          <p class="lbl">Route</p>
+          <h3>See every step</h3>
+          <p>Each run is shown as a route: every step with its timing, and every send-back marked where
+            it happened and why.</p>
         </article>
-        <article class="spec">
-          <span class="spec-tag">ROUTING</span>
-          <h3>Small local models, right-sized</h3>
-          <p>Work is routed between smaller and larger local models by complexity, so most tasks run on small,
-            efficient models instead of an oversized general-purpose one.</p>
+        <article class="card sheet">
+          <p class="lbl">Checks</p>
+          <h3>Numbered checks</h3>
+          <p>Requirements are numbered when the plan is written. You see each one go from written to done
+            to verified, with the evidence for it.</p>
         </article>
-        <article class="spec">
-          <span class="spec-tag">SURFACE</span>
-          <h3>Browser dashboard or terminal</h3>
-          <p>Open AutoSE from its desktop shortcut and work in a local dashboard with several sessions at once, or
-            drive the same agent from an interactive terminal session.</p>
+        <article class="card sheet">
+          <p class="lbl">Needs you</p>
+          <h3>One list of what waits for you</h3>
+          <p>Needs you gathers every question and plan waiting for an answer, from every session, so
+            nothing sits unseen in a tab you are not looking at.</p>
         </article>
-        <article class="spec">
-          <span class="spec-tag">SUSTAINABILITY</span>
-          <h3>Lighter on energy and carbon</h3>
-          <p>Small local models sized to the task draw far less power than routing every request to a giant
-            cloud model, cutting the energy and carbon cost of everyday engineering work.</p>
+        <article class="card sheet">
+          <p class="lbl">Questions</p>
+          <h3>Asks before it runs anything</h3>
+          <p>Commands wait in place with <strong>Run it</strong>, <strong>Always allow</strong> or
+            <strong>Don't run</strong>, or tell it what to do instead. Always allow covers that kind of
+            command, not your whole shell, and a chain of commands is judged part by part.</p>
         </article>
-        <article class="spec">
-          <span class="spec-tag">CODE HEALTH · PRO</span>
-          <h3>Debt-aware, not debt-adding</h3>
-          <p>Designs are checked against your organization's coding standards and earlier architectural
-            decisions, so output reduces technical debt instead of quietly adding to it.</p>
+        <article class="card sheet">
+          <p class="lbl">Allowed</p>
+          <h3>See what runs without asking</h3>
+          <p>The Allowed page lists every command that no longer asks first, so you can read it, change it
+            or take it back.</p>
         </article>
-        <article class="spec">
-          <span class="spec-tag">ORIGIN</span>
-          <h3>Built from India</h3>
-          <p>Designed and engineered in India by the SA4S research group, with support from India's
-            <a href="https://anrfonline.in/">Anusandhan National Research Foundation (ANRF)</a>.
-          </p>
+        <article class="card sheet">
+          <p class="lbl">YOLO mode</p>
+          <h3>Nothing asks, when you mean it</h3>
+          <p>One switch lets everything run without asking. A red frame stays round the window for as
+            long as it is on, so you never forget.</p>
+        </article>
+        <article class="card sheet">
+          <p class="lbl">Changes</p>
+          <h3>Diff, undo and files</h3>
+          <p>Read the diff of every change, undo a run, and browse the whole project in a
+            read-only Files view.</p>
+        </article>
+        <article class="card sheet">
+          <p class="lbl">Schedules</p>
+          <h3>Schedules and watchers</h3>
+          <p>Run a request on a schedule, or have a watcher run a command and start a request when its
+            output changes or it starts failing.</p>
+        </article>
+        <article class="card sheet">
+          <p class="lbl">Plan review</p>
+          <h3>Read the plan first</h3>
+          <p>Turn on Review the plan and the work stops once the plan is written. Approve and start, edit
+            the plan, or stop there.</p>
         </article>
       </div>
     </div>
   </section>
 
   <!-- EDITIONS: what is free, what Pro adds -->
-  <section class="features" id="editions">
+  <section class="section" id="editions" aria-labelledby="editions-title">
     <div class="wrap">
-      <p class="section-label"><span class="tick"></span>EDITIONS</p>
-      <h2 class="section-title">Free for every developer. Pro for teams.</h2>
-      <p class="section-lede">The free edition is the whole agent: install it below and use it on any project.
-        AutoSE Pro adds the decision-record and knowledge layer organisations need.</p>
+      <div class="section-head">
+        <p class="lbl eyebrow">Editions</p>
+        <h2 class="section-title" id="editions-title">Free for every developer. Pro for teams.</h2>
+        <p class="section-lede">The free edition is the whole agent: install it below and use it on any
+          project. AutoSE Pro adds the decision-record and knowledge layer organisations need.</p>
+      </div>
 
-      <div class="spec-grid editions-grid">
-        <article class="spec">
-          <span class="spec-tag">FREE · ON THIS SITE</span>
+      <div class="card-grid editions-grid">
+        <article class="card sheet edition">
+          <p class="lbl">Free · on this site</p>
           <h3>AutoSE</h3>
+          <p class="edition-tiers"><span class="tier-chip"><svg width="16" height="16" aria-hidden="true"><use href="#i-spark" /></svg>Spark</span><span class="tier-chip"><svg width="16" height="16" aria-hidden="true"><use href="#i-craft" /></svg>Craft</span></p>
           <ul class="edition-list">
-            <li>Browser dashboard, several sessions at once, plus the terminal interface</li>
-            <li>Quick fixes and planned, independently validated changes</li>
-            <li>Approval before every command, diff and undo for every file</li>
-            <li>Sessions that resume after you close the window</li>
-            <li>Finds Ollama, LM Studio, vLLM, or llama.cpp on its own</li>
+            <li>The browser dashboard and the terminal, with several sessions at once</li>
+            <li>Quick answers and small edits, and planned changes checked step by step</li>
+            <li>Asks before every command, with Always allow and YOLO mode when you want them</li>
+            <li>Diff and undo for every file, a Files view, schedules and watchers</li>
+            <li>Sessions that pick up again after you close the window</li>
+            <li>Finds Ollama, LM Studio, vLLM or llama.cpp on its own</li>
           </ul>
-          <p><a href="#install">Install it free →</a></p>
+          <p class="edition-cta"><a class="btn btn-primary" href="#install">Install it free</a></p>
         </article>
-        <article class="spec">
-          <span class="spec-tag">PRO · FOR TEAMS</span>
+        <article class="card sheet edition">
+          <p class="lbl">Pro · for teams</p>
           <h3>AutoSE Pro</h3>
+          <p class="edition-tiers"><span class="tier-chip"><svg width="16" height="16" aria-hidden="true"><use href="#i-spark" /></svg>Spark</span><span class="tier-chip"><svg width="16" height="16" aria-hidden="true"><use href="#i-craft" /></svg>Craft</span><span class="tier-chip"><svg width="16" height="16" aria-hidden="true"><use href="#i-forge" /></svg>Forge</span></p>
           <ul class="edition-list">
             <li>Everything in the free edition</li>
-            <li>A design stage that records each architectural decision as an ADR</li>
-            <li>Your ADRs and organisational standards retrieved into every run</li>
-            <li>Citation checking, so no rule is attributed that was never shown</li>
+            <li>Forge: a Design step that records each architectural decision as an ADR</li>
+            <li>Your ADRs and organisational standards brought into every run</li>
+            <li>Citation checking, so no rule is quoted that was never shown</li>
             <li>Learned project facts, kept only once a person approves them</li>
           </ul>
-          <p><a href="mailto:sa4sserc@gmail.com?subject=AutoSE%20Pro">Ask us about Pro →</a></p>
+          <p class="edition-cta"><a class="btn btn-ghost" href="mailto:sa4sserc@gmail.com?subject=AutoSE%20Pro">Ask us about Pro</a></p>
         </article>
       </div>
     </div>
   </section>
 
-  <!-- INSTALL detail -->
-  <section class="install-detail" id="install">
+  <!-- INSTALL in detail -->
+  <section class="section install-detail" id="install" aria-labelledby="install-title">
     <div class="wrap install-detail-inner">
       <div class="install-detail-copy">
-        <p class="section-label"><span class="tick"></span>GET STARTED</p>
-        <h2 class="section-title">One line to your first session.</h2>
-        <p class="section-lede">The installer works the same on macOS, Linux, and Windows. Run it again any
-          time to update.</p>
+        <p class="lbl eyebrow">Get started</p>
+        <h2 class="section-title" id="install-title">One line to your first session.</h2>
+        <p class="section-lede">The installer works the same way on macOS, Linux and Windows. Run it again
+          any time to update.</p>
         <ol class="run-list">
-          <li><span class="run-n">1</span>
-            <div><strong>Install AutoSE</strong><br />Run the one-line command for your OS (in the panel). It
-              downloads AutoSE, sets up its environment with <code>uv</code>, adds an <strong>AutoSE</strong>
-              shortcut to your desktop, and opens the dashboard.</div>
+          <li><span class="run-n" aria-hidden="true">1</span>
+            <div><strong>Install AutoSE</strong><br />Run the one-line command for your system. It downloads
+              AutoSE, sets up Python with <code>uv</code>, adds an <strong>AutoSE</strong> shortcut to your
+              desktop and opens the dashboard.</div>
           </li>
-          <li><span class="run-n">2</span>
-            <div><strong>Set up a local model</strong><br />AutoSE runs on inference you own. Install <a
-                href="https://ollama.com">Ollama</a> and pull a coder model: <code>ollama pull qwen2.5-coder:14b</code>
+          <li><span class="run-n" aria-hidden="true">2</span>
+            <div><strong>Set up a local model</strong><br />AutoSE runs on a model you host. Install <a
+                href="https://ollama.com">Ollama</a> and pull a coding model that can call tools:
+              <code>ollama pull qwen2.5-coder:14b</code>. AutoSE finds it by itself.
             </div>
           </li>
-          <li><span class="run-n">3</span>
-            <div><strong>Open it on your project</strong><br />Double-click the AutoSE shortcut and choose your
-              project folder; the dashboard opens in your browser. In a terminal, <code>autose --web</code> does the
-              same for the current folder, and <code>autose</code> starts a terminal session.</div>
+          <li><span class="run-n" aria-hidden="true">3</span>
+            <div><strong>Open it on your project</strong><br />Double-click the AutoSE shortcut and choose
+              your project folder; the dashboard opens in your browser. In a terminal, <code>autose --web</code>
+              does the same for the current folder, <code>autose</code> starts a terminal session and
+              <code>autose --doctor</code> checks your setup.</div>
           </li>
         </ol>
       </div>
 
-      <div class="install-detail-panel">
+      <div class="install-detail-panel sheet">
         <div class="panel-row">
-          <span class="panel-os">macOS / Linux</span>
+          <div class="panel-row-head">
+            <span class="lbl panel-os">macOS / Linux</span>
+          </div>
           <pre
-            class="panel-cmd"><span class="prompt">$</span> <code id="cmd-unix">curl -fsSL https://autose.dev/install.sh | sh</code></pre>
-          <button class="copy-btn copy-mini" data-copy="#cmd-unix" aria-label="Copy macOS/Linux command"><span
-              class="copy-label">Copy</span></button>
+            class="panel-cmd"><span class="prompt" aria-hidden="true">$</span> <code id="cmd-unix">curl -fsSL https://autose.dev/install.sh | sh</code></pre>
         </div>
         <div class="panel-row">
-          <span class="panel-os">Windows (PowerShell)</span>
+          <div class="panel-row-head">
+            <span class="lbl panel-os">Windows (PowerShell)</span>
+          </div>
           <pre
-            class="panel-cmd"><span class="prompt">&gt;</span> <code id="cmd-win">irm https://autose.dev/install.ps1 | iex</code></pre>
-          <button class="copy-btn copy-mini" data-copy="#cmd-win" aria-label="Copy Windows command"><span
-              class="copy-label">Copy</span></button>
+            class="panel-cmd"><span class="prompt" aria-hidden="true">&gt;</span> <code id="cmd-win">irm https://autose.dev/install.ps1 | iex</code></pre>
         </div>
-        <p class="panel-note">Want to read it first? Both scripts are plain text.
-          See <a href="install.sh">install.sh</a> and <a href="install.ps1">install.ps1</a>.
+        <p class="panel-note">Want to read it first? Both scripts are plain text:
+          <a href="install.sh">install.sh</a> and <a href="install.ps1">install.ps1</a>.
           You can also build from source by following the <a
             href="https://github.com/AutoSE-Labs/autose#development">README</a>.</p>
       </div>
     </div>
   </section>
+  </main>
 
   <footer class="footer">
     <div class="wrap footer-inner">
       <div class="footer-brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        Auto<span class="brand-accent">SE</span>
-        <p>A research-grade, sovereign engineering runtime. Local-first by design. Free edition v0.2.</p>
+        <span class="brand"><svg class="brand-nib" aria-hidden="true"><use href="#nib" /></svg><span class="brand-name">AutoSE</span></span>
+        <p>A local-first software engineering agent, built on research. Free edition v0.2.</p>
       </div>
-      <div class="footer-links">
+      <nav class="footer-links" aria-label="Elsewhere">
         <a href="https://github.com/AutoSE-Labs/autose">Repository</a>
+        <a href="research.html">Research</a>
         <a href="https://ollama.com">Ollama</a>
         <a href="mailto:sa4sserc@gmail.com">Contact</a>
-      </div>
+      </nav>
     </div>
     <div class="wrap footer-base">
-      <span>© 2026 AutoSE Labs | <a href="https://www.apache.org/licenses/LICENSE-2.0" rel="noopener noreferrer"
-          target="_blank">Apache 2.0
-          License</a></span>
+      <span>© 2026 AutoSE Labs · <a href="https://www.apache.org/licenses/LICENSE-2.0" rel="noopener noreferrer"
+          target="_blank">Apache 2.0 License</a></span>
       <span class="footer-credit">From <a href="https://sa4s-serc.github.io">SA4S</a> · Supported by <a
-          href="https://anrfonline.in/">ANRF</a>, PMECRG: SustAInd</span>
-      <!-- <span class="footer-coords">52.000N · BUILD/POC · 127.0.0.1:8765</span> -->
+          href="https://anrfonline.in/">ANRF</a>, PMECRG: SustAInd · Made in India</span>
     </div>
   </footer>
 

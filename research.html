@@ -11,6 +11,13 @@
 
     gtag('config', 'G-22NTRXTQ1S');
   </script>
+  <!-- Light unless dark was chosen; a chosen theme applies before first paint. -->
+  <script>
+    try {
+      var t = localStorage.getItem("autose-site-theme");
+      if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    } catch (e) {}
+  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Research: The Peer-Reviewed Science Behind AutoSE</title>
@@ -20,7 +27,8 @@
     content="architecture decision records, LLM software architecture, small language models, function calling, agentic AI, energy-efficient AI, SWE-bench, SA4S research group, IIIT Hyderabad" />
   <meta name="author" content="AutoSE Labs / SA4S Research Group" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
-  <meta name="theme-color" content="#efebe0" />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#e3e9f6" />
   <link rel="canonical" href="https://autose.dev/research.html" />
 
   <!-- Icons -->
@@ -48,11 +56,7 @@
     content="The peer-reviewed work behind AutoSE, from the SA4S research group at IIIT Hyderabad." />
   <meta name="twitter:image" content="https://autose.dev/og-image.png" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
-    rel="stylesheet" />
+  <link rel="stylesheet" href="theme.css" />
   <link rel="stylesheet" href="styles.css" />
 
   <!-- Structured data: publication list -->
@@ -157,53 +161,73 @@
 </head>
 
 <body>
-  <!-- blueprint grid backdrop -->
-  <div class="blueprint-grid" aria-hidden="true"></div>
+  <!-- Drawings used on the page: the AutoSE nib and the theme icons. -->
+  <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
+    <symbol id="nib" viewBox="0 0 40 48">
+      <path d="M12 4h16v14l-4 4H16l-4-4z" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+      <path d="M16 22l4 16 4-16" fill="var(--sheet)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" />
+      <path d="M20 30v8" stroke="currentColor" stroke-width="1.6" />
+      <circle cx="17" cy="11" r="1.9" fill="currentColor" />
+      <circle cx="23" cy="11" r="1.9" fill="currentColor" />
+      <path d="M17 15.5q3 2 6 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+    </symbol>
+    <symbol id="i-moon" viewBox="0 0 20 20"><path d="M16 11.5A6.5 6.5 0 0 1 8.5 4a6.5 6.5 0 1 0 7.5 7.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+    <symbol id="i-sun" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="3.4" /><path d="M10 1.8v2.1M10 16.1v2.1M1.8 10h2.1M16.1 10h2.1M4.2 4.2l1.5 1.5M14.3 14.3l1.5 1.5M4.2 15.8l1.5-1.5M14.3 5.7l1.5-1.5" /></g></symbol>
+  </svg>
 
-  <nav class="nav">
+  <a class="skip-link" href="#main">Skip to the content</a>
+
+  <nav class="site-nav" aria-label="Main">
     <div class="wrap nav-inner">
-      <a class="brand" href="index.html#top">
-        <span class="brand-mark" aria-hidden="true"></span>
-        Auto<span class="brand-accent">SE</span>
+      <a class="brand" href="index.html#top" aria-label="AutoSE home">
+        <svg class="brand-nib" aria-hidden="true"><use href="#nib" /></svg><span class="brand-name">AutoSE</span>
       </a>
       <div class="nav-links">
         <a href="index.html#try">Try it</a>
-        <a href="index.html#workflow">Workflow</a>
-        <a href="index.html#features">Capabilities</a>
-        <a href="index.html#install">Install</a>
+        <a href="index.html#workflow">How it works</a>
+        <a href="index.html#features">Features</a>
+        <a href="index.html#editions">Editions</a>
         <a href="research.html" aria-current="page">Research</a>
-        <a href="https://github.com/AutoSE-Labs/autose" class="nav-ext">GitHub ↗</a>
+        <a href="https://github.com/AutoSE-Labs/autose" class="nav-ext">GitHub <span aria-hidden="true">↗</span></a>
       </div>
+      <a class="btn btn-primary btn-small nav-install" href="index.html#install">Install</a>
+      <button class="theme-btn" id="theme-btn" type="button" aria-label="Switch to the dark theme" title="Light or dark">
+        <svg class="i-moon" width="18" height="18" aria-hidden="true"><use href="#i-moon" /></svg>
+        <svg class="i-sun" width="18" height="18" aria-hidden="true"><use href="#i-sun" /></svg>
+      </button>
     </div>
   </nav>
 
+  <main id="main">
   <header class="hero page-hero" id="top">
     <div class="wrap">
-      <p class="eyebrow"><span class="tick"></span>RESEARCH / PEER-REVIEWED FOUNDATIONS</p>
+      <p class="lbl eyebrow">Research · peer-reviewed foundations</p>
       <h1 class="hero-title">
-        The science behind<br /><span class="ink-underline">sovereign engineering.</span>
+        The science behind <span class="pen-underline">sovereign engineering.</span>
       </h1>
       <p class="hero-sub">
-        AutoSE is not a demo bolted onto a chatbot. Its pipeline, from architecture decision records to
-        model routing and energy-aware execution, is grounded in peer-reviewed work from the
-        <a href="https://sa4s-serc.github.io">SA4S research group</a> at IIIT Hyderabad. These are some of
-        the studies shaping how we build it.
+        AutoSE is not a demo bolted onto a chatbot. Its design, from architecture decision records to
+        doing real work with small local models and the energy that work takes, is grounded in
+        peer-reviewed work from the <a href="https://sa4s-serc.github.io">SA4S research group</a> at IIIT
+        Hyderabad. These are some of the studies shaping how we build it.
       </p>
     </div>
   </header>
 
-  <section class="pub-section">
+  <section class="pub-section" aria-labelledby="pubs-title">
     <div class="wrap">
-      <p class="section-label"><span class="tick"></span>SELECTED PUBLICATIONS</p>
-      <h2 class="section-title">Work we've been doing in this space.</h2>
+      <div class="section-head">
+        <p class="lbl eyebrow">Selected publications</p>
+        <h2 class="section-title" id="pubs-title">Work we've been doing in this space.</h2>
+      </div>
 
-      <p class="pub-count">05 PAPERS · 2024-2026</p>
+      <p class="lbl pub-count">5 papers · 2024 to 2026</p>
 
       <ol class="pub-list">
-        <li class="pub">
-          <span class="pub-index">01</span>
+        <li class="pub sheet">
+          <span class="pub-index" aria-hidden="true">1</span>
           <div class="pub-body">
-            <span class="pub-venue">EASE · 2026</span>
+            <span class="lbl pub-venue">EASE · 2026</span>
             <h3 class="pub-title">
               <a href="https://arxiv.org/abs/2604.03826">Context Matters: Evaluating Context Strategies for
                 Automated ADR Generation Using LLMs</a>
@@ -215,52 +239,51 @@
               fidelity more than raw model scale, with the best results from a narrow window of 3–5 prior
               records.
             </p>
-            <a class="pub-link" href="https://arxiv.org/abs/2604.03826">Read paper ↗</a>
+            <a class="pub-link" href="https://arxiv.org/abs/2604.03826">Read the paper <span aria-hidden="true">↗</span></a>
           </div>
         </li>
 
-        <li class="pub">
-          <span class="pub-index">02</span>
+        <li class="pub sheet">
+          <span class="pub-index" aria-hidden="true">2</span>
           <div class="pub-body">
-            <span class="pub-venue">AGENTS @ ICSE · 2026</span>
+            <span class="lbl pub-venue">AGENTS @ ICSE · 2026</span>
             <h3 class="pub-title">
               <a href="https://arxiv.org/abs/2602.04445">AgenticAKM: Enroute to Agentic Architecture Knowledge
                 Management</a>
             </h3>
             <p class="pub-authors">Rudra Dhar, Karthik Vaidhyanathan, Vasudeva Varma</p>
             <p class="pub-desc">
-              An agentic framework that decomposes architecture recovery and documentation into specialized
-              extraction, retrieval, generation, and validation agents. Instantiated to generate ADRs from code
+              An agentic framework that decomposes architecture recovery and documentation into specialised
+              extraction, retrieval, generation and validation agents. Instantiated to generate ADRs from code
               repositories and validated in a user study across 29 repositories.
             </p>
-            <a class="pub-link" href="https://arxiv.org/abs/2602.04445">Read paper ↗</a>
+            <a class="pub-link" href="https://arxiv.org/abs/2602.04445">Read the paper <span aria-hidden="true">↗</span></a>
           </div>
         </li>
 
-        <li class="pub">
-          <span class="pub-index">03</span>
+        <li class="pub sheet">
+          <span class="pub-index" aria-hidden="true">3</span>
           <div class="pub-body">
-            <span class="pub-venue">AGENTS @ ICSE · 2026</span>
+            <span class="lbl pub-venue">AGENTS @ ICSE · 2026</span>
             <h3 class="pub-title">
               <a href="https://dl.acm.org/doi/10.1145/3786167.3788406">SWEnergy: An Empirical Study on Energy
                 Efficiency in Agentic Issue Resolution Frameworks with SLMs</a>
             </h3>
-            <p class="pub-authors">Arihant Tripathy, Ch Pavan Harshit, Karthik
-              Vaidhyanathan</p>
+            <p class="pub-authors">Arihant Tripathy, Ch Pavan Harshit, Karthik Vaidhyanathan</p>
             <p class="pub-desc">
               A controlled evaluation of four agentic frameworks running small language models on SWE-bench
-              Verified Mini, measuring energy, duration, tokens, and memory. Framework architecture, not the
-              model, is the primary driver of energy use, and much of that energy is spent on unproductive
+              Verified Mini, measuring energy, duration, tokens and memory. Framework architecture, not the
+              model, is the main driver of energy use, and much of that energy is spent on unproductive
               reasoning loops.
             </p>
-            <a class="pub-link" href="https://dl.acm.org/doi/10.1145/3786167.3788406">Read paper ↗</a>
+            <a class="pub-link" href="https://dl.acm.org/doi/10.1145/3786167.3788406">Read the paper <span aria-hidden="true">↗</span></a>
           </div>
         </li>
 
-        <li class="pub">
-          <span class="pub-index">04</span>
+        <li class="pub sheet">
+          <span class="pub-index" aria-hidden="true">4</span>
           <div class="pub-body">
-            <span class="pub-venue">EASE · 2025</span>
+            <span class="lbl pub-venue">EASE · 2025</span>
             <h3 class="pub-title">
               <a href="https://dl.acm.org/doi/10.1145/3756681.3757001">Small Models, Big Tasks: An Exploratory
                 Empirical Study on Small Language Models for Function Calling</a>
@@ -269,17 +292,16 @@
               Vaidhyanathan</p>
             <p class="pub-desc">
               An empirical look at whether small language models can drive reliable function and tool calling,
-              the capability that lets AutoSE route work to smaller local models by task complexity while keeping
-              quality high.
+              the capability AutoSE relies on to do real engineering work with small models you run yourself.
             </p>
-            <a class="pub-link" href="https://dl.acm.org/doi/10.1145/3756681.3757001">Read paper ↗</a>
+            <a class="pub-link" href="https://dl.acm.org/doi/10.1145/3756681.3757001">Read the paper <span aria-hidden="true">↗</span></a>
           </div>
         </li>
 
-        <li class="pub">
-          <span class="pub-index">05</span>
+        <li class="pub sheet">
+          <span class="pub-index" aria-hidden="true">5</span>
           <div class="pub-body">
-            <span class="pub-venue">ICSA · 2024</span>
+            <span class="lbl pub-venue">ICSA · 2024</span>
             <h3 class="pub-title">
               <a href="https://ieeexplore.ieee.org/document/10592785">Can LLMs Generate Architectural Design
                 Decisions? An Exploratory Empirical Study</a>
@@ -288,36 +310,34 @@
             <p class="pub-desc">
               The foundational study on generating Architecture Decision Records with LLMs given a decision
               context. GPT-4 shows strong capability, and smaller fine-tuned models such as Flan-T5 reach
-              comparable results, motivating AutoSE's local-first, right-model-per-task approach.
+              comparable results, which motivates AutoSE's local-first approach.
             </p>
-            <a class="pub-link" href="https://ieeexplore.ieee.org/document/10592785">Read paper ↗</a>
+            <a class="pub-link" href="https://ieeexplore.ieee.org/document/10592785">Read the paper <span aria-hidden="true">↗</span></a>
           </div>
         </li>
       </ol>
     </div>
   </section>
+  </main>
 
   <footer class="footer">
     <div class="wrap footer-inner">
       <div class="footer-brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        Auto<span class="brand-accent">SE</span>
-        <p>A research-grade, sovereign engineering runtime. Local-first by design.</p>
+        <span class="brand"><svg class="brand-nib" aria-hidden="true"><use href="#nib" /></svg><span class="brand-name">AutoSE</span></span>
+        <p>A local-first software engineering agent, built on research.</p>
       </div>
-      <div class="footer-links">
+      <nav class="footer-links" aria-label="Elsewhere">
         <a href="index.html">Home</a>
         <a href="https://github.com/AutoSE-Labs/autose">Repository</a>
         <a href="https://ollama.com">Ollama</a>
         <a href="mailto:sa4sserc@gmail.com">Contact</a>
-      </div>
+      </nav>
     </div>
     <div class="wrap footer-base">
-      <span>© 2026 AutoSE Labs | <a href="https://www.apache.org/licenses/LICENSE-2.0" rel="noopener noreferrer"
-          target="_blank">Apache 2.0
-          License</a></span>
+      <span>© 2026 AutoSE Labs · <a href="https://www.apache.org/licenses/LICENSE-2.0" rel="noopener noreferrer"
+          target="_blank">Apache 2.0 License</a></span>
       <span class="footer-credit">From <a href="https://sa4s-serc.github.io">SA4S</a> · Supported by <a
-          href="https://anrfonline.in/">ANRF</a>, PMECRG: SustAInd</span>
-      <!-- <span class="footer-coords">52.000N · RESEARCH · 127.0.0.1:8765</span> -->
+          href="https://anrfonline.in/">ANRF</a>, PMECRG: SustAInd · Made in India</span>
     </div>
   </footer>
 
