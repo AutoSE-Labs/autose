@@ -958,6 +958,20 @@ def test_undoing_a_file_in_the_diff_viewer_redraws_its_run_picker():
     assert "renderRunPicker(runs, turn)" in picker
 
 
+def test_on_a_touch_screen_undo_this_file_leaves_the_line_counts_readable():
+    """With no hover, "Undo this file" is always shown. It sat over a run's
+    line counts on the card and replaced them in the Changes tab, so on a
+    phone or tablet a file's counts could never be read at all."""
+    css = (STATIC_ROOT / "app.css").read_text(encoding="utf-8")
+    start = css.index("@media (hover: none)", css.index(".rev-undo {"))
+    touch = css[start : css.index("\n}\n", start)]
+
+    card = touch.split(".rev-undo {", 1)[1].split("}", 1)[0]
+    assert "position: static;" in card, "the button covers the counts"
+    tab = touch.split(".step-meta {", 1)[1].split("}", 1)[0]
+    assert "display: none" not in tab and "display: inline;" in tab
+
+
 def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
     """Why the Stop button was invisible until it did.
 

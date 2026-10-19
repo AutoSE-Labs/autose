@@ -6556,19 +6556,29 @@ body.yolo .app-shell {
   pointer-events: auto;
 }
 
-/* No hover on a touch screen: always shown there. */
+/* No hover on a touch screen: always shown there, below the line counts
+ * rather than over them, or the counts could never be read. */
 @media (hover: none) {
   .rev-undo {
+    position: static;
+    display: block;
+    margin: 4px 0 0 auto;
+    transform: none;
     opacity: 1;
     pointer-events: auto;
   }
 
   .change-turn .step.tool > .change-file-undo {
     display: inline-block;
+    margin: 0 6px 6px auto;
   }
 
-  .change-turn .step.tool:has(.change-file-undo) .step-meta {
-    display: none;
+  .change-turn .step.tool:has(.change-file-undo) > .step-head {
+    flex: 1 0 100%;
+  }
+
+  .change-turn .step.tool:is(:hover, :focus-within, .open):has(.change-file-undo) .step-meta {
+    display: inline;
   }
 }
 
