@@ -34,7 +34,7 @@ from .common.memory import SessionMemory
 from .common.workspace import Workspace
 from .config import AutoSEConfig
 from .connections import provider_settings
-from .credentials import CredentialStore
+from .credentials import CredentialStore, ProviderKey, mask_key
 from .errors import ConfigurationError
 from .inference.base import ChatModel
 from .inference.catalog import ModelInfo
@@ -409,6 +409,10 @@ class Session:
         self._inference = inference.require_model()
         #: Where a key for a provider switched to mid-session comes from (DR-036).
         self._credentials = credentials or CredentialStore()
+        #: The key in use, followed as the credentials file changes (DR-058).
+        self._key = ProviderKey(
+            self._credentials, self._inference.provider, self._inference.api_key
+        )
         self._workspace = workspace
         self._events = events or NullEventSink()
         # DR-012: no gate means refuse, never means run unreviewed.
@@ -787,6 +791,7 @@ class Session:
         )
         self._inference = inference
         self._model_info = info
+        self._key = ProviderKey(self._credentials, inference.provider, inference.api_key)
         self._rebuild_model()
         self._emit(
             "model_selected",
@@ -855,6 +860,28 @@ class Session:
             current_model=current.model,
         )
         return RecordedModel(provider, model, restored=False, reason=reason)
+
+    def refresh_api_key(self) -> bool:
+        """Use the provider's current key from the next request on (DR-058).
+
+        A key saved or removed since this session last looked — from the
+        dashboard, or by editing the credentials file — replaces the one in
+        its settings, and the chat model is rebuilt over it. Cheap when nothing
+        changed (one ``stat``). Call it only between requests: never while a
+        turn is running. Returns whether the key changed.
+        """
+        if not self._key.check():
+            return False
+        self._inference = replace(self._inference, api_key=self._key.key)
+        self._rebuild_model()
+        # The masked tail only: an event reaches the browser and the logs.
+        self._emit(
+            "api_key_changed",
+            self._inference.provider,
+            provider=self._inference.provider,
+            masked=mask_key(self._key.key),
+        )
+        return True
 
     def _rebuild_model(self) -> None:
         """A new chat model for the current settings, and a classifier over it.
@@ -1028,6 +1055,12 @@ class Session:
         # ctrl-c, a Stop clicked as the last turn finished — must not cancel
         # the turn the user is asking for now.
         self._cancel.clear()
+        # DR-058: a key rotated since the last turn — even by hand, in the
+        # credentials file — is used from this one on, never mid-request.
+        self.refresh_api_key()
+        missing = _missing_key_warning(self._inference)
+        if missing:
+            raise ConfigurationError(missing)
         classification: Classification | None = None
         if tier:
             # Named with this request: a person's choice (DR-049).

@@ -15,7 +15,7 @@ from logic.common.events import RecordingEventSink
 from logic.common.workspace import Workspace
 from logic.config import AutoSEConfig, load_config
 from logic.connections import list_connections
-from logic.credentials import CredentialStore, mask_key
+from logic.credentials import CredentialStore, ProviderKey, mask_key
 from logic.errors import ConfigurationError, InferenceTimeoutError
 from logic.inference import ollama_cloud
 from logic.inference.catalog import ModelInfo
@@ -639,3 +639,75 @@ def test_a_record_naming_nothing_else_changes_nothing(
     assert session.inference == before
     assert not events.events
 
+
+# -- a rotated key reaches an open session (DR-058) ----------------------------------
+
+
+def _hosted_session(tmp_path, store, events=None) -> Session:
+    session = _local_session(tmp_path, store, events)
+    session.use_provider("test-hosted", "hosted-model")
+    return session
+
+
+def test_a_key_changed_in_the_file_is_used_from_the_next_turn(
+    two_providers, tmp_path, store
+):
+    store.save("test-hosted", _KEY)
+    events = RecordingEventSink()
+    session = _hosted_session(tmp_path, store, events)
+    # Edited outside this session: another store over the same file, as the
+    # dashboard's settings page or a text editor would be.
+    rotated = "sk-rotated-9999888877776666"
+    CredentialStore(store.path).save("test-hosted", rotated)
+
+    assert session.run("hello").answer == "from test-hosted"
+    assert two_providers["settings"][-1].api_key == rotated
+    assert session.inference.api_key == rotated
+    (changed,) = events.of_type("api_key_changed")
+    assert changed.data == {"provider": "test-hosted", "masked": "••••6666"}
+    assert rotated not in json.dumps(changed.data) + changed.message
+
+
+def test_an_unchanged_file_is_not_read_again(two_providers, tmp_path, store, monkeypatch):
+    store.save("test-hosted", _KEY)
+    session = _hosted_session(tmp_path, store)
+    reads: list[str] = []
+    monkeypatch.setattr(
+        CredentialStore, "resolve", lambda self, provider: reads.append(provider) or ""
+    )
+    assert session.refresh_api_key() is False
+    assert reads == []
+
+
+def test_a_removed_key_falls_back_to_one_given_elsewhere(tmp_path, store):
+    """A key from AUTOSE_API_KEY or the config file outlives a stored one that
+    was removed, and is not displaced by a change to another provider's key."""
+    store.save("ollama-cloud", _KEY)
+    given = "sk-from-the-environment-1234"
+    follower = ProviderKey(store, "ollama-cloud", given)
+    store.save("openai-compatible", "sk-unrelated-0000000000")
+    assert follower.check() is False and follower.key == given
+    store.save("ollama-cloud", "sk-saved-later-55556666")
+    assert follower.check() is True and follower.key == "sk-saved-later-55556666"
+    store.delete("ollama-cloud")
+    assert follower.check() is True and follower.key == given
+
+
+def test_every_save_changes_the_stamp(store):
+    store.save("ollama-cloud", "sk-aaaaaaaaaaaaaaaa")
+    first = store.stamp()
+    store.save("ollama-cloud", "sk-bbbbbbbbbbbbbbbb")
+    assert first is not None and store.stamp() != first
+    store.path.unlink()
+    assert store.stamp() is None
+
+
+def test_a_hosted_session_whose_key_was_removed_refuses_the_turn(
+    two_providers, tmp_path, store
+):
+    store.save("test-hosted", _KEY)
+    session = _hosted_session(tmp_path, store)
+    CredentialStore(store.path).delete("test-hosted")
+    with pytest.raises(ConfigurationError, match="needs an API key"):
+        session.run("hello")
+    assert session.inference.api_key == ""

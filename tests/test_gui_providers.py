@@ -435,3 +435,83 @@ def test_a_session_that_cannot_go_back_stays_on_the_default_and_says_so(world):
     )
     assert not world["cloud"], "a provider with no key is never contacted"
 
+
+# -- a rotated key reaches open sessions (DR-058) -------------------------------------
+
+_ROTATED = "sk-rotated-cloud-key-0000abcd"
+
+
+def _on_the_cloud(bridge: SessionBridge) -> str:
+    bridge.save_key("ollama-cloud", _KEY)
+    bridge.select_model("gpt-oss:120b", provider="ollama-cloud")
+    return bridge.snapshot()["focus"]
+
+
+def test_a_saved_key_reaches_an_idle_session_at_once(world):
+    bridge: SessionBridge = world["bridge"]
+    focus = _on_the_cloud(bridge)
+    subscriber = bridge.subscribe()
+
+    payload = bridge.save_key("ollama-cloud", _ROTATED)
+
+    assert bridge._open[focus].session.inference.api_key == _ROTATED
+    assert world["built"][-1].api_key == _ROTATED
+    frames = json.dumps(_frames(subscriber))
+    assert "api_key_changed" in frames
+    assert _ROTATED not in frames and _ROTATED not in json.dumps(payload)
+
+
+def test_a_running_session_keeps_its_key_until_the_turn_ends(world):
+    bridge: SessionBridge = world["bridge"]
+    focus = _on_the_cloud(bridge)
+    live = bridge._open[focus]
+    live.running = True
+    bridge.save_key("ollama-cloud", _ROTATED)
+    assert live.session.inference.api_key == _KEY, "never changed mid-turn"
+
+    live.running = False
+    subscriber = bridge.subscribe()
+    bridge.submit("hello", session_id=focus)
+    _drain(subscriber, "turn")
+    assert world["built"][-1].api_key == _ROTATED
+
+
+def test_a_removed_key_leaves_no_session_holding_it(world):
+    bridge: SessionBridge = world["bridge"]
+    focus = _on_the_cloud(bridge)
+    bridge.delete_key("ollama-cloud")
+    assert bridge._open[focus].session.inference.api_key == ""
+
+
+def test_an_edit_to_the_credentials_file_is_noticed_when_a_turn_starts(world):
+    bridge: SessionBridge = world["bridge"]
+    focus = _on_the_cloud(bridge)
+    # Not through the dashboard: a text editor, or another AutoSE process.
+    CredentialStore().save("ollama-cloud", _ROTATED)
+    subscriber = bridge.subscribe()
+
+    bridge.submit("hello", session_id=focus)
+
+    assert _drain(subscriber, "turn")["turn"]["answer"] == "from ollama-cloud"
+    assert world["built"][-1].api_key == _ROTATED
+
+
+def test_a_new_session_starts_on_a_default_key_edited_by_hand(tmp_path, world):
+    CredentialStore().save("ollama-cloud", _KEY)
+    config = AutoSEConfig(
+        inference=InferenceSettings(
+            base_url="https://ollama.com",
+            provider="ollama-cloud",
+            model="gpt-oss:120b",
+            api_key=_KEY,
+        ),
+        workspace_root=tmp_path,
+    )
+    bridge = SessionBridge(config, default_tier="spark")
+    CredentialStore().save("ollama-cloud", _ROTATED)
+
+    state = bridge.new_session()
+
+    assert bridge._open[state["focus"]].session.inference.api_key == _ROTATED
+    assert bridge._setup.inference.api_key == _ROTATED
+    assert _ROTATED not in json.dumps(state)
