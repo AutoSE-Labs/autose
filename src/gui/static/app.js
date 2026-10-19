@@ -489,6 +489,7 @@ function handleEvent(id, frame) {
       "tier_changed",
       "session_resumed",
       "context_window_changed",
+      "provider_not_restored",
     ].includes(frame.event)
   ) {
     // Events that belong to a turn we are not tracking (another tab started
@@ -738,6 +739,11 @@ function handleEvent(id, frame) {
       break;
     case "session_save_failed":
       toast(`This session could not be saved: ${frame.message}`, "bad");
+      break;
+    case "provider_not_restored":
+      // A reopened session that could not go back to the provider and model
+      // it used: said once, and it carries on on the default (DR-058).
+      toast(frame.message, "", `restore-${id}-${frame.timestamp}`);
       break;
     default:
       break;

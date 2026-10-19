@@ -28,6 +28,7 @@ from logic.inference.registry import (
     register_provider,
 )
 from logic.inference.settings import InferenceSettings
+from logic.persistence import SessionRecord
 from logic.session import Session, setup_for_provider, setup_from_config
 from logic.user_config import save_default_inference, user_config_dir
 from tests.support.fakes import ScriptedChatModel, answer
@@ -497,3 +498,144 @@ def test_a_default_on_another_provider_resolves_like_a_configured_one(
     assert setup.inference.api_key == _KEY
     # The configured window belonged to the other provider.
     assert setup.inference.context_limit == 131072
+
+
+# -- a reopened session goes back to its provider (DR-058) --------------------------
+
+
+def _record(provider: str, model: str, base_url: str = "") -> SessionRecord:
+    return SessionRecord(
+        id="20261018-120000-abcdef", provider=provider, base_url=base_url, model=model
+    )
+
+
+@pytest.fixture
+def listed_at():
+    """A second local model on test-local, and the addresses each listing asked."""
+    asked: list[str] = []
+    models = (
+        ModelInfo(name="local-model", context_length=32768, supports_tools=True),
+        ModelInfo(name="other-model", context_length=65536, supports_tools=True),
+    )
+
+    class _Catalog:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def list_models(self):
+            asked.append(self.settings.base_url)
+            if "dead" in self.settings.base_url:
+                raise InferenceTimeoutError("refused")
+            return models
+
+    current = get_provider("test-local")
+    register_provider(
+        Provider(
+            name="test-local",
+            chat_model=current.chat_model,
+            catalog=_Catalog,
+            is_local=True,
+            default_base_url=current.default_base_url,
+        ),
+        replace=True,
+    )
+    return asked
+
+
+def test_a_reopened_session_goes_back_to_its_hosted_provider(
+    two_providers, tmp_path, store
+):
+    store.save("test-hosted", _KEY)
+    session = _local_session(tmp_path, store)
+    outcome = session.return_to_recorded_model(
+        _record("test-hosted", "hosted-model", "https://hosted.example")
+    )
+    assert outcome is not None and outcome.restored
+    assert [model.name for model in outcome.models] == ["hosted-model"]
+    inference = session.inference
+    assert (inference.provider, inference.model, inference.api_key) == (
+        "test-hosted",
+        "hosted-model",
+        _KEY,
+    )
+    assert session.context_limit() == 131072
+    assert session.run("hello").answer == "from test-hosted"
+
+
+def test_a_session_on_the_same_provider_keeps_the_current_address(
+    two_providers, listed_at, tmp_path, store
+):
+    """The record's address is where the model ran *then* — a tunnel on another
+    port, say. On the default's provider, the default's address is the live one."""
+    session = _local_session(tmp_path, store)
+    outcome = session.return_to_recorded_model(
+        _record("test-local", "other-model", "http://localhost:11435/dead/v1")
+    )
+    assert outcome is not None and outcome.restored
+    assert session.inference.model == "other-model"
+    assert session.inference.base_url == "http://localhost:9/v1"
+    assert "http://localhost:11435/dead/v1" not in listed_at
+
+
+@pytest.mark.parametrize(
+    ("record", "reason"),
+    [
+        (_record("test-hosted", "hosted-model"), "no API key is saved for test-hosted"),
+        (_record("nonesuch", "m"), "nonesuch is not available here"),
+        (_record("test-local", "gone-model"), "test-local does not offer gone-model now"),
+    ],
+    ids=["no-key", "unregistered", "model-gone"],
+)
+def test_a_session_that_cannot_go_back_stays_and_says_why_once(
+    two_providers, tmp_path, store, record, reason
+):
+    events = RecordingEventSink()
+    session = _local_session(tmp_path, store, events)
+    before = session.inference
+    outcome = session.return_to_recorded_model(record)
+    assert outcome is not None and not outcome.restored
+    assert outcome.reason == reason
+    assert session.inference == before
+    (notice,) = events.of_type("provider_not_restored")
+    assert notice.message == (
+        f"This session used {record.provider} · {record.model}; it is on "
+        f"test-local · local-model now because {reason}."
+    )
+    assert not events.of_type("model_selected")
+
+
+def test_a_provider_that_does_not_answer_is_not_switched_to(
+    two_providers, listed_at, tmp_path, store
+):
+    register_provider(
+        Provider(
+            name="test-elsewhere",
+            chat_model=get_provider("test-local").chat_model,
+            catalog=get_provider("test-local").catalog,
+            is_local=True,
+        )
+    )
+    session = _local_session(tmp_path, store)
+    outcome = session.return_to_recorded_model(
+        _record("test-elsewhere", "local-model", "http://dead.example/v1")
+    )
+    assert outcome is not None and not outcome.restored
+    assert outcome.reason == "nothing answered at http://dead.example/v1"
+    assert session.inference.provider == "test-local"
+
+
+@pytest.mark.parametrize(
+    "record",
+    [_record("test-local", "local-model", "http://elsewhere/v1"), _record("", "")],
+    ids=["already-there", "nothing-recorded"],
+)
+def test_a_record_naming_nothing_else_changes_nothing(
+    two_providers, tmp_path, store, record
+):
+    events = RecordingEventSink()
+    session = _local_session(tmp_path, store, events)
+    before = session.inference
+    assert session.return_to_recorded_model(record) is None
+    assert session.inference == before
+    assert not events.events
+

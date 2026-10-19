@@ -561,7 +561,29 @@ class SessionBridge:
         self._open[live.id] = live
         if focus or not self._focus:
             self._focus = live.id
+        if record is not None:
+            self._return_to_record(live, record)
         return live
+
+    def _return_to_record(self, live: _Live, record: SessionRecord) -> None:
+        """Put a reopened session back on the provider and model it used (DR-058).
+
+        The default for new sessions is left alone: reopening an old session
+        is not a choice of what the next one starts on. When it cannot go back,
+        the session says so once (``provider_not_restored``) and stays here.
+        """
+        outcome = live.session.return_to_recorded_model(record)
+        if outcome is None or not outcome.restored:
+            return
+        setup = self._setup
+        inference = live.session.inference
+        on_default = (
+            setup is not None
+            and setup.inference is not None
+            and (inference.provider, inference.base_url)
+            == (setup.inference.provider, setup.inference.base_url)
+        )
+        live.models = None if on_default else outcome.models
 
     def reload(self) -> dict[str, Any]:
         """Re-read config, re-run discovery, and rebuild the desk.

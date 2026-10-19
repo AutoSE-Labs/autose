@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import stat
 import threading
 import urllib.error
@@ -28,6 +29,7 @@ from logic.inference import ollama_cloud
 from logic.inference.catalog import ModelInfo
 from logic.inference.registry import Provider, get_provider, register_provider
 from logic.inference.settings import InferenceSettings
+from logic.persistence import SessionRecord, TurnRecord
 from tests.support.fakes import ScriptedChatModel, answer
 
 _KEY = "sk-secret-cloud-key-5678wxyz"
@@ -353,3 +355,83 @@ def test_switching_back_to_the_default_provider_restores_its_address(served, wor
     assert status == 200
     assert state["provider"] == "test-settings"
     assert state["base_url"] == "http://test/v1"
+
+
+# -- a reopened session goes back to its provider (DR-058) ---------------------------
+
+
+def _stored(bridge: SessionBridge, provider: str, model: str, base_url: str) -> str:
+    record = SessionRecord(
+        id="20261018-120000-feed01",
+        workspace=str(bridge._config.resolve_workspace_root()),
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        turns=(TurnRecord(prompt="earlier", answer="done", tier="spark"),),
+    )
+    bridge._store.save(record)
+    return record.id
+
+
+def _drain(subscriber, kind: str, timeout: float = 5.0) -> dict:
+    while True:
+        _, frame = subscriber.frames.get(timeout=timeout)
+        if frame.get("kind") == kind:
+            return frame
+
+
+def _frames(subscriber) -> list[dict]:
+    frames = []
+    while True:
+        try:
+            frames.append(subscriber.frames.get_nowait()[1])
+        except queue.Empty:
+            return frames
+
+
+def test_a_reopened_session_goes_back_to_its_provider_and_model(world):
+    bridge: SessionBridge = world["bridge"]
+    CredentialStore().save("ollama-cloud", _KEY)
+    stored = _stored(bridge, "ollama-cloud", "gpt-oss:120b", "https://ollama.com")
+
+    state = bridge.resume(stored)
+
+    assert state["focus"] == stored
+    assert (state["provider"], state["model"]) == ("ollama-cloud", "gpt-oss:120b")
+    assert [model["name"] for model in state["models"]] == ["gpt-oss:120b"]
+    assert bridge._open[stored].session.inference.api_key == _KEY
+    # Reopening an old session is not a choice of what new ones start on.
+    assert state["default"]["provider"] == "test-settings"
+    assert _KEY not in json.dumps(state)
+
+
+def test_a_reopened_session_on_the_default_provider_uses_the_default_address(world):
+    """Saved while the model ran on another port: that port may be dead now."""
+    bridge: SessionBridge = world["bridge"]
+    stored = _stored(bridge, "test-settings", "local-model", "http://old-tunnel:11435/v1")
+    state = bridge.resume(stored)
+    assert state["base_url"] == "http://test/v1"
+
+
+def test_a_session_that_cannot_go_back_stays_on_the_default_and_says_so(world):
+    bridge: SessionBridge = world["bridge"]
+    stored = _stored(bridge, "ollama-cloud", "gpt-oss:120b", "https://ollama.com")
+    subscriber = bridge.subscribe()
+
+    state = bridge.resume(stored)
+
+    assert (state["provider"], state["model"]) == ("test-settings", "local-model")
+    notices = [
+        frame
+        for frame in _frames(subscriber)
+        if frame.get("event") == "provider_not_restored"
+    ]
+    assert len(notices) == 1
+    assert notices[0]["session"] == stored
+    assert notices[0]["message"] == (
+        "This session used ollama-cloud · gpt-oss:120b; it is on "
+        "test-settings · local-model now because no API key is saved for "
+        "ollama-cloud."
+    )
+    assert not world["cloud"], "a provider with no key is never contacted"
+

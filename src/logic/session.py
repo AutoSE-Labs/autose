@@ -16,7 +16,7 @@ interfaces behaving identically.
 from __future__ import annotations
 
 import time
-from collections.abc import Generator, Iterator, Mapping
+from collections.abc import Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 
 from .classifier import Classification, TaskClassifier
@@ -76,6 +76,7 @@ from .workflows.review import PlanReviewGate
 __all__ = [
     "Session",
     "Turn",
+    "RecordedModel",
     "SessionSetup",
     "setup_from_config",
     "setup_for_provider",
@@ -128,6 +129,24 @@ class Turn:
     @property
     def changed_anything(self) -> bool:
         return bool(self.changes)
+
+
+@dataclass(frozen=True)
+class RecordedModel:
+    """What became of the provider and model a stored session used (DR-058).
+
+    Returned by :meth:`Session.return_to_recorded_model` when the record named
+    something other than what the session was opened on.
+    """
+
+    provider: str
+    model: str
+    restored: bool
+    #: Why the session stayed where it was, as the end of a sentence; empty
+    #: when it went back.
+    reason: str = ""
+    #: The models the provider listed while it was checked, for a picker.
+    models: tuple[ModelInfo, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -721,7 +740,12 @@ class Session:
         )
 
     def use_provider(
-        self, provider: str, model: str, *, base_url: str | None = None
+        self,
+        provider: str,
+        model: str,
+        *,
+        base_url: str | None = None,
+        listed: Sequence[ModelInfo] | None = None,
     ) -> None:
         """Run this session's next request on *model* at *provider* (DR-036).
 
@@ -733,6 +757,8 @@ class Session:
 
         Refuses with :class:`ConfigurationError`, changing nothing, when the
         provider is unknown, has no address, or needs a key and has none.
+        *listed* is the provider's models when the caller has just listed them,
+        so they are not asked for twice.
         """
         previous = self._inference
         settings = provider_settings(
@@ -742,10 +768,11 @@ class Session:
             base_url=base_url,
             credentials=self._credentials,
         ).require_model()
-        try:
-            listed = create_model_catalog(settings).list_models()
-        except Exception:  # noqa: BLE001 - a listing is a convenience here too
-            listed = ()
+        if listed is None:
+            try:
+                listed = create_model_catalog(settings).list_models()
+            except Exception:  # noqa: BLE001 - a listing is a convenience here too
+                listed = ()
         info = next((entry for entry in listed if entry.name == model), None)
         inference, info = adopt_context_window(
             settings,
@@ -769,6 +796,65 @@ class Session:
             base_url=inference.base_url,
             previous_provider=previous.provider,
         )
+
+    def return_to_recorded_model(self, record: SessionRecord) -> RecordedModel | None:
+        """Go back to the provider and model *record* was using (DR-058).
+
+        Called on a session just opened on the default for new sessions.
+        ``None`` when the record names nothing else. On the provider the
+        session is already on, the current address is kept rather than the
+        recorded one: the default may have moved (an SSH tunnel on another
+        port), and the old address may be dead. Otherwise the switch happens
+        only when the provider is registered, has a key if it needs one, and
+        answers with the model among those it offers — one listing, bounded
+        by the discovery timeout. If not, the session stays where it is and
+        ``provider_not_restored`` says why, once.
+        """
+        provider = (record.provider or "").strip().lower()
+        model = (record.model or "").strip()
+        current = self._inference
+        if not provider or not model:
+            return None
+        if provider == current.provider.lower() and model == current.model:
+            return None
+        same = provider == current.provider.lower()
+        try:
+            settings = provider_settings(
+                current,
+                provider,
+                model,
+                base_url=None if same else (record.base_url or None),
+                credentials=self._credentials,
+            )
+        except ConfigurationError as exc:
+            return self._stay(
+                provider, model, _unusable_reason(provider, exc, self._credentials)
+            )
+        try:
+            listed = tuple(create_model_catalog(settings).list_models())
+        except Exception:  # noqa: BLE001 - an unreachable provider is a reason, not a crash
+            return self._stay(provider, model, f"nothing answered at {settings.base_url}")
+        if not any(entry.name == model for entry in listed):
+            return self._stay(provider, model, f"{provider} does not offer {model} now")
+        if same:
+            self.select_model(model)
+        else:
+            self.use_provider(provider, model, base_url=settings.base_url, listed=listed)
+        return RecordedModel(provider, model, restored=True, models=listed)
+
+    def _stay(self, provider: str, model: str, reason: str) -> RecordedModel:
+        current = self._inference
+        self._emit(
+            "provider_not_restored",
+            f"This session used {provider} · {model}; it is on "
+            f"{current.provider} · {current.model} now because {reason}.",
+            provider=provider,
+            model=model,
+            reason=reason,
+            current_provider=current.provider,
+            current_model=current.model,
+        )
+        return RecordedModel(provider, model, restored=False, reason=reason)
 
     def _rebuild_model(self) -> None:
         """A new chat model for the current settings, and a classifier over it.
@@ -1228,6 +1314,18 @@ def _missing_key_warning(settings: InferenceSettings) -> str:
         + (f", or set {registered.api_key_env}" if registered.api_key_env else "")
         + "."
     )
+
+
+def _unusable_reason(
+    provider: str, error: ConfigurationError, credentials: CredentialStore
+) -> str:
+    """Why a recorded provider cannot be used now, as the end of a sentence."""
+    registered = available_providers().get(provider)
+    if registered is None:
+        return f"{provider} is not available here"
+    if registered.requires_api_key and not credentials.resolve(provider):
+        return f"no API key is saved for {provider}"
+    return str(error)
 
 
 def _no_runtime_message(runtimes: tuple[DetectedRuntime, ...]) -> str:
