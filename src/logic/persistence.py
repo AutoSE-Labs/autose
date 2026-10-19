@@ -624,9 +624,20 @@ def _change_from_dict(document: Any) -> FileChange:
     )
 
 
+#: How deep a turn's trace sits in a session file (the record, its turns, the
+#: turn): each of the trace's lines is indented this much more there.
+_TRACE_DEPTH = 3
+
+
 def _trace_size(trace: RunTrace) -> int:
-    """Roughly what a trace costs on disk: its JSON length, in characters."""
-    return len(json.dumps(trace.to_dict(), ensure_ascii=False))
+    """What a trace costs in the session file, in bytes.
+
+    Measured as :meth:`FileSessionStore.save` writes it — UTF-8, indented —
+    not as compact JSON in characters, which undercounts the written file by
+    a third or more and by up to four times for text that is not ASCII.
+    """
+    text = json.dumps(trace.to_dict(), ensure_ascii=False, indent=1)
+    return len(text.encode("utf-8")) + _TRACE_DEPTH * text.count("\n")
 
 
 def _encode(content: bytes | None) -> str | None:

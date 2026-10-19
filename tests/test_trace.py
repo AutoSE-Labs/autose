@@ -18,7 +18,7 @@ from logic.common.workspace import Workspace
 from logic.inference.catalog import ModelInfo
 from logic.inference.registry import Provider, register_provider
 from logic.inference.settings import InferenceSettings
-from logic.persistence import FileSessionStore, SessionRecord, TurnRecord
+from logic.persistence import FileSessionStore, SessionRecord, TurnRecord, _trace_size
 from logic.session import Session
 from tests.support.fakes import (
     RecordingApprovalGate,
@@ -234,13 +234,12 @@ def test_a_turn_record_carries_its_trace_and_an_old_one_has_none():
 
 def test_a_session_over_its_trace_budget_keeps_the_newest_runs_in_full():
     trace = _sample()
-    size = len(json.dumps(trace.to_dict()))
     record = SessionRecord(
         id="s1",
         turns=tuple(TurnRecord(prompt=f"p{n}", answer="a", tier="craft", trace=trace) for n in range(3)),
     )
 
-    bounded = record.bounded(max_trace_bytes=size * 2)
+    bounded = record.bounded(max_trace_bytes=_trace_size(trace) * 2)
 
     oldest, middle, newest = (turn.trace for turn in bounded.turns)
     assert newest == trace and middle == trace
@@ -249,6 +248,38 @@ def test_a_session_over_its_trace_budget_keeps_the_newest_runs_in_full():
     assert oldest.stage_times == trace.stage_times
     assert oldest.dropped_steps == len(trace.steps)
     assert oldest.dropped_rounds == len(trace.rounds)
+
+
+def test_the_trace_budget_is_spent_on_what_the_session_file_holds():
+    """The budget is a ceiling on the file (DR-055: "a session file spends at
+    most 2 MiB on traces"). Counted as compact JSON in characters, it let the
+    indented UTF-8 file hold a third more, and twice as much for text that is
+    not ASCII, such as a result in another script."""
+    recorder = _recorder()
+    recorder.emit(_event("stage_started", at=1.0, stage="execute", title="Execute", iteration=1))
+    for n in range(20):
+        recorder.emit(_event("tool_called", tool="read_file", call_id=f"c{n}", arguments={"path": f"é{n}.txt"}))
+        recorder.emit(_event("tool_completed", tool="read_file", call_id=f"c{n}", preview="é" * 300, elapsed_ms=3))
+        recorder.emit(_event("round_usage", stage="execute", prompt_tokens=10, completion_tokens=2))
+    trace = recorder.finish()
+    budget = int(len(json.dumps(trace.to_dict(), ensure_ascii=False)) * 2.5)
+    record = SessionRecord(
+        id="s1",
+        turns=tuple(TurnRecord(prompt=f"p{n}", answer="a", tier="craft", trace=trace) for n in range(4)),
+    )
+
+    bounded = record.bounded(max_trace_bytes=budget)
+
+    def written(document) -> int:
+        return len(json.dumps(document, ensure_ascii=False, indent=1).encode("utf-8"))
+
+    with_traces = bounded.to_dict()
+    without = json.loads(json.dumps(with_traces))
+    for turn in without["turns"]:
+        turn["trace"] = {}
+    assert written(with_traces) - written(without) <= budget
+    # And the budget is spent, not refused: the newest run keeps its steps.
+    assert bounded.turns[-1].trace == trace
 
 
 # -- a session keeps it -------------------------------------------------------
