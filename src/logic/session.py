@@ -440,6 +440,9 @@ class Session:
         #: ``inference.context_limit`` from configuration: as much a choice as
         #: one made in the picker, so a loaded window never overrides it (DR-059).
         self._configured_window = configured_window
+        #: The provider that window was configured for: the one this session
+        #: starts on. Another provider switched to starts from its own window.
+        self._configured_provider = inference.provider
         #: Whether the window in use was matched to the one the runtime already
         #: had the model loaded with, rather than chosen (DR-059).
         self._window_matched = False
@@ -836,7 +839,7 @@ class Session:
         inference, info = adopt_context_window(
             self._inference.with_model(name),
             info,
-            explicit=self._chosen_window or self._configured_window,
+            explicit=self._explicit_window(self._inference.provider),
         )
         self._inference = inference.require_model()
         self._model_info = info
@@ -890,11 +893,7 @@ class Session:
             info,
             # A window picked on one runtime means nothing to another that only
             # serves what it was started with (DR-022).
-            explicit=(
-                self._chosen_window
-                if serves_requested_window(settings.provider)
-                else None
-            ),
+            explicit=self._explicit_window(settings.provider),
         )
         self._inference = inference
         self._model_info = info
@@ -996,6 +995,20 @@ class Session:
         )
         return True
 
+    def _explicit_window(self, provider: str) -> int | None:
+        """The window someone chose for a model on *provider*, if any.
+
+        A window picked in this session applies only where AutoSE chooses the
+        window (DR-035); anywhere else it would misstate what the runtime
+        serves (DR-022). A configured window belongs to the provider it was
+        configured for (DR-059), as in :func:`setup_for_provider`.
+        """
+        if self._chosen_window and serves_requested_window(provider):
+            return self._chosen_window
+        if self._configured_window and provider == self._configured_provider:
+            return self._configured_window
+        return None
+
     def _rebuild_model(self) -> None:
         """A new chat model for the current settings, and a classifier over it.
 
@@ -1073,7 +1086,7 @@ class Session:
         say, or one that cannot be reached leaves the window alone. Returns
         whether it changed.
         """
-        if self._chosen_window or self._configured_window:
+        if self._explicit_window(self._inference.provider):
             return False
         if not serves_requested_window(self._inference.provider):
             return False

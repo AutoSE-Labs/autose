@@ -297,3 +297,100 @@ def test_switching_models_keeps_a_configured_window(loaded_runtime, tmp_path):
     )
     session.select_model("n")
     assert session.context_limit() == 16384
+
+
+# -- a configured window belongs to the configured provider -------------------------
+
+
+@pytest.fixture
+def fixed_runtime():
+    """A provider that serves the window it was started with, 8k for every model."""
+
+    class _Catalog:
+        def __init__(self, settings):
+            pass
+
+        def list_models(self):
+            return (
+                ModelInfo(name="a", context_length=8192),
+                ModelInfo(name="b", context_length=8192),
+            )
+
+    register_provider(
+        Provider(
+            name="test-fixed-elsewhere",
+            chat_model=lambda settings: ScriptedChatModel([answer("ok")]),
+            catalog=_Catalog,
+            default_base_url="http://fixed/v1",
+        ),
+        replace=True,
+    )
+
+
+def test_a_configured_window_is_not_applied_to_another_providers_model(
+    loaded_runtime, fixed_runtime, tmp_path
+):
+    """Switching models on a provider that serves 8k must not claim 64k (DR-022)."""
+    session = Session(
+        inference=InferenceSettings(
+            base_url="http://test/v1",
+            model="m",
+            provider="test-loaded-window",
+            context_limit=65536,
+        ),
+        workspace=Workspace.at(tmp_path),
+        model_info=ModelInfo(name="m", context_length=65536, max_context_length=131072),
+        auto_classify=False,
+        configured_window=65536,
+    )
+    session.select_model("a", provider="test-fixed-elsewhere")
+    assert session.context_limit() == 8192
+    session.select_model("b")
+    assert session.context_limit() == 8192
+    # Back on the provider the window was configured for, it applies again.
+    session.select_model("m", provider="test-loaded-window", base_url="http://test/v1")
+    assert session.context_limit() == 65536
+
+
+def test_a_window_configured_for_another_provider_does_not_stop_matching(
+    loaded_runtime, tmp_path
+):
+    """The configured window pins its own provider, not every one switched to."""
+
+    class _Catalog:
+        def __init__(self, settings):
+            pass
+
+        def list_models(self):
+            return (ModelInfo(name="m", context_length=32768, max_context_length=131072),)
+
+        def loaded_window(self, name):
+            return loaded_runtime["loaded"]
+
+    register_provider(
+        Provider(
+            name="test-loaded-window-two",
+            chat_model=lambda settings: ScriptedChatModel([answer("ok")]),
+            catalog=_Catalog,
+            default_base_url="http://two/v1",
+            serves_requested_window=True,
+        ),
+        replace=True,
+    )
+    session = Session(
+        inference=InferenceSettings(
+            base_url="http://test/v1",
+            model="m",
+            provider="test-loaded-window",
+            context_limit=16384,
+        ),
+        workspace=Workspace.at(tmp_path),
+        model_info=ModelInfo(name="m", context_length=16384, max_context_length=131072),
+        auto_classify=False,
+        configured_window=16384,
+    )
+    session.select_model("m", provider="test-loaded-window-two")
+    assert session.context_limit() == 32768
+    loaded_runtime["loaded"] = LoadedWindow(65536, 1.0)
+    assert session.match_loaded_window()
+    assert session.context_limit() == 65536
