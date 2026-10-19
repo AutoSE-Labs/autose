@@ -62,6 +62,7 @@ __all__ = [
     "RUNNING",
     "EXITED",
     "STOPPED",
+    "SUPPORTED",
 ]
 
 #: Lines of output kept per process. Enough to scroll back through a server's
@@ -75,6 +76,12 @@ STOP_GRACE_SECONDS = 2.0
 #: starts its server again on every round instead of reading the first one's
 #: output would otherwise fill the machine with copies of it.
 MAX_RUNNING_PER_SESSION = 8
+
+#: Whether this system can keep a command running here at all. Stopping one
+#: with everything it started takes a process group of its own, and process
+#: groups (``start_new_session``, ``os.killpg``) are POSIX: elsewhere a
+#: background command is refused rather than started with no way to stop it.
+SUPPORTED = os.name == "posix"
 
 #: One line of output kept at most, in characters. A minified bundle printed
 #: whole is one "line" of megabytes.
@@ -494,6 +501,12 @@ class ProcessManager:
 
     def start(self, command: str, *, cwd: Path, shown_cwd: str = ".") -> BackgroundProcess:
         """Start *command* in the background. ``OSError`` if it cannot start."""
+        if not SUPPORTED:
+            raise ProcessError(
+                "this system cannot keep a command running in the background "
+                "and stop it again; run it without the trailing '&' so it "
+                "finishes on its own"
+            )
         # Counted as `alive`: a command that exits but leaves its server
         # running must not be a way past the limit.
         if sum(1 for process in self.processes() if process.alive) >= self._max_running:

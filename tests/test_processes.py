@@ -19,6 +19,7 @@ from logic.common.execution import ToolExecutor
 from logic.common.processes import (
     EXITED,
     STOPPED,
+    SUPPORTED,
     ProcessError,
     ProcessManager,
     UnknownProcessError,
@@ -38,6 +39,10 @@ from logic.session import Session
 from tests.support.fakes import ScriptedChatModel, answer, calls, tool_call
 
 PY = f'"{sys.executable}" -u -c'
+
+#: Process groups, and so background commands, are POSIX (DR-062); elsewhere
+#: they are refused, which the last test here checks on every system.
+posix_only = pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 
 #: Prints a numbered line every 50 ms for far longer than any test waits.
 #: `python3` rather than the interpreter's path: run_command refuses an
@@ -108,6 +113,7 @@ def test_a_trailing_ampersand_asks_to_keep_running(command, expected):
 # -- the manager -----------------------------------------------------------------
 
 
+@posix_only
 def test_output_is_kept_and_the_exit_is_detected(manager, tmp_path):
     process = manager.start(f"{PY} \"print('a'); print('b'); raise SystemExit(3)\"", cwd=tmp_path)
 
@@ -122,6 +128,7 @@ def test_output_is_kept_and_the_exit_is_detected(manager, tmp_path):
     assert exited.data["exit_code"] == 3 and exited.data["status"] == EXITED
 
 
+@posix_only
 def test_only_a_bounded_tail_is_kept_and_a_reader_is_told_what_it_missed(tmp_path):
     small = ProcessManager(max_lines=5)
     process = small.start(f"{PY} \"[print(i) for i in range(20)]\"", cwd=tmp_path)
@@ -132,6 +139,7 @@ def test_only_a_bounded_tail_is_kept_and_a_reader_is_told_what_it_missed(tmp_pat
     assert shown.start == 15 and shown.skipped == 15 and shown.cursor == 20
 
 
+@posix_only
 def test_a_line_still_being_written_is_shown_but_not_counted(manager, tmp_path):
     process = manager.start(
         f"{PY} \"import sys, time; print('x'); sys.stdout.write('half'); "
@@ -143,6 +151,7 @@ def test_a_line_still_being_written_is_shown_but_not_counted(manager, tmp_path):
     manager.stop(process.id)
 
 
+@posix_only
 def test_stop_ends_the_whole_group_not_just_the_shell(manager, tmp_path):
     process = manager.start(
         f"{PY} \"import subprocess, time; child = subprocess.Popen(['sleep', '30']); "
@@ -159,6 +168,7 @@ def test_stop_ends_the_whole_group_not_just_the_shell(manager, tmp_path):
     assert manager.recorded.of_type("process_exited")[0].data["status"] == STOPPED
 
 
+@posix_only
 def test_a_process_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
     impatient = ProcessManager(stop_grace=0.3)
     process = impatient.start(
@@ -175,6 +185,7 @@ def test_a_process_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
     assert process.status == STOPPED and process.exit_code == -9
 
 
+@posix_only
 def test_a_running_process_cannot_be_cleared_and_a_finished_one_can(manager, tmp_path):
     process = manager.start("sleep 30", cwd=tmp_path)
     with pytest.raises(ProcessError):
@@ -189,6 +200,7 @@ def test_a_running_process_cannot_be_cleared_and_a_finished_one_can(manager, tmp
         manager.get(process.id)
 
 
+@posix_only
 def test_what_an_ended_command_left_running_can_be_stopped_and_is_not_cleared(
     manager, workspace, monkeypatch
 ):
@@ -222,6 +234,7 @@ def test_what_an_ended_command_left_running_can_be_stopped_and_is_not_cleared(
     assert manager.processes() == ()
 
 
+@posix_only
 def test_closing_reaches_what_an_ended_command_left_running(manager, workspace):
     (workspace.root / "start.sh").write_text(
         f"{LOOP} &\necho started\n", encoding="utf-8"
@@ -234,6 +247,7 @@ def test_closing_reaches_what_an_ended_command_left_running(manager, workspace):
     assert _until(lambda: not process.alive)
 
 
+@posix_only
 def test_the_end_of_what_an_ended_command_left_running_is_told(manager, tmp_path):
     """Without it the dashboard, which fetches the list on process events,
     would count the command as running until something else happened."""
@@ -248,6 +262,7 @@ def test_the_end_of_what_an_ended_command_left_running_is_told(manager, tmp_path
     assert types == ["process_started", "process_exited", "process_ended"]
 
 
+@posix_only
 def test_an_exit_with_nothing_left_running_owes_no_second_event(manager, tmp_path):
     process = manager.start("echo done", cwd=tmp_path)
     assert process.wait(2.0)
@@ -257,6 +272,7 @@ def test_an_exit_with_nothing_left_running_owes_no_second_event(manager, tmp_pat
     assert manager.recorded.of_type("process_ended") == []
 
 
+@posix_only
 def test_a_pipe_held_outside_the_group_is_not_offered_a_stop(manager, workspace):
     """A child moved to a session of its own (`setsid`) keeps the output
     open but is out of a stop's reach; saying it was stopped would be false,
@@ -282,6 +298,7 @@ def test_a_pipe_held_outside_the_group_is_not_offered_a_stop(manager, workspace)
         os.kill(escaped, signal.SIGKILL)
 
 
+@posix_only
 def test_what_an_ended_command_left_running_counts_against_the_limit(workspace):
     capped = ProcessManager(max_running=1, stop_grace=0.5)
     (workspace.root / "start.sh").write_text(f"{LOOP} &\necho started\n", encoding="utf-8")
@@ -294,6 +311,7 @@ def test_what_an_ended_command_left_running_counts_against_the_limit(workspace):
         capped.stop_all()
 
 
+@posix_only
 def test_a_session_cannot_fill_the_machine_with_copies(tmp_path):
     capped = ProcessManager(max_running=1)
     capped.start("sleep 30", cwd=tmp_path)
@@ -304,6 +322,7 @@ def test_a_session_cannot_fill_the_machine_with_copies(tmp_path):
         capped.stop_all()
 
 
+@posix_only
 def test_stopping_several_managers_shares_one_grace(tmp_path):
     first, second = ProcessManager(), ProcessManager()
     one = first.start("sleep 30", cwd=tmp_path)
@@ -317,6 +336,7 @@ def test_stopping_several_managers_shares_one_grace(tmp_path):
 # -- run_command -----------------------------------------------------------------
 
 
+@posix_only
 def test_a_backgrounded_command_returns_at_once_instead_of_hanging(manager, workspace):
     """Before DR-062 this waited out the whole timeout: the loop held the pipe."""
     started = time.monotonic()
@@ -330,6 +350,7 @@ def test_a_backgrounded_command_returns_at_once_instead_of_hanging(manager, work
     assert f'process_output(process_id="{process.id}")' in result
 
 
+@posix_only
 def test_background_true_does_the_same_without_an_ampersand(manager, workspace):
     result = run_command("sleep 30", background=True, workspace=workspace, processes=manager)
 
@@ -337,6 +358,7 @@ def test_background_true_does_the_same_without_an_ampersand(manager, workspace):
     assert [process.command for process in manager.running()] == ["sleep 30"]
 
 
+@posix_only
 def test_a_background_command_that_ends_at_once_says_how(manager, workspace):
     result = run_command(
         "python3 -c \"print('boom'); raise SystemExit(2)\" &",
@@ -367,6 +389,7 @@ def test_the_workspace_checks_still_apply_to_a_background_command(manager, works
     assert manager.processes() == ()
 
 
+@posix_only
 def test_a_model_cannot_supply_its_own_manager(manager, workspace):
     """`processes` is injected, like `workspace`; a model's value is dropped."""
     from functools import partial
@@ -387,6 +410,7 @@ def test_a_model_cannot_supply_its_own_manager(manager, workspace):
 # -- reading and stopping, as the model does -----------------------------------------
 
 
+@posix_only
 def test_the_model_can_read_output_later_and_stop_the_process(manager, workspace):
     run_command(f"{LOOP} &", workspace=workspace, processes=manager)
     (process,) = manager.running()
@@ -404,6 +428,7 @@ def test_the_model_can_read_output_later_and_stop_the_process(manager, workspace
     assert "already ended" in again
 
 
+@posix_only
 def test_an_unknown_process_is_an_error_that_lists_the_real_ones(manager, workspace):
     manager.start("sleep 30", cwd=workspace.root)
     result = stop_process("p999999", workspace=workspace, processes=manager)
@@ -465,6 +490,7 @@ def scripted():
     return holder
 
 
+@posix_only
 def test_a_run_starts_a_server_and_closing_the_session_stops_it(scripted, tmp_path):
     scripted["model"] = ScriptedChatModel(
         [calls(tool_call("run_command", command=f"{LOOP} &")), answer("it is running")]
@@ -497,6 +523,7 @@ def test_a_run_starts_a_server_and_closing_the_session_stops_it(scripted, tmp_pa
 # -- the app going away ------------------------------------------------------------
 
 
+@posix_only
 def test_sigterm_becomes_an_ordinary_exit_so_cleanup_runs():
     """A `kill` would otherwise skip every `finally` that stops processes."""
     import os
@@ -517,3 +544,20 @@ def test_sigterm_becomes_an_ordinary_exit_so_cleanup_runs():
 
     assert stopped.value.code == 128 + signal.SIGTERM and cleaned
     assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+
+
+def test_a_system_without_process_groups_refuses_rather_than_orphans(
+    monkeypatch, workspace
+):
+    """Without a group of its own a command could not be stopped with what it
+    started, so it is not started at all; nothing hangs and nothing is left."""
+    from logic.common import processes as processes_module
+
+    monkeypatch.setattr(processes_module, "SUPPORTED", False)
+    manager = ProcessManager()
+
+    result = run_command("sleep 30 &", workspace=workspace, processes=manager)
+
+    assert result.startswith("Error:") and "trailing '&'" in result
+    assert manager.processes() == ()
+    manager.stop_all()  # nothing to stop, and no POSIX-only call is reached

@@ -34,6 +34,7 @@ gui = pytest.importorskip("gui", reason="the GUI adapter is a Pro-edition build"
 
 from gui.bridge import MAX_OPEN_SESSIONS, BridgeError, SessionBridge  # noqa: E402
 from gui.server import STATIC_ROOT, create_dashboard  # noqa: E402
+from logic.common.processes import SUPPORTED  # noqa: E402
 from logic.config import AutoSEConfig, load_config  # noqa: E402
 from logic.inference.catalog import ModelInfo  # noqa: E402
 from logic.inference.registry import Provider, register_provider  # noqa: E402
@@ -2292,6 +2293,8 @@ def _settles(check, timeout: float = 3.0) -> bool:
     return check()
 
 
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_a_backgrounded_command_is_listed_read_stopped_and_cleared(
     scripted, tmp_path, monkeypatch
 ):
@@ -2338,6 +2341,8 @@ def test_a_backgrounded_command_is_listed_read_stopped_and_cleared(
         bridge.shutdown()
 
 
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_closing_a_session_stops_what_it_started(scripted, tmp_path):
     bridge = _bridge(scripted, tmp_path, [answer("x")])
     first = bridge.snapshot()["focus"]
@@ -2350,6 +2355,8 @@ def test_closing_a_session_stops_what_it_started(scripted, tmp_path):
     assert bridge.processes()["processes"] == []
 
 
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_shutting_the_dashboard_down_stops_every_session_s_processes(scripted, tmp_path):
     bridge = _bridge(scripted, tmp_path, [answer("x")])
     first = bridge._target(None).session.processes.start("sleep 30", cwd=tmp_path)

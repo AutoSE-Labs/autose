@@ -115,3 +115,6 @@ round and a stray process.
   there.
 - Killing AutoSE with SIGKILL, or a crash in the interpreter, still leaves
   processes running; only an orderly exit can stop them.
+- Process groups are POSIX. Where there are none (Windows), a command meant
+  to keep running is refused with an error rather than started with no way
+  to stop what it starts; ordinary commands run as before.
