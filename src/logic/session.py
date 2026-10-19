@@ -1111,7 +1111,7 @@ class Session:
         return True
 
     def _loaded_window(self) -> LoadedWindow | None:
-        """What the runtime reports the model is loaded with; ``None`` if it cannot say."""
+        """The window the runtime has the model loaded with; ``None`` if unknown."""
         try:
             catalog = create_model_catalog(self._inference)
             if not isinstance(catalog, LoadedWindowReader):
