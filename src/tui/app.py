@@ -407,9 +407,13 @@ def run(
                 "(approval.require_edit_approval)"
             )
         )
-    return App(
-        session, console=console, approval_gate=approval_gate, activity=activity
-    ).run(initial_prompt)
+    try:
+        return App(
+            session, console=console, approval_gate=approval_gate, activity=activity
+        ).run(initial_prompt)
+    finally:
+        # DR-062: a server a run started does not outlive the app that shows it.
+        session.close()
 
 
 def print_sessions(*, workspace: str | Path | None = None) -> int:

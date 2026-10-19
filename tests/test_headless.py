@@ -312,3 +312,23 @@ def test_an_unserialisable_event_does_not_break_the_stream(endpoint, tmp_path, m
 
     line = json.loads(stream.getvalue().strip())
     assert line["type"] == "warning"
+
+
+def test_what_a_headless_run_started_in_the_background_is_stopped_at_the_end(
+    endpoint, tmp_path, monkeypatch
+):
+    """DR-062: one prompt, one process — no server outlives the run."""
+    from logic.common.tools import background
+
+    monkeypatch.setattr(background, "FIRST_LOOK_SECONDS", 0.1)
+    code, lines = _run(
+        endpoint,
+        tmp_path,
+        [calls(tool_call("run_command", command="sleep 30 &")), answer("started")],
+        auto_approve=True,
+        authorized_by="test",
+    )
+
+    assert code == EXIT_OK
+    exited = [line for line in lines if line.get("event") == "process_exited"]
+    assert exited and exited[0]["data"]["status"] == "stopped"

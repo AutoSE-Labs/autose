@@ -148,6 +148,9 @@ def run_headless(
     except KeyboardInterrupt:
         write({"type": "error", "error": "interrupted", "kind": "interrupted"})
         return EXIT_INCOMPLETE
+    finally:
+        # DR-062: one prompt, one process: nothing it started is left behind.
+        session.close()
 
     write(_result(turn, session))
     return EXIT_OK if turn.succeeded else EXIT_INCOMPLETE
