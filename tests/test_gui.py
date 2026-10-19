@@ -32,7 +32,7 @@ gui = pytest.importorskip("gui", reason="the GUI adapter is a Pro-edition build"
 
 from gui.bridge import MAX_OPEN_SESSIONS, BridgeError, SessionBridge  # noqa: E402
 from gui.server import STATIC_ROOT, create_dashboard  # noqa: E402
-from logic.config import AutoSEConfig  # noqa: E402
+from logic.config import AutoSEConfig, load_config  # noqa: E402
 from logic.inference.catalog import ModelInfo  # noqa: E402
 from logic.inference.registry import Provider, register_provider  # noqa: E402
 from logic.inference.settings import InferenceSettings  # noqa: E402
@@ -1027,6 +1027,56 @@ def test_a_window_that_is_not_a_number_is_refused_over_http(served):
     status, payload = _request(served, "/api/context", body={"tokens": "lots"})
     assert status == 400
     assert "whole number" in json.dumps(payload)
+
+
+# -- DR-059: making a window the workspace's default ------------------------------
+
+
+def test_a_window_can_be_made_the_default_for_the_workspace(adjustable, tmp_path):
+    config_file = tmp_path / ".autose" / "config.yaml"
+    config_file.parent.mkdir()
+    config_file.write_text("# team settings\ninference:\n  temperature: 0.2  # keep low\n")
+    state = adjustable.save_context_default(65536)
+    assert state["saved_to"] == str(config_file)
+    text = config_file.read_text()
+    assert text == (
+        "# team settings\ninference:\n  temperature: 0.2  # keep low\n"
+        "  context_limit: 65536\n"
+    )
+    # This session uses it now, and the page knows it is the default.
+    assert state["context_limit"] == 65536
+    assert state["context_advice"]["default_window"] == 65536
+    # A new session in this workspace starts with it, as a choice.
+    state = adjustable.new_session()
+    assert state["context_limit"] == 65536
+    live = adjustable._open[state["session_id"]]
+    assert live.session._configured_window == 65536
+    # And so does the next start of AutoSE here.
+    assert load_config(workspace_root=tmp_path).inference.context_limit == 65536
+
+
+def test_a_new_workspace_file_is_created_for_the_default(adjustable, tmp_path):
+    adjustable.save_context_default(16384)
+    assert (tmp_path / ".autose" / "config.yaml").read_text() == (
+        "inference:\n  context_limit: 16384\n"
+    )
+
+
+def test_a_default_the_model_cannot_serve_is_refused_and_not_saved(adjustable, tmp_path):
+    with pytest.raises(BridgeError):
+        adjustable.save_context_default(262144)
+    assert not (tmp_path / ".autose" / "config.yaml").exists()
+
+
+def test_a_fixed_window_runtime_has_no_default_to_save(served, tmp_path):
+    status, payload = _request(
+        served, "/api/context", body={"tokens": 65536, "action": "save_default"}
+    )
+    assert status == 400
+    assert "started with" in json.dumps(payload)
+    assert not (tmp_path / ".autose" / "config.yaml").exists()
+    status, _ = _request(served, "/api/context", body={"tokens": 65536, "action": "x"})
+    assert status == 400
 
 
 # -- DR-037: the inspector ----------------------------------------------------

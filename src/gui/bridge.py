@@ -64,7 +64,7 @@ from logic.common.browse import list_workspace, read_workspace_file
 from logic.common.context import MIN_USABLE_CONTEXT_TOKENS
 from logic.common.events import CallbackEventSink, Event, EventSink
 from logic.common.workspace import Workspace
-from logic.config import AutoSEConfig, load_config
+from logic.config import AutoSEConfig, load_config, save_workspace_context_limit
 from logic.connections import list_connections
 from logic.credentials import CredentialStore, ProviderKey
 from logic.diagnostics import diagnose
@@ -82,6 +82,7 @@ from logic.saved_allowances import AllowanceFile
 from logic.session import (
     Session,
     SessionSetup,
+    adopt_context_window,
     serves_requested_window,
     setup_for_provider,
     setup_from_config,
@@ -968,7 +969,9 @@ class SessionBridge:
                 "context_limit": session.context_limit(),
                 # DR-034: one verdict about the served window, so the page can
                 # tell a deliberate cap from a window that will hurt.
-                "context_advice": _context_payload(session),
+                "context_advice": _context_payload(
+                    session, default_window=self._default_window(session)
+                ),
                 "model_info": model_payload(session.model_info),
                 "models": [
                     model_payload(info)
@@ -1765,6 +1768,13 @@ class SessionBridge:
             "model": inference.model,
         }
 
+    def _default_window(self, session: Session) -> int | None:
+        """The window configured for new sessions on *session*'s provider (DR-059)."""
+        configured = self._config.inference
+        if configured.provider != session.inference.provider:
+            return None
+        return configured.context_limit
+
     def set_context_window(
         self, tokens: int, *, session_id: str | None = None
     ) -> dict[str, Any]:
@@ -1777,6 +1787,42 @@ class SessionBridge:
             except AutoSEError as exc:
                 raise BridgeError(str(exc)) from exc
         return self._broadcast_state()
+
+    def save_context_default(
+        self, tokens: int, *, session_id: str | None = None
+    ) -> dict[str, Any]:
+        """Make *tokens* the window for this session and new ones here (DR-059).
+
+        The session switches first, which is what checks the size against
+        the model; then ``inference.context_limit`` is written to the
+        workspace's ``.autose/config.yaml``, keeping its comments, and new
+        sessions start with it as an explicit choice.
+        """
+        with self._lock:
+            live = self._target(session_id)
+            self._require_idle(live)
+            if not serves_requested_window(live.session.inference.provider):
+                raise BridgeError(
+                    f"{live.session.inference.provider} serves the window it was "
+                    "started with; there is no window for AutoSE to save"
+                )
+            try:
+                live.session.set_context_window(tokens)
+            except AutoSEError as exc:
+                raise BridgeError(str(exc)) from exc
+            root = self._config.resolve_workspace_root()
+        try:
+            saved = save_workspace_context_limit(root, tokens)
+        except ConfigurationError as exc:
+            raise BridgeError(str(exc)) from exc
+        except OSError as exc:
+            raise BridgeError(f"could not save the default: {exc}", status=500) from exc
+        with self._lock:
+            self._config = self._config.with_inference(
+                replace(self._config.inference, context_limit=tokens)
+            )
+            self._setup = _setup_with_window(self._setup, self._config, tokens)
+        return {**self._broadcast_state(), "saved_to": str(saved)}
 
     def request_tier(
         self, tier: str, *, session_id: str | None = None
@@ -2277,8 +2323,14 @@ def _apply_overrides(fresh: AutoSEConfig, previous: AutoSEConfig) -> AutoSEConfi
         auto_approve_authorized_by=previous.auto_approve_authorized_by,
     )
 
-def _context_payload(session: Session) -> dict[str, Any] | None:
-    """DR-034's verdict plus, where AutoSE chooses the window, DR-035's choices."""
+def _context_payload(
+    session: Session, *, default_window: int | None = None
+) -> dict[str, Any] | None:
+    """DR-034's verdict plus, where AutoSE chooses the window, DR-035's choices.
+
+    DR-059 adds the workspace's default window, if one is configured, and
+    whether the window in use was matched to the model already loaded.
+    """
     info = session.model_info
     if info is None:
         return None
@@ -2298,7 +2350,26 @@ def _context_payload(session: Session) -> dict[str, Any] | None:
         else []
     )
     payload["gpu_fraction"] = info.gpu_fraction
+    payload["default_window"] = default_window
+    payload["matched_loaded"] = session.window_matched
     return payload
+
+
+def _setup_with_window(
+    setup: SessionSetup | None, config: AutoSEConfig, tokens: int
+) -> SessionSetup | None:
+    """*setup* for new sessions once *tokens* is the configured window (DR-059)."""
+    if setup is None:
+        return None
+    inference = setup.inference
+    if (
+        inference is None
+        or inference.provider != config.inference.provider
+        or not serves_requested_window(inference.provider)
+    ):
+        return replace(setup, config=config)
+    inference, info = adopt_context_window(inference, setup.model_info, explicit=tokens)
+    return replace(setup, config=config, inference=inference, model_info=info)
 
 
 def _keep_queue(live: _Live) -> None:

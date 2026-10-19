@@ -373,6 +373,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             raise BridgeError("tokens must be a whole number") from None
         if tokens <= 0:
             raise BridgeError("how large a window? tokens is required")
+        action = str(body.get("action") or "use").strip().lower()
+        if action == "save_default":
+            # DR-059: this session, and new ones in this workspace.
+            return self._bridge.save_context_default(tokens, session_id=_session_of(body))
+        if action != "use":
+            raise BridgeError(f"unknown context action '{action}'")
         return self._bridge.set_context_window(tokens, session_id=_session_of(body))
 
     def _tier(self, body: dict[str, Any]) -> dict[str, Any]:

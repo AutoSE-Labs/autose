@@ -683,7 +683,9 @@ function handleEvent(id, frame) {
       break;
     case "context_window_changed":
       reloadPending = true;
-      toast(`Context window is now ${formatWindow(data.tokens)} tokens.`, "good");
+      // A window matched to the loaded model is quiet: the header shows it,
+      // and the context window explains it.
+      if (!data.reason) toast(`Context window is now ${formatWindow(data.tokens)} tokens.`, "good");
       break;
     case "tier_changed":
       if (!run) toast(`Tier is now ${humanize(String(data.tier || ""))}.`, "good");
@@ -2595,17 +2597,17 @@ function openContext() {
     contextPick = current ? current.tokens : choices[0].tokens;
     renderContextChoices();
   }
-  // Where AutoSE chooses the window, the setting is how to keep a choice for
-  // every session; elsewhere it is how to restart the runtime (DR-034).
+  // Where AutoSE chooses the window, the default is saved with a button and
+  // the setting it writes is shown for reference (renderContextDefault);
+  // elsewhere it is how to restart the runtime (DR-034).
   const remedy = (advice && advice.remedy) || "";
   el("context-remedy").hidden = !remedy;
-  el("context-remedy-label").textContent = advice && advice.adjustable
-    ? "To make this size the default for this workspace, add it to .autose/config.yaml:"
-    : advice && advice.level === "info"
-      ? "Optional — if you want more room"
-      : "To change it";
+  el("context-remedy-label").textContent = advice && advice.level === "info"
+    ? "Optional — if you want more room"
+    : "To change it";
   el("context-remedy-code").textContent = remedy;
   el("context-copy").hidden = !remedy || !navigator.clipboard;
+  if (choices.length) renderContextDefault();
   overlays.context.hidden = false;
 }
 
@@ -2642,7 +2644,10 @@ function renderContextChoices() {
     ? "A run is working in this session. The window can change when it finishes."
     : changing
       ? "Takes effect on the next request. The model server reloads the model at the new size, which takes a few seconds."
-      : "";
+      : picked && picked.current && advice.matched_loaded
+        ? "In use because the model was already loaded at this size, which saves reloading it."
+        : "";
+  renderContextDefault();
 }
 
 async function applyContextWindow() {
@@ -2657,7 +2662,7 @@ async function applyContextWindow() {
 }
 
 async function copyContextRemedy() {
-  const remedy = (state && state.context_advice && state.context_advice.remedy) || "";
+  const remedy = el("context-remedy-code").textContent || "";
   if (!remedy) return;
   try {
     await navigator.clipboard.writeText(remedy);
@@ -2669,6 +2674,38 @@ async function copyContextRemedy() {
     );
   } catch (error) {
     toast("Could not copy; select the command instead.", "bad");
+  }
+}
+
+/* DR-059: the picked window as this workspace's default. The button writes
+   the setting; the setting itself stays on show, for reference. */
+function renderContextDefault() {
+  const advice = (state && state.context_advice) || null;
+  const save = el("context-save");
+  if (!advice || !advice.adjustable || !contextPick) {
+    save.hidden = true;
+    return;
+  }
+  const isDefault = advice.default_window === contextPick;
+  save.hidden = isDefault;
+  save.disabled = Boolean(state && state.running);
+  el("context-remedy").hidden = false;
+  el("context-remedy-label").textContent = isDefault
+    ? `${formatWindow(contextPick)} is the default for this workspace, kept in .autose/config.yaml as:`
+    : "Making it the default writes this to .autose/config.yaml, keeping the rest of the file:";
+  el("context-remedy-code").textContent = `inference:\n  context_limit: ${contextPick}`;
+  el("context-copy").hidden = !navigator.clipboard;
+}
+
+async function saveContextDefault() {
+  const tokens = contextPick;
+  if (!tokens) return;
+  const result = await post("/api/context", { tokens, action: "save_default", session: focusId() });
+  if (result) {
+    state = result;
+    adoptState();
+    openContext();
+    toast(`New sessions in this workspace will start with ${formatWindow(tokens)}.`, "good");
   }
 }
 
@@ -2991,6 +3028,7 @@ el("status-ctx").addEventListener("click", openContext);
 el("context-close").addEventListener("click", closeOverlays);
 el("context-copy").addEventListener("click", copyContextRemedy);
 el("context-apply").addEventListener("click", applyContextWindow);
+el("context-save").addEventListener("click", saveContextDefault);
 el("context-choice-list").addEventListener("click", (event) => {
   const button = event.target.closest(".choice");
   if (!button) return;
