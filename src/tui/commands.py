@@ -303,7 +303,7 @@ def _next(app: App, argument: str) -> bool:
         )
         return True
     choice = argument.strip() or "1"
-    if not choice.isdigit() or not 1 <= int(choice) <= len(follow_ups):
+    if not choice.isdecimal() or not 1 <= int(choice) <= len(follow_ups):
         app.console.print(
             warning_text(f"pick a suggestion from 1 to {len(follow_ups)}, as in /next 1")
         )

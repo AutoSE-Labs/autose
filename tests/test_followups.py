@@ -340,6 +340,18 @@ def test_next_refuses_a_number_it_does_not_have():
     assert "from 1 to 1" in app.console.file.getvalue()
 
 
+@pytest.mark.parametrize("typed", ["²", "one", "-1", "0", "1.5"])
+def test_next_answers_a_choice_that_is_not_a_number_without_failing(typed):
+    """"²" passes ``str.isdigit`` but not ``int``; the terminal must not crash."""
+    from tui.commands import dispatch
+
+    app = _terminal(_turn(stop_reason="cancelled"))
+
+    assert dispatch(app, f"/next {typed}") is True
+    assert app._take_carried() == ""
+    assert "from 1 to 1" in app.console.file.getvalue()
+
+
 def test_next_offers_nothing_after_a_run_that_left_no_turn():
     """An error after a good run must not offer that run's suggestions."""
     from logic.errors import AutoSEError
