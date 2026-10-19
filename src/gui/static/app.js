@@ -403,6 +403,7 @@ function handleFrame(frame) {
       if (entry) {
         entry.queued = (frame.queue || []).length;
         entry.queue_held = Boolean(frame.held);
+        entry.queue_reopened = Boolean(frame.reopened);
       }
       if (frame.held && (frame.queue || []).length) {
         notifyAbout(id, {
@@ -414,6 +415,7 @@ function handleFrame(frame) {
       if (state && isFocused(id)) {
         state.queue = frame.queue || [];
         state.queue_held = Boolean(frame.held);
+        state.queue_reopened = Boolean(frame.reopened);
         renderConversation();
       }
       renderRail();
@@ -1218,7 +1220,7 @@ function renderInbox() {
     .forEach((entry) =>
       items.push(
         `<article class="inbox-item queue"><div class="inbox-kind">Queue held</div>${from(entry.session_id)}` +
-        `<p class="inbox-note">${plural(entry.queued, "request")} waiting: the last run stopped, so they wait for you.</p>` +
+        `<p class="inbox-note">${plural(entry.queued, "request")} waiting: ${heldReason(entry.queue_reopened, "they")}.</p>` +
         `<div class="inbox-actions"><button type="button" class="primary-button small" data-inbox-resume="${escapeHtml(entry.session_id)}">Resume</button></div></article>`
       )
     );
@@ -1337,7 +1339,7 @@ function openRowMarkup(entry) {
         <span class="sheet-state ${tone}">${escapeHtml(line)}</span>
       </button>
       <button class="session-rename" type="button" data-rename="${escapeHtml(entry.session_id)}" title="Rename this session" aria-label="Rename"><svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 4.5l3 3L7 16H4v-3z"/></svg></button>
-      <button class="session-close" type="button" data-close="${escapeHtml(entry.session_id)}" title="${entry.running ? "Stop it before closing it" : "Close this session; it stays on disk"}">×</button>
+      <button class="session-close" type="button" data-close="${escapeHtml(entry.session_id)}" title="${entry.running ? "Stop it before closing it" : closeTitle(entry)}">×</button>
     </div>`;
 }
 
@@ -1350,7 +1352,7 @@ function storedRowMarkup(record) {
         ${tierBadgeMarkup(record.tier, "closed")}
         <span class="sheet-no">${escapeHtml(sheetNo(record.id))} · ${escapeHtml(record.tier || "")} · ${formatWhen(record.updated_at)}</span>
         <span class="sheet-title">${escapeHtml(record.title || "(no title)")}</span>
-        <span class="sheet-state${failed ? " failed" : ""}">${plural(record.turns, "run")} · ${formatCount(record.total_tokens)} tok</span>
+        <span class="sheet-state${failed ? " failed" : ""}">${storedQueueMarkup(record)}${plural(record.turns, "run")} · ${formatCount(record.total_tokens)} tok</span>
       </button>
       <button class="session-rename" type="button" data-rename="${escapeHtml(record.id)}" title="Rename this session" aria-label="Rename"><svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 4.5l3 3L7 16H4v-3z"/></svg></button>
       <button class="session-delete${armed ? " armed" : ""}" type="button" data-delete="${escapeHtml(record.id)}" title="${armed ? "Click again to delete" : "Delete this saved session"}">${armed ? "!" : "×"}</button>
@@ -1391,6 +1393,35 @@ function renderConversation() {
   if (pinned) scrollToBottom();
 }
 
+/* ---------- a queue kept with its session (DR-056) ---------- */
+
+/* Why a held queue waits: a run that stopped, or a session reopened with
+ * requests still waiting (after a restart, or closing and reopening it). */
+function heldReason(reopened, who) {
+  return reopened
+    ? `saved from last time, so ${who} wait for you`
+    : `the last run stopped, so ${who} wait for you`;
+}
+
+/* The same reason as a sentence, for the queue strip. */
+function queueHeldNote(reopened) {
+  const reason = heldReason(reopened, "these");
+  return `${reason[0].toUpperCase()}${reason.slice(1)}.`;
+}
+
+/* A closed session's row: how many requests wait in it, first, so a narrow
+ * rail cuts the run count rather than this. */
+function storedQueueMarkup(record) {
+  if (!record.queued) return "";
+  return `<span class="stored-queued">${record.queued} queued</span> · `;
+}
+
+function closeTitle(entry) {
+  return entry.queued
+    ? `Close this session; it stays on disk with ${plural(entry.queued, "queued request")}, paused until you reopen it`
+    : "Close this session; it stays on disk";
+}
+
 /* DR-042: what waits for the running turn, editable in place. */
 function queueNode() {
   const queue = (state && state.queue) || [];
@@ -1399,7 +1430,7 @@ function queueNode() {
   node.className = `queue-strip${state.queue_held ? " held" : ""}`;
   const head = state.queue_held
     ? `<div class="queue-head"><span class="queue-title">Paused: ${plural(queue.length, "request")} up next</span>
-        <span class="queue-note">The last run stopped, so these wait for you.</span>
+        <span class="queue-note">${escapeHtml(queueHeldNote(state.queue_reopened))}</span>
         <button type="button" class="primary-button small" data-queue="resume">Resume</button></div>`
     : `<div class="queue-head"><span class="queue-title">Up next</span>
         <span class="queue-note">They start one after another when this run ends.</span></div>`;

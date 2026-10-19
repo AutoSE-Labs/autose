@@ -699,13 +699,20 @@ def session_table(records: tuple[SessionRecord, ...], *, current: str = "") -> R
 
     for record in records:
         marker = THEME.bullet if record.id == current else " "
+        title = Text(record.title)
+        if record.queue:
+            # DR-056: requests the dashboard queued wait there, held, until
+            # someone resumes them; a terminal resume keeps them untouched.
+            title.append(
+                f"  · {len(record.queue)} queued in the dashboard", style=THEME.muted
+            )
         table.add_row(
             Text(marker, style=THEME.success),
             record.id,
             _ago(record.updated_at),
             str(len(record.turns)),
             record.model or "—",
-            record.title,
+            title,
         )
     return Group(
         table, Text("  autose --resume <id> to pick one up", style=THEME.muted)
