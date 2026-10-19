@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import time
 import uuid
@@ -610,7 +611,10 @@ def _int(value: Any) -> int:
 
 
 def _float(value: Any) -> float:
+    # A hand-edited file can hold NaN or Infinity, which Python's json reads
+    # but the page cannot: one such time in a payload stops it loading.
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return 0.0
+    return number if math.isfinite(number) else 0.0

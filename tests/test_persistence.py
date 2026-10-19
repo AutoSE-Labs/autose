@@ -589,3 +589,19 @@ def test_an_unchanged_queue_is_not_written_again(make_session):
     session.keep_queue([QueuedRequest(id="q1", prompt="one")])
     session.keep_queue([QueuedRequest(id="q1", prompt="one")])
     assert counting.saves == 1
+
+
+def test_a_queued_time_that_is_not_a_number_is_read_as_none():
+    """NaN and Infinity load from JSON but would stop the page parsing a payload."""
+    document = _record("s1").to_dict()
+    document["queue"] = [
+        {"id": "q1", "prompt": "one", "queued_at": float("nan")},
+        {"id": "q2", "prompt": "two", "queued_at": "inf"},
+    ]
+    document["updated_at"] = float("nan")
+
+    record = SessionRecord.from_dict(json.loads(json.dumps(document)))
+
+    assert [item.queued_at for item in record.queue] == [0.0, 0.0]
+    assert record.updated_at == 0.0
+    json.dumps(record.to_dict(), allow_nan=False)
