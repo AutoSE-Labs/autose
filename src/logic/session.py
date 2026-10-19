@@ -32,8 +32,9 @@ from .common.approval import (
 from .common.cancel import CancelToken
 from .common.changes import ChangeJournal, FileChange, RevertReport
 from .common.context import MIN_USABLE_CONTEXT_TOKENS
-from .common.events import Event, EventSink, NullEventSink
+from .common.events import CompositeEventSink, Event, EventSink, NullEventSink
 from .common.memory import SessionMemory
+from .common.trace import RunTrace, TraceRecorder
 from .common.workspace import Workspace
 from .config import AutoSEConfig
 from .connections import provider_settings
@@ -127,6 +128,10 @@ class Turn:
     #: what the run wrote and that it was reverted; ``changes`` holds only
     #: what is still in the workspace, which is what the next undo reverts.
     undone: tuple[FileChange, ...] = ()
+    #: What the turn did step by step: tool calls, notable moments, model
+    #: rounds and stage times (DR-055). ``None`` for a turn stored before
+    #: traces were kept.
+    trace: RunTrace | None = None
 
     @property
     def succeeded(self) -> bool:
@@ -423,7 +428,10 @@ class Session:
             self._credentials, self._inference.provider, self._inference.api_key
         )
         self._workspace = workspace
-        self._events = events or NullEventSink()
+        # DR-055: every event of a turn also reaches the turn's trace, so what
+        # it did is kept with it whichever Adapter is driving.
+        self._trace = TraceRecorder()
+        self._events = CompositeEventSink(events or NullEventSink(), self._trace)
         # DR-012: no gate means refuse, never means run unreviewed.
         self._approval_gate = approval_gate or DenyingApprovalGate()
         # DR-024: file edits are journalled and revertible by default; a
@@ -661,6 +669,7 @@ class Session:
                     requirements=turn.requirements,
                     route=turn.route,
                     undone=turn.undone,
+                    trace=turn.trace,
                 )
                 for turn in self._turns
             ),
@@ -706,6 +715,7 @@ class Session:
                 requirements=item.requirements,
                 route=item.route,
                 undone=item.undone,
+                trace=item.trace,
             )
             for item in record.turns
         ]
@@ -1264,6 +1274,9 @@ class Session:
         # DR-059: before the first request of the turn (classification is one),
         # so a model another client loaded at a usable window is not reloaded.
         self.match_loaded_window()
+        # Started before classification, which is the first thing a run's
+        # steps show (DR-055).
+        self._trace.start()
         classification: Classification | None = None
         if tier:
             # Named with this request: a person's choice (DR-049).
@@ -1324,7 +1337,12 @@ class Session:
             plan_review=self._plan_review,
         )
         self._emit("turn_started", prompt, tier=tier, prompt_text=prompt)
-        outcome: WorkflowOutcome = yield from workflow.stream(request)
+        try:
+            outcome: WorkflowOutcome = yield from workflow.stream(request)
+        finally:
+            # Ended here even when the workflow raises, so nothing after the
+            # turn is recorded into it (DR-055).
+            trace = self._trace.finish()
         turn = Turn(
             prompt=prompt,
             answer=outcome.answer,
@@ -1337,6 +1355,7 @@ class Session:
             changes=outcome.changes,
             requirements=outcome.requirements,
             route=outcome.route,
+            trace=trace,
         )
         self._record(turn)
         holder["turn"] = turn

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import threading
 import tomllib
 import urllib.error
@@ -813,7 +814,7 @@ def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
 
 def test_the_dashboard_fetches_nothing_from_the_network():
     """Local-first is a property of the page too, not only of inference."""
-    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js", "palette.js"):
+    for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js", "palette.js", "steps.js"):
         # The SVG namespace inside an inline data: image is a name the SVG
         # parser requires, never a request, so it is the one URL allowed.
         source = (
@@ -1272,11 +1273,128 @@ def test_a_turn_index_that_is_not_a_number_is_refused_over_http(served):
     assert status == 400
 
 
+# -- DR-055: a finished run's steps are read back on demand -------------------
+
+
+def test_a_finished_run_s_steps_are_served_on_demand(scripted, tmp_path):
+    (tmp_path / "notes.txt").write_text("draft notes", encoding="utf-8")
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [
+            calls(tool_call("read_file", path="notes.txt")),
+            answer("read it", prompt_tokens=50, completion_tokens=5),
+            answer("nothing to read"),
+        ],
+    )
+    subscriber = bridge.subscribe()
+    bridge.submit("read the notes")
+    finished = _drain(subscriber, "turn")
+    bridge.submit("say something")
+    _drain(subscriber, "turn")
+
+    # The turn frame and the history say there is something to read...
+    assert finished["turn"]["has_steps"] is True
+    assert "steps" not in finished["turn"]
+    assert [turn["has_steps"] for turn in bridge.snapshot()["history"]] == [True, True]
+
+    # ...and the read returns it, for any turn, the latest by default.
+    first = bridge.steps(turn=0)
+    assert first["turn"] == 0
+    (tool,) = [step for step in first["steps"] if step["type"] == "tool"]
+    assert tool["tool"] == "read_file"
+    assert tool["args"] == {"path": "notes.txt"}
+    assert tool["status"] == "done"
+    assert "draft notes" in tool["preview"]
+    assert first["rounds"][-1]["prompt"] == 50
+    latest = bridge.steps()
+    assert latest["turn"] == 1
+    assert not [step for step in latest["steps"] if step["type"] == "tool"]
+
+
+def test_steps_for_a_run_that_does_not_exist_are_a_404(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    with pytest.raises(BridgeError) as caught:
+        bridge.steps()
+    assert caught.value.status == 404
+
+
+def test_steps_are_served_over_http(served):
+    status, payload = _request(served, "/api/steps?turn=0")
+    # Routed to the bridge, which has no run 0 yet in a fresh session.
+    assert status == 404
+    assert "no runs" in payload["error"]
+    status, _payload = _request(served, "/api/steps?turn=first")
+    assert status == 400
+
+
+def test_a_step_s_status_is_escaped_where_it_becomes_a_class():
+    """A stored trace comes from a session file, which a repository can plant
+    (DR-055): its status must not be able to close the class attribute and add
+    one of the page's action attributes, such as data-undo-turn."""
+    source = (STATIC_ROOT / "inspector.js").read_text(encoding="utf-8")
+    assert "status-${step.status}" not in source
+    assert "status-${escapeHtml(step.status)}" in source
+
+
+def test_a_picked_run_without_checks_shows_none_rather_than_another_run_s():
+    """Picking a spark run this page watched showed the last craft run's
+    requirements, marked final, in the Checks tab: only a run read back from
+    the session was kept from falling through to the latest turn's checks."""
+    source = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    view = source[source.index("function requirementsView()") :]
+    view = view[: view.index("\n}\n")]
+    assert "if (run && desk(focusId()).picked !== undefined) return null;" in view
+    assert "run.stored && desk(focusId()).picked" not in view
+
+
+def test_a_run_joined_part_way_is_shown_from_its_stored_trace():
+    """A page that loads mid-run rebuilds the run from the bridge's bounded
+    timeline, which drops the oldest events of a long run. Once it finishes
+    the stored trace holds all of it, so that is what the panel shows."""
+    app = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    join = app[app.index("// Joined mid-turn") :]
+    join = join[: join.index("replaying = true;")]
+    assert "seat.run.joined = true;" in join
+    steps = (STATIC_ROOT / "steps.js").read_text(encoding="utf-8")
+    chooser = steps[steps.index("function pickedOrSavedRun(seat)") :]
+    chooser = chooser[: chooser.index("\n}\n")]
+    assert "seat.lastRun.turnIndex === picked && !seat.lastRun.joined" in chooser
+    assert "if (seat.lastRun && seat.lastRun.joined)" in chooser
+    assert chooser.index("seat.lastRun.joined)") < chooser.index("if (seat.lastRun) return seat.lastRun;")
+
+
+def test_a_card_cannot_be_picked_while_a_run_is_live():
+    """The panel shows a live run (DR-055). A pick made during one marked a
+    card the panel did not show, then took the panel from the run the moment
+    it finished; the hover outline offered a click that did nothing."""
+    steps = (STATIC_ROOT / "steps.js").read_text(encoding="utf-8")
+    pick = steps[steps.index("function pickRun(index)") :]
+    pick = pick[: pick.index("\n}\n")]
+    assert "if (seat.run) return;" in pick
+    assert pick.index("if (seat.run) return;") < pick.index("seat.picked =")
+    assert 'dom.messages.classList.toggle("run-live", Boolean(seat.run))' in steps
+    css = (STATIC_ROOT / "app.css").read_text(encoding="utf-8")
+    for rule in re.findall(r"[^{}]*\[data-run-card\][^{}]*:hover[^{}]*\{", css):
+        assert ":not(.run-live)" in rule, rule
+
+
+def test_the_picked_card_is_not_outlined_in_the_dark_theme():
+    """Dark is Catppuccin Mocha with no lines: surfaces and glows separate
+    things. A solid ring round the picked card is a border by another name."""
+    css = (STATIC_ROOT / "app.css").read_text(encoding="utf-8")
+    (body,) = re.findall(r':root\[data-theme="dark"\] \.work-card\.picked \{([^}]*)\}', css)
+    assert "outline: none" in body
+    shadows = re.search(r"box-shadow:([^;]*);", body).group(1)
+    # A spread-only shadow ("0 0 0 2px …") draws a hard line.
+    assert not re.search(r"\b0 0 0 \d", shadows), shadows
+
+
 def test_no_page_script_writes_inline_styles():
     """The CSP is default-src 'self' (DR-029), which drops inline style
     attributes without a word: a bar drawn with style="height:…" renders as
     nothing. Sizes go in SVG attributes or classes instead (DR-041)."""
-    for name in ("app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js", "palette.js"):
+    for name in ("app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js", "palette.js", "steps.js"):
         source = (STATIC_ROOT / name).read_text(encoding="utf-8")
         assert 'style="' not in source, f"{name} writes an inline style attribute"
 

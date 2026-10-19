@@ -62,6 +62,7 @@ _ASSETS: dict[str, tuple[str, str]] = {
     "/files.js": ("files.js", "text/javascript; charset=utf-8"),
     "/palette.js": ("palette.js", "text/javascript; charset=utf-8"),
     "/automation.js": ("automation.js", "text/javascript; charset=utf-8"),
+    "/steps.js": ("steps.js", "text/javascript; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
     # Bundled so the page needs nothing from the network (DR-029).
     "/fonts/space-grotesk-latin-wght-normal.woff2": (
@@ -197,6 +198,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "/api/changes": lambda: self._bridge.changes(
                 target, turn=_turn_of(query)
             ),
+            # DR-055: a finished turn's steps, read when the inspector shows it.
+            "/api/steps": lambda: self._bridge.steps(target, turn=_turn_of(query)),
             "/api/doctor": self._bridge.doctor,
             # DR-051: the Files view, read-only and bounded by the workspace.
             "/api/files": self._bridge.files,

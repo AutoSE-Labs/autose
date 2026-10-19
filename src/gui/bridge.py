@@ -104,6 +104,7 @@ from .payloads import (
     runtime_payload,
     session_title,
     tier_payloads,
+    trace_payload,
     turn_payload,
     warnings_payload,
 )
@@ -1073,6 +1074,28 @@ class SessionBridge:
             ],
             "added": added,
             "removed": removed,
+        }
+
+    def steps(
+        self, session_id: str | None = None, *, turn: int | None = None
+    ) -> dict[str, Any]:
+        """One turn's stored steps, rounds and stage times (DR-055).
+
+        Read on demand, like a turn's diffs (DR-040): a state frame carries
+        only ``has_steps`` per turn, so a long session does not resend every
+        run's trace with each change of state. *turn* defaults to the latest.
+        """
+        session = self._target(session_id).session
+        history = session.history
+        index = len(history) - 1 if turn is None else turn
+        if not history:
+            raise BridgeError("this session has no runs yet", status=404)
+        if not 0 <= index < len(history):
+            raise BridgeError(f"there is no run {index} in this session", status=404)
+        return {
+            "session": session.session_id,
+            "turn": index,
+            **trace_payload(history[index].trace),
         }
 
     def files(self) -> dict[str, Any]:
