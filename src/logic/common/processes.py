@@ -99,6 +99,22 @@ STOPPED = "stopped"
 
 #: A trailing ``&`` on its own: not ``&&``, not the ``&`` of ``2>&1`` or
 #: ``&>``, not an escaped ``\\&``.
+#: A local address a command printed — where a server it started can be
+#: opened. Only loopback and "every address" hosts: a page link to anywhere
+#: else is not something a local command can be said to serve.
+_LOCAL_ADDRESS = re.compile(
+    r"\bhttps?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|\[::\])(?::\d{1,5})?(?:/[^\s'\"<>)\]]*)?",
+    re.IGNORECASE,
+)
+_ANY_HOST = re.compile(r"^(https?://)(?:0\.0\.0\.0|\[::\]|\[::1\])", re.IGNORECASE)
+#: Addresses kept per command: a server prints its own once or twice.
+MAX_LINKS = 3
+
+#: Who started a command: a run of the session (``run`` is its number, as the
+#: page counts them) or the person, from the Terminals panel.
+BY_RUN = "run"
+BY_PERSON = "person"
+
 _TRAILING_AMPERSAND = re.compile(r"(?<![&>|\\])&\s*$")
 _LEADING_NOHUP = re.compile(r"^\s*nohup\s+")
 
@@ -164,8 +180,14 @@ class BackgroundProcess:
         cwd: Path,
         shown_cwd: str = ".",
         max_lines: int = MAX_OUTPUT_LINES,
+        origin: dict[str, Any] | None = None,
     ) -> None:
         self.id = _next_id()
+        #: Who started it, for the Terminals panel: ``{"by": "run", "run": 2,
+        #: "request": ...}`` or ``{"by": "person"}``; empty when unknown.
+        self.origin: dict[str, Any] = dict(origin or {})
+        #: Local addresses it printed, first seen first (see ``_LOCAL_ADDRESS``).
+        self._links: list[str] = []
         self.command = command
         self.cwd = cwd
         #: The working directory as the command named it, for showing.
@@ -266,6 +288,8 @@ class BackgroundProcess:
                 "ended_at": self.ended_at,
                 "lines": self._total,
                 "alive": self._alive(),
+                "origin": dict(self.origin),
+                "links": list(self._links),
             }
 
     # -- output ------------------------------------------------------------
@@ -310,6 +334,7 @@ class BackgroundProcess:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            env=_unbuffered_environment(),
             # Its own session, and so its own process group: a stop reaches
             # everything the command started, and a ctrl-c meant for AutoSE
             # does not reach the command.
@@ -402,6 +427,11 @@ class BackgroundProcess:
             line = line[:_MAX_LINE_CHARS] + " …"
         self._lines.append(line)
         self._total += 1
+        if len(self._links) < MAX_LINKS and "://" in line:
+            for found in _LOCAL_ADDRESS.findall(line):
+                link = _ANY_HOST.sub(r"\1localhost", found.rstrip(".,;:"))
+                if link not in self._links and len(self._links) < MAX_LINKS:
+                    self._links.append(link)
 
     def _wait(self, on_exit) -> None:
         popen = self._popen
@@ -452,6 +482,17 @@ def _unfinished(raw: str) -> str:
     return raw[-_MAX_LINE_CHARS:]
 
 
+def _unbuffered_environment() -> dict[str, str]:
+    """AutoSE's environment, with Python's output buffering off.
+
+    A command's output goes to a pipe, not a terminal, and Python then holds
+    what it prints until a buffer fills: ``python3 -m http.server`` says where
+    it is serving only after thousands of requests. Most other runtimes write
+    a line as it is printed; this is the one that is common and silent.
+    """
+    return {**os.environ, "PYTHONUNBUFFERED": "1"}
+
+
 def _as_shown(line: str) -> str:
     """A line as a terminal would leave it: a carriage return redraws it."""
     if "\r" not in line:
@@ -480,6 +521,9 @@ class ProcessManager:
         #: Set by the first stop of everything: a run still going when its
         #: session closes cannot start what nothing would stop any more.
         self._closed = False
+        #: Who starts what is started now when the caller does not say: the
+        #: run in progress, set by the session for each turn.
+        self._origin: dict[str, Any] = {}
         _MANAGERS.add(self)
 
     # -- reading -------------------------------------------------------------
@@ -502,16 +546,40 @@ class ProcessManager:
 
     # -- changing ------------------------------------------------------------
 
-    def start(self, command: str, *, cwd: Path, shown_cwd: str = ".") -> BackgroundProcess:
-        """Start *command* in the background. ``OSError`` if it cannot start."""
+    def started_by(self, origin: dict[str, Any] | None) -> None:
+        """Say who starts what is started from now on, until said again.
+
+        The session calls it as each turn begins (the run) and ends (nobody).
+        """
+        with self._lock:
+            self._origin = dict(origin or {})
+
+    def start(
+        self,
+        command: str,
+        *,
+        cwd: Path,
+        shown_cwd: str = ".",
+        origin: dict[str, Any] | None = None,
+    ) -> BackgroundProcess:
+        """Start *command* in the background. ``OSError`` if it cannot start.
+
+        *origin* says who started it; by default, the run in progress.
+        """
         if not SUPPORTED:
             raise ProcessError(
                 "this system cannot keep a command running in the background "
                 "and stop it again; run it without the trailing '&' so it "
                 "finishes on its own"
             )
+        with self._lock:
+            chosen = dict(origin) if origin is not None else dict(self._origin)
         process = BackgroundProcess(
-            command, cwd=cwd, shown_cwd=shown_cwd, max_lines=self._max_lines
+            command,
+            cwd=cwd,
+            shown_cwd=shown_cwd,
+            max_lines=self._max_lines,
+            origin=chosen,
         )
         # Checked, started and listed under one lock, so a close that comes
         # at the same moment either finds it on the list or refuses it.
@@ -540,6 +608,7 @@ class ProcessManager:
             cwd=process.shown_cwd,
             pid=process.pid,
             started_at=process.started_at,
+            origin=dict(process.origin),
         )
         process.watch(self._on_exit, self._on_end)
         return process

@@ -34,7 +34,7 @@ from .common.changes import CHANGED_SINCE, ChangeJournal, FileChange, RevertRepo
 from .common.context import MIN_USABLE_CONTEXT_TOKENS
 from .common.events import CompositeEventSink, Event, EventSink, NullEventSink
 from .common.memory import SessionMemory
-from .common.processes import ProcessManager
+from .common.processes import BY_RUN, ProcessManager
 from .common.trace import RunTrace, TraceRecorder
 from .common.workspace import Workspace
 from .config import AutoSEConfig
@@ -1423,9 +1423,15 @@ class Session:
             processes=self._processes,
         )
         self._emit("turn_started", prompt, tier=tier, prompt_text=prompt)
+        # What this run sends to the background is listed as started by it,
+        # with its number as the page counts runs (DR-062).
+        self._processes.started_by(
+            {"by": BY_RUN, "run": len(self._turns) + 1, "request": prompt}
+        )
         try:
             outcome: WorkflowOutcome = yield from workflow.stream(request)
         finally:
+            self._processes.started_by(None)
             # Ended here even when the workflow raises, so nothing after the
             # turn is recorded into it (DR-055).
             trace = self._trace.finish()

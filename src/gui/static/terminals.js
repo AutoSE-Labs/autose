@@ -4,7 +4,13 @@
  * - A window listing every open session's background commands, newest first,
  *   and the selected one's output in a dark code box that follows the end
  *   until the person scrolls up to read.
- * - Stop for a running command, Clear for a finished one.
+ * - Stop for a running command; Run again and Clear for a finished one.
+ * - Who started each (a run, or the person), when, for how long, its session
+ *   with a way back to it, and any local address it printed, to open
+ *   (DR-064).
+ * - "Start something": in words, which a Spark run in the chosen session
+ *   turns into a command (asked about as usual), or as a command the person
+ *   types, which runs as typed (DR-064).
  * - In a run's steps, a command that went to the background says so and
  *   links here (`[data-open-terminal]`).
  *
@@ -27,6 +33,24 @@ const terminals = {
   follow: true,
   timer: 0,
   reading: false,
+  mode: "ask",
+  // The session picked for "Start something"; empty means the focused one.
+  startSession: "",
+  // What the last "In words" request was sent to, to say where to follow it.
+  asked: null,
+};
+
+const TERM_MODES = {
+  ask: {
+    placeholder: "Start the dev server",
+    help: "A Spark run in this session works out the command and starts it. It asks before running anything, as any run does.",
+    go: "Ask",
+  },
+  start: {
+    placeholder: "npm run dev",
+    help: "Runs exactly as typed, in the workspace, without asking: you wrote it. It stops when its session closes.",
+    go: "Start",
+  },
 };
 
 /* ---------- reading ---------- */
@@ -89,6 +113,7 @@ function selectTerminal(id) {
 
 async function openTerminals(id) {
   overlays.terminals.hidden = false;
+  renderTermStart();
   if (id && id !== terminals.selected) selectTerminal(id);
   await refreshTerminals();
   if (!terminals.selected && terminals.list.length) {
@@ -143,6 +168,34 @@ function terminalSession(item) {
   return `${sheetNo(item.session)}${item.session_title ? ` · ${item.session_title}` : ""}`;
 }
 
+/* Who started it, in a word or two: "Run 2", "You". */
+function terminalBy(item) {
+  const origin = item.origin || {};
+  if (origin.by === "person") return origin.again_of ? "You, again" : "You";
+  if (origin.by === "run" && origin.run) return `Run ${origin.run}`;
+  return "A run";
+}
+
+function terminalClock(timestamp, seconds) {
+  const when = new Date(Number(timestamp || 0) * 1000);
+  return when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: seconds ? "2-digit" : undefined });
+}
+
+/* How long it has run, or ran: "45s", "12m", "2h 05m". */
+function terminalSpan(item) {
+  const end = item.ended_at && !item.alive ? item.ended_at : Date.now() / 1000;
+  const seconds = Math.max(0, Math.round(end - Number(item.started_at || 0)));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+/* "localhost:8080", from the address the command printed. */
+function terminalLinkLabel(link) {
+  return String(link).replace(/^https?:\/\//, "").replace(/\/$/, "");
+}
+
 function renderTerminals() {
   el("terminals-count").textContent = terminals.list.length
     ? `${terminals.running} running · ${terminals.list.length} in all`
@@ -155,11 +208,13 @@ function renderTerminals() {
             (item) =>
               `<button type="button" class="term-row${item.id === terminals.selected ? " on" : ""}" data-term="${escapeHtml(item.id)}">` +
               `<span class="term-row-top"><span class="term-command">${escapeHtml(elideMiddle(item.command, 60))}</span>${terminalPill(item)}</span>` +
-              `<span class="term-row-meta">${escapeHtml(terminalSession(item))} · started ${escapeHtml(formatWhen(item.started_at))}</span>` +
+              `<span class="term-row-meta"><span class="term-sheet">${escapeHtml(sheetNo(item.session))}</span>` +
+              `<span>${escapeHtml(terminalBy(item))}</span><span>${escapeHtml(terminalClock(item.started_at))}</span>` +
+              `<span>${escapeHtml(item.status === "running" || item.alive ? `up ${terminalSpan(item)}` : `ran ${terminalSpan(item)}`)}</span></span>` +
               `</button>`
           )
           .join("")
-      : `<div class="empty-box"><p>Nothing is running in the background. When a run starts a server or a watcher, it shows up here with its output.</p></div>`
+      : `<div class="empty-box"><p>Nothing is running in the background. Start something above, or ask a run to start a server or a watcher: it shows up here with its output.</p></div>`
   );
   renderTerminalView();
 }
@@ -167,38 +222,150 @@ function renderTerminals() {
 function renderTerminalView() {
   const item = terminals.list.find((entry) => entry.id === terminals.selected);
   const head = el("terminals-head");
+  const facts = el("terminals-facts");
   const output = el("terminals-output");
   if (!item) {
     setHtml(head, "");
+    facts.hidden = true;
     output.hidden = true;
     el("terminals-follow").hidden = true;
     return;
   }
   output.hidden = false;
+  const live = item.status === "running" || item.alive;
+  const opens = (item.links || [])
+    .map(
+      (link) =>
+        `<a class="ghost-button small term-open" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(link)} in a new tab">Open ${escapeHtml(terminalLinkLabel(link))} ↗</a>`
+    )
+    .join("");
   const actions =
-    item.status === "running" || item.alive
+    (live ? opens : "") +
+    (live
       ? `<button type="button" class="ghost-button small danger" data-term-action="stop">Stop</button>`
-      : `<button type="button" class="ghost-button small" data-term-action="clear">Clear</button>`;
+      : `<button type="button" class="ghost-button small" data-term-action="again">Run again</button>` +
+        `<button type="button" class="ghost-button small" data-term-action="clear">Clear</button>`);
   setHtml(
     head,
     `<div class="term-head-text"><code class="term-full">${escapeHtml(item.command)}</code>` +
-      `<span class="term-head-meta">${terminalPill(item)} <span>${escapeHtml(terminalSession(item))}</span>` +
-      ` · <span>started ${escapeHtml(formatWhen(item.started_at))}</span>` +
-      (item.cwd && item.cwd !== "." ? ` · <span>in ${escapeHtml(item.cwd)}</span>` : "") +
-      (item.pid ? ` · <span>pid\u00a0${escapeHtml(item.pid)}</span>` : "") +
-      `</span></div><div class="term-actions">${actions}</div>`
+      `<span class="term-head-meta">${terminalPill(item)}</span></div>` +
+      `<div class="term-actions">${actions}</div>`
   );
+  facts.hidden = false;
+  setHtml(facts, terminalFacts(item, live));
   const text =
     (terminals.dropped ? `… ${terminals.dropped} earlier lines are no longer kept\n` : "") +
     terminals.lines.join("\n") +
     (terminals.partial ? `${terminals.lines.length ? "\n" : ""}${terminals.partial}` : "");
-  const shown = text || (item.status === "running" ? "Waiting for output…" : "(no output)");
+  const shown =
+    text ||
+    (live
+      ? "It is running and has not printed anything yet. A server often prints only when something connects to it."
+      : "It printed nothing.");
+  output.classList.toggle("quiet", !text);
   if (output.__shown !== shown) {
     output.__shown = shown;
     output.textContent = shown;
     if (terminals.follow) output.scrollTop = output.scrollHeight;
   }
   el("terminals-follow").hidden = terminals.follow;
+}
+
+function terminalFact(label, value, sub) {
+  return `<div class="term-fact"><dt>${escapeHtml(label)}</dt><dd>${value}${sub ? `<span class="term-fact-sub">${sub}</span>` : ""}</dd></div>`;
+}
+
+function terminalFacts(item, live) {
+  const origin = item.origin || {};
+  const request = origin.by === "run" && origin.request ? escapeHtml(elideMiddle(String(origin.request), 90)) : "";
+  const by =
+    origin.by === "person"
+      ? terminalFact("Started by", "You", origin.again_of ? "run again from this panel" : "from this panel")
+      : terminalFact("Started by", escapeHtml(terminalBy(item)), request ? `“${request}”` : "");
+  return (
+    terminalFact("Started", escapeHtml(terminalClock(item.started_at, true)), escapeHtml(formatWhen(item.started_at))) +
+    terminalFact(live ? "Running for" : "Ran for", escapeHtml(terminalSpan(item)), live ? "" : escapeHtml(item.ended_at ? `until ${terminalClock(item.ended_at, true)}` : "")) +
+    by +
+    terminalFact(
+      "Session",
+      `<button type="button" class="term-goto" data-term-goto="${escapeHtml(item.session)}" title="Go to this session">${escapeHtml(sheetNo(item.session))} →</button>`,
+      escapeHtml(elideMiddle(item.session_title || "", 48))
+    ) +
+    terminalFact("Folder", escapeHtml(item.cwd && item.cwd !== "." ? item.cwd : "the workspace"), "") +
+    terminalFact("Process", item.pid ? `pid ${escapeHtml(item.pid)}` : "—", escapeHtml(`${formatCount(item.lines)} ${item.lines === 1 ? "line" : "lines"} of output`))
+  );
+}
+
+/* ---------- starting something (DR-064) ---------- */
+
+function renderTermStart() {
+  const mode = TERM_MODES[terminals.mode];
+  const input = el("term-start-input");
+  input.placeholder = mode.placeholder;
+  el("term-start-go").textContent = mode.go;
+  document.querySelectorAll("[data-term-mode]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.termMode === terminals.mode));
+  });
+  const open = (state && state.open) || [];
+  const chosen = open.some((entry) => entry.session_id === terminals.startSession) ? terminals.startSession : focusId();
+  setHtml(
+    el("term-start-session"),
+    open.length
+      ? open
+          .map(
+            (entry) =>
+              `<option value="${escapeHtml(entry.session_id)}"${entry.session_id === chosen ? " selected" : ""}>` +
+              `${escapeHtml(sheetNo(entry.session_id))} · ${escapeHtml(elideMiddle(entry.title || "New session", 34))}</option>`
+          )
+          .join("")
+      : `<option value="">No session is open</option>`
+  );
+  const asked = terminals.asked;
+  setHtml(
+    el("term-start-help"),
+    asked
+      ? `${escapeHtml(asked.queued ? `Queued in ${sheetNo(asked.session)}: it starts when the run there ends.` : `Asked ${sheetNo(asked.session)} to start it.`)} ` +
+          `<button type="button" class="term-goto" data-term-goto="${escapeHtml(asked.session)}">Follow it in the session →</button>`
+      : escapeHtml(mode.help)
+  );
+}
+
+async function submitTermStart(event) {
+  event.preventDefault();
+  const input = el("term-start-input");
+  const text = input.value.trim();
+  if (!text) {
+    input.focus();
+    return;
+  }
+  const session = el("term-start-session").value || "";
+  const go = el("term-start-go");
+  go.disabled = true;
+  const body =
+    terminals.mode === "ask" ? { action: "ask", request: text, session } : { action: "start", command: text, session };
+  const payload = await post("/api/processes", body);
+  go.disabled = false;
+  if (!payload) return;
+  input.value = "";
+  if (payload.asked) {
+    terminals.asked = { session: payload.asked.session || session || focusId(), queued: Boolean(payload.asked.queued) };
+  } else {
+    terminals.asked = null;
+  }
+  adoptTerminalList(payload);
+  if (payload.started) {
+    selectTerminal(payload.started);
+    await readTerminalOutput();
+  }
+  renderTermStart();
+  renderTerminals();
+}
+
+/* To the session a command belongs to: the window closes on the way. */
+function goToTerminalSession(id) {
+  if (!id) return;
+  overlays.terminals.hidden = true;
+  if (!isFocused(id)) post("/api/session", { action: "focus", id });
 }
 
 /* ---------- the run's steps ---------- */
@@ -259,8 +426,34 @@ el("terminals-head").addEventListener("click", async (event) => {
   if (!button || !terminals.selected) return;
   button.disabled = true;
   const payload = await post("/api/processes", { action: button.dataset.termAction, id: terminals.selected });
-  if (payload) adoptTerminalList(payload);
   button.disabled = false;
+  if (!payload) return;
+  adoptTerminalList(payload);
+  if (payload.started) {
+    selectTerminal(payload.started);
+    await readTerminalOutput();
+    renderTerminals();
+  }
+});
+
+el("term-start").addEventListener("submit", submitTermStart);
+
+el("term-start").addEventListener("click", (event) => {
+  const mode = event.target.closest("[data-term-mode]");
+  if (!mode || mode.dataset.termMode === terminals.mode) return;
+  terminals.mode = mode.dataset.termMode;
+  terminals.asked = null;
+  renderTermStart();
+  el("term-start-input").focus();
+});
+
+el("term-start-session").addEventListener("change", (event) => {
+  terminals.startSession = event.target.value;
+});
+
+el("terminals-overlay").addEventListener("click", (event) => {
+  const goto = event.target.closest("[data-term-goto]");
+  if (goto) goToTerminalSession(goto.dataset.termGoto);
 });
 
 el("terminals-output").addEventListener("scroll", () => {

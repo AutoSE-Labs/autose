@@ -64,7 +64,13 @@ from logic.common.browse import list_workspace, read_workspace_file
 from logic.common.changes import FileChange
 from logic.common.context import MIN_USABLE_CONTEXT_TOKENS
 from logic.common.events import CallbackEventSink, Event, EventSink
-from logic.common.processes import ProcessError, UnknownProcessError, stop_managers
+from logic.common.processes import (
+    BY_PERSON,
+    ProcessError,
+    UnknownProcessError,
+    background_form,
+    stop_managers,
+)
 from logic.common.workspace import Workspace
 from logic.config import AutoSEConfig, load_config, save_workspace_context_limit
 from logic.connections import list_connections
@@ -2143,7 +2149,8 @@ class SessionBridge:
         return payload
 
     def process_action(self, action: str, process_id: str) -> dict[str, Any]:
-        """Stop a running background command, or clear a finished one."""
+        """Stop a running background command, clear a finished one, or run a
+        finished one again (as the person, in the session that had it)."""
         live, process = self._process(process_id)
         manager = live.session.processes
         try:
@@ -2154,11 +2161,74 @@ class SessionBridge:
                 manager.stop(process.id, wait=False)
             elif action == "clear":
                 manager.clear(process.id)
+            elif action == "again":
+                if process.alive:
+                    raise BridgeError("it is still running; stop it before starting it again", status=409)
+                started = self._start_for_person(live, process.command, again_of=process.id)
+                # The old one makes way for the new one: one row per command.
+                manager.clear(process.id)
+                return {**self.processes(), "started": started.id}
             else:
-                raise BridgeError("a process action is stop or clear")
+                raise BridgeError("a process action is stop, clear or again")
         except ProcessError as exc:
             raise BridgeError(str(exc), status=409) from exc
         return self.processes()
+
+    def start_process(self, command: str, *, session_id: str | None) -> dict[str, Any]:
+        """Start *command* in the background, typed by the person (DR-064).
+
+        Not asked about: the person wrote it, in the dashboard, exactly as it
+        runs — as if typed in their own terminal. It belongs to *session_id*
+        (the focused session by default), runs in the workspace, and is
+        stopped when that session closes, like a command a run started.
+        """
+        text = command.strip()
+        if not text:
+            raise BridgeError("there is no command to start; type one first")
+        with self._lock:
+            live = self._target(session_id)
+        try:
+            started = self._start_for_person(live, text)
+        except ProcessError as exc:
+            raise BridgeError(str(exc), status=409) from exc
+        return {**self.processes(), "started": started.id}
+
+    def ask_for_process(self, request: str, *, session_id: str | None) -> dict[str, Any]:
+        """Have a run work out what to start from *request*, and start it (DR-064).
+
+        An ordinary Spark run in that session, with the request in plain
+        words: what it runs is asked about like any other call, so a
+        description is never a way past the approval gate. Queued behind a run
+        that is already working.
+        """
+        text = " ".join(request.split())
+        if not text:
+            raise BridgeError("describe what to start first")
+        # The person's words first: they are what the session is named after
+        # and what its run card shows as the request.
+        prompt = (
+            f"{text}\n\n"
+            "(Asked from the Terminals panel: start it and leave it running in "
+            "the background, with run_command and background set to true for "
+            "whatever keeps running, such as a server or a watcher. Change files "
+            "only if starting it needs that. When it is up, say in a line or two "
+            "what is running and where to open it.)"
+        )
+        asked = self.submit(prompt, tier=SPARK, session_id=session_id, queue=True)
+        return {**self.processes(), "asked": asked}
+
+    def _start_for_person(self, live: _Live, command: str, *, again_of: str = ""):
+        origin: dict[str, Any] = {"by": BY_PERSON}
+        if again_of:
+            origin["again_of"] = again_of
+        # "npm run dev &" typed by habit: the manager keeps it running anyway.
+        command = background_form(command) or command
+        try:
+            return live.session.processes.start(
+                command, cwd=live.session.workspace.root, origin=origin
+            )
+        except OSError as exc:
+            raise BridgeError(f"could not start it: {exc}", status=409) from exc
 
     def _process(self, process_id: str):
         """The open session holding *process_id*, and the process."""

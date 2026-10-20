@@ -377,13 +377,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return self._bridge.automation_action(action, fields)
 
     def _processes(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Stop or clear one background command (DR-062)."""
+        """Start, stop, clear or rerun a background command (DR-062, DR-064).
+
+        ``start`` runs a command the person typed; ``ask`` has a run in the
+        session work out what to start from a description.
+        """
+        action = str(body.get("action") or "").strip().lower()
+        session = str(body.get("session") or "").strip() or None
+        if action == "start":
+            return self._bridge.start_process(str(body.get("command") or ""), session_id=session)
+        if action == "ask":
+            return self._bridge.ask_for_process(str(body.get("request") or ""), session_id=session)
         identifier = str(body.get("id") or "").strip()
         if not identifier:
             raise BridgeError("which process? an id is required")
-        return self._bridge.process_action(
-            str(body.get("action") or "").strip().lower(), identifier
-        )
+        return self._bridge.process_action(action, identifier)
 
     def _context(self, body: dict[str, Any]) -> dict[str, Any]:
         try:
