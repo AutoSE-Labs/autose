@@ -2595,19 +2595,22 @@ def test_a_command_the_person_types_runs_as_typed_and_says_who_started_it(script
     bridge = _bridge(scripted, tmp_path, [answer("x")])
     focus = bridge.snapshot()["focus"]
     try:
-        command = f'"{sys.executable}" -m http.server 0 --bind 127.0.0.1'
+        # What `python3 -m http.server` prints, without its start-up: on macOS
+        # a server's reverse DNS lookup can hold its first line for long.
+        line = "Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) ..."
+        command = f'"{sys.executable}" -c "import time; print({line!r}); time.sleep(30)"'
         payload = bridge.start_process(f"{command} &", session_id=None)
         (row,) = payload["processes"]
         assert row["id"] == payload["started"]
         assert row["command"] == command  # the "&" is not needed
         assert row["origin"] == {"by": "person"} and row["session"] == focus
-        # Python's own buffering would hold this line until thousands of
-        # requests had filled it; it must arrive while the server runs.
-        assert _settles(lambda: bridge.processes()["processes"][0]["links"], timeout=15.0), (
+        # No -u: Python's own buffering would hold this line until thousands
+        # of requests had filled it; it must arrive while the server runs.
+        assert _settles(lambda: bridge.processes()["processes"][0]["links"], timeout=5.0), (
             bridge.processes(row["id"])["output"]
         )
         (link,) = bridge.processes()["processes"][0]["links"]
-        assert link.startswith("http://127.0.0.1:")
+        assert link == "http://localhost:8000/"
         with pytest.raises(BridgeError):
             bridge.start_process("   ", session_id=None)
     finally:
