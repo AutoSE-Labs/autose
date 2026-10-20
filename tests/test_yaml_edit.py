@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import stat
 
 import pytest
@@ -142,6 +143,7 @@ def test_a_file_it_cannot_edit_is_rewritten_correctly_without_comments(tmp_path)
     }
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits do not apply on Windows")
 def test_a_new_file_is_private_unless_asked_and_an_old_one_keeps_its_mode(tmp_path):
     private = tmp_path / "user" / "config.yaml"
     update_yaml_scalars(private, {"inference.model": "m"})

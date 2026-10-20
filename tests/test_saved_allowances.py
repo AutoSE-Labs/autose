@@ -4,6 +4,7 @@ rules (DR-057)."""
 from __future__ import annotations
 
 import json
+import os
 import stat
 
 import pytest
@@ -65,6 +66,7 @@ def test_the_default_file_is_in_the_user_config_directory_not_the_workspace(tmp_
     assert list(workspace.iterdir()) == []
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits do not apply on Windows")
 def test_the_file_is_private(tmp_path):
     rules = _file(tmp_path)
     rules.add(PYTEST)
