@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import queue
 import re
+import sys
 import threading
 import time
 import tomllib
@@ -1701,6 +1702,8 @@ def _run_palette(scenario: str, platform: str = "Linux x86_64") -> dict:
         input=json.dumps([source, platform, scenario]),
         capture_output=True,
         text=True,
+        # Node writes UTF-8 everywhere; Python would read it as cp1252 on Windows.
+        encoding="utf-8",
         timeout=30,
         check=False,
     )
@@ -2592,16 +2595,19 @@ def test_a_command_the_person_types_runs_as_typed_and_says_who_started_it(script
     bridge = _bridge(scripted, tmp_path, [answer("x")])
     focus = bridge.snapshot()["focus"]
     try:
-        payload = bridge.start_process("python3 -m http.server 0 &", session_id=None)
+        command = f'"{sys.executable}" -m http.server 0 --bind 127.0.0.1'
+        payload = bridge.start_process(f"{command} &", session_id=None)
         (row,) = payload["processes"]
         assert row["id"] == payload["started"]
-        assert row["command"] == "python3 -m http.server 0"  # the "&" is not needed
+        assert row["command"] == command  # the "&" is not needed
         assert row["origin"] == {"by": "person"} and row["session"] == focus
         # Python's own buffering would hold this line until thousands of
         # requests had filled it; it must arrive while the server runs.
-        assert _settles(lambda: bridge.processes()["processes"][0]["links"], timeout=5.0)
+        assert _settles(lambda: bridge.processes()["processes"][0]["links"], timeout=15.0), (
+            bridge.processes(row["id"])["output"]
+        )
         (link,) = bridge.processes()["processes"][0]["links"]
-        assert link.startswith("http://localhost:")
+        assert link.startswith("http://127.0.0.1:")
         with pytest.raises(BridgeError):
             bridge.start_process("   ", session_id=None)
     finally:

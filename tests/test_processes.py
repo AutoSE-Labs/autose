@@ -182,7 +182,11 @@ def test_a_process_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
     impatient.stop(process.id)
 
     assert time.monotonic() - started < 1.5
-    assert process.status == STOPPED and process.exit_code == -9
+    # -9 where the shell hands over to the command (bash); -15 where it stays
+    # as its parent (dash, Ubuntu's sh) and the TERM ends the shell while the
+    # command ignoring it is killed. Either way nothing of it is left.
+    assert process.status == STOPPED and process.exit_code in (-9, -15)
+    assert not process.alive
 
 
 @posix_only
