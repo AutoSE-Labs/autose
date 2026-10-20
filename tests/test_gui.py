@@ -2466,7 +2466,6 @@ def _settles(check, timeout: float = 3.0) -> bool:
 
 
 @pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_a_backgrounded_command_is_listed_read_stopped_and_cleared(
     scripted, tmp_path, monkeypatch
 ):
@@ -2514,7 +2513,6 @@ def test_a_backgrounded_command_is_listed_read_stopped_and_cleared(
 
 
 @pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_closing_a_session_stops_what_it_started(scripted, tmp_path):
     bridge = _bridge(scripted, tmp_path, [answer("x")])
     first = bridge.snapshot()["focus"]
@@ -2527,7 +2525,6 @@ def test_closing_a_session_stops_what_it_started(scripted, tmp_path):
     assert bridge.processes()["processes"] == []
 
 
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 @pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_shutting_the_dashboard_down_stops_every_session_s_processes(scripted, tmp_path):
     bridge = _bridge(scripted, tmp_path, [answer("x")])
@@ -2585,3 +2582,117 @@ def test_a_run_still_going_at_shutdown_cannot_start_a_server_after_it(
         assert session.processes.processes() == ()
     finally:
         session.close()
+
+
+# -- DR-064: starting something from the Terminals panel ----------------------
+
+
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+def test_a_command_the_person_types_runs_as_typed_and_says_who_started_it(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    focus = bridge.snapshot()["focus"]
+    try:
+        payload = bridge.start_process("python3 -m http.server 0 &", session_id=None)
+        (row,) = payload["processes"]
+        assert row["id"] == payload["started"]
+        assert row["command"] == "python3 -m http.server 0"  # the "&" is not needed
+        assert row["origin"] == {"by": "person"} and row["session"] == focus
+        # Python's own buffering would hold this line until thousands of
+        # requests had filled it; it must arrive while the server runs.
+        assert _settles(lambda: bridge.processes()["processes"][0]["links"], timeout=5.0)
+        (link,) = bridge.processes()["processes"][0]["links"]
+        assert link.startswith("http://localhost:")
+        with pytest.raises(BridgeError):
+            bridge.start_process("   ", session_id=None)
+    finally:
+        bridge.shutdown()
+
+
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+def test_a_finished_command_runs_again_in_place_of_the_old_row(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("x")])
+    try:
+        first = bridge.start_process("echo once", session_id=None)["started"]
+        assert _settles(lambda: not bridge.processes()["processes"][0]["alive"])
+
+        payload = bridge.process_action("again", first)
+
+        (row,) = payload["processes"]
+        assert row["id"] == payload["started"] != first
+        assert row["origin"] == {"by": "person", "again_of": first}
+
+        running = bridge.start_process("sleep 30", session_id=None)["started"]
+        with pytest.raises(BridgeError) as refused:
+            bridge.process_action("again", running)
+        assert refused.value.status == 409
+    finally:
+        bridge.shutdown()
+
+
+def test_a_description_becomes_a_spark_run_with_the_person_s_words_first(scripted, tmp_path):
+    bridge = _bridge(scripted, tmp_path, [answer("it runs")])
+    subscriber = bridge.subscribe()
+    try:
+        payload = bridge.ask_for_process("  the dev   server ", session_id=None)
+        assert payload["asked"]["session"] == bridge.snapshot()["focus"]
+        _drain(subscriber, "turn")
+        (request,) = scripted["model"].requests
+        sent = request["messages"][-1]["content"]
+        assert sent.startswith("the dev server\n\n")
+        assert "background set to true" in sent
+        # Named after the person's words, not the note added after them.
+        assert bridge.snapshot()["open"][0]["title"] == "the dev server"
+        with pytest.raises(BridgeError):
+            bridge.ask_for_process("", session_id=None)
+    finally:
+        bridge.shutdown()
+
+
+@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
+def test_what_a_run_starts_is_marked_with_the_run_and_its_request(
+    scripted, tmp_path, monkeypatch
+):
+    from logic.common.tools import background
+
+    monkeypatch.setattr(background, "FIRST_LOOK_SECONDS", 0.1)
+    bridge = _bridge(
+        scripted,
+        tmp_path,
+        [calls(tool_call("run_command", command="sleep 30 &")), answer("it runs")],
+    )
+    subscriber = bridge.subscribe()
+    try:
+        bridge.submit("start the server")
+        request = _drain(subscriber, "approval")["request"]
+        bridge.resolve_approval(request["id"], approved=True)
+        _drain(subscriber, "turn")
+        (row,) = bridge.processes()["processes"]
+        assert row["origin"] == {"by": "run", "run": 1, "request": "start the server"}
+        # Between runs nobody is starting anything: the person's own start
+        # is never mistaken for the last run's.
+        typed = bridge.start_process("sleep 30", session_id=None)["started"]
+        mine = next(item for item in bridge.processes()["processes"] if item["id"] == typed)
+        assert mine["origin"] == {"by": "person"}
+    finally:
+        bridge.shutdown()
+
+
+def test_the_panel_starts_and_asks_over_http(served):
+    status, _ = _request(served, "/api/processes", body={"action": "start", "command": ""})
+    assert status == 400
+    status, _ = _request(served, "/api/processes", body={"action": "ask", "request": ""})
+    assert status == 400
+    status, _ = _request(
+        served, "/api/processes", body={"action": "start", "command": "true", "session": "nope"}
+    )
+    assert status == 404
+
+
+def test_the_terminals_panel_can_start_something_and_go_to_its_session():
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    script = (STATIC_ROOT / "terminals.js").read_text(encoding="utf-8")
+    for needed in ('id="term-start"', 'data-term-mode="ask"', 'data-term-mode="start"', 'id="terminals-facts"'):
+        assert needed in page
+    for needed in ('action: "ask"', 'action: "start"', 'data-term-action="again"', "data-term-goto", 'rel="noopener noreferrer"'):
+        assert needed in script
+

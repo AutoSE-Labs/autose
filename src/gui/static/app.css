@@ -6487,6 +6487,270 @@ body.yolo .app-shell {
   }
 }
 
+/* ---------- Terminals: start something, and what each one is (DR-064) ---------- */
+
+.terminals-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.terminals-side .terminals-list {
+  flex: 1;
+}
+
+/* Drawn like the Allowed page's "Add a rule": a dashed pencil box. */
+.term-start {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1.5px dashed var(--pencil);
+  border-radius: 12px;
+}
+
+.term-start-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.term-start-title {
+  font-weight: 700;
+}
+
+.term-mode {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--sheet-2);
+}
+
+.term-mode button {
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.term-mode button[aria-pressed="true"] {
+  background: var(--sheet);
+  color: var(--pen-deep);
+  font-weight: 700;
+  box-shadow: var(--shadow);
+}
+
+.term-start input,
+.term-start select {
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--edge-2);
+  border-radius: 8px;
+  background: var(--sheet);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.term-start input:focus-visible {
+  outline: none;
+  border-color: var(--pen);
+}
+
+.term-start-row {
+  display: flex;
+  gap: 8px;
+}
+
+.term-start-row select {
+  flex: 1;
+}
+
+.term-start-help {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+/* A row's second line: its sheet, who started it, when, and for how long. */
+.term-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+
+.term-row-meta > span + span::before {
+  content: "·";
+  margin-right: 8px;
+  color: var(--pencil);
+}
+
+.term-sheet {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--pen-deep);
+}
+
+/* What the selected one is: a row of labelled facts, framed on paper. */
+.term-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  margin: 0;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.term-facts[hidden] {
+  display: none;
+}
+
+.term-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 12px;
+  border-right: 1px solid var(--edge);
+}
+
+.term-fact:last-child {
+  border-right: 0;
+}
+
+.term-fact dt {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.term-fact dd {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.term-fact-sub {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-2);
+  text-overflow: ellipsis;
+}
+
+.term-goto {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pen-deep);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.term-goto:hover {
+  color: var(--pen);
+}
+
+.term-start-help .term-goto {
+  display: inline;
+  font-weight: 600;
+}
+
+.term-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+a.term-open {
+  text-decoration: none;
+}
+
+/* Nothing printed yet: said in the screen's own voice, not as output. */
+.terminals-output.quiet {
+  color: var(--code-text);
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+:root[data-theme="dark"] .term-start {
+  border-color: transparent;
+  background: var(--panel);
+}
+
+:root[data-theme="dark"] .term-mode {
+  border-color: transparent;
+  background: var(--surface0);
+}
+
+:root[data-theme="dark"] .term-mode button[aria-pressed="true"] {
+  background: var(--surface1);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .term-start input,
+:root[data-theme="dark"] .term-start select {
+  border-color: transparent;
+  background: var(--surface0);
+}
+
+:root[data-theme="dark"] .term-start input:focus-visible {
+  box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.35);
+}
+
+:root[data-theme="dark"] .term-facts {
+  gap: 2px;
+  border: 0;
+  background: transparent;
+}
+
+:root[data-theme="dark"] .term-fact {
+  border-right: 0;
+  background: var(--sheet-2);
+}
+
+:root[data-theme="dark"] .term-fact:first-child {
+  border-radius: 10px 0 0 10px;
+}
+
+:root[data-theme="dark"] .term-fact:last-child {
+  border-radius: 0 10px 10px 0;
+}
+
+@media (max-width: 760px) {
+  .terminals-side {
+    min-height: 0;
+  }
+
+  .term-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .term-fact {
+    border-bottom: 1px solid var(--edge);
+  }
+}
+
 /* ---------- undo one file (DR-061): diff head, Changes tab, a run's files ---------- */
 
 .undo-file {

@@ -584,3 +584,54 @@ def test_a_system_without_process_groups_refuses_rather_than_orphans(
     assert result.startswith("Error:") and "trailing '&'" in result
     assert manager.processes() == ()
     manager.stop_all()  # nothing to stop, and no POSIX-only call is reached
+
+
+# -- DR-064: who started it, and where it can be opened -----------------------
+
+
+@posix_only
+def test_a_command_says_who_started_it(manager, tmp_path):
+    manager.started_by({"by": "run", "run": 3, "request": "start it"})
+    by_run = manager.start("true", cwd=tmp_path)
+    mine = manager.start("true", cwd=tmp_path, origin={"by": "person"})
+    manager.started_by(None)
+    nobody = manager.start("true", cwd=tmp_path)
+
+    assert by_run.to_dict()["origin"] == {"by": "run", "run": 3, "request": "start it"}
+    assert mine.to_dict()["origin"] == {"by": "person"}
+    assert nobody.to_dict()["origin"] == {}
+    started = manager.recorded.of_type("process_started")[0]
+    assert started.data["origin"]["run"] == 3
+
+
+@posix_only
+def test_local_addresses_it_prints_are_kept_to_open(manager, tmp_path):
+    printed = (
+        "Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) ...;"
+        "Local: http://localhost:5173/, also http://127.0.0.1:5173/app.;"
+        "docs at https://example.com/x and http://[::]:9000;"
+        "again http://localhost:5173/"
+    )
+    script = "; ".join(f"print({line!r})" for line in printed.split(";"))
+    process = manager.start(f'{PY} "{script}"', cwd=tmp_path)
+    assert process.wait(2.0)
+
+    assert process.to_dict()["links"] == [
+        "http://localhost:8000/",
+        "http://localhost:5173/",
+        "http://127.0.0.1:5173/app",
+    ]
+
+
+@posix_only
+def test_python_output_arrives_while_it_runs_not_when_it_ends(manager, tmp_path):
+    """No -u: the command as a person types it. Through a pipe Python would
+    hold this line until its buffer filled."""
+    process = manager.start(
+        "python3 -c \"import time; print('listening'); time.sleep(30)\"", cwd=tmp_path
+    )
+    try:
+        assert _until(lambda: process.output().lines == ("listening",), timeout=3.0)
+    finally:
+        manager.stop(process.id)
+

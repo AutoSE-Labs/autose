@@ -333,9 +333,28 @@ ollama pull qwen3:8b</code></pre>
         <button class="ghost-button small" id="terminals-close" type="button">Close</button>
       </div>
       <div class="terminals-main">
-        <nav class="terminals-list" id="terminals-list" aria-label="Background commands"></nav>
+        <div class="terminals-side">
+          <!-- DR-064: start something here, in words or as a command. -->
+          <form class="term-start" id="term-start">
+            <div class="term-start-top">
+              <span class="term-start-title">Start something</span>
+              <div class="term-mode" role="group" aria-label="How to say what to start">
+                <button type="button" data-term-mode="ask" aria-pressed="true">In words</button>
+                <button type="button" data-term-mode="start" aria-pressed="false">Command</button>
+              </div>
+            </div>
+            <input id="term-start-input" type="text" autocomplete="off" spellcheck="false" aria-label="What to start" />
+            <div class="term-start-row">
+              <select id="term-start-session" aria-label="Which session it belongs to"></select>
+              <button class="primary-button" id="term-start-go" type="submit">Start</button>
+            </div>
+            <p class="term-start-help" id="term-start-help"></p>
+          </form>
+          <nav class="terminals-list" id="terminals-list" aria-label="Background commands"></nav>
+        </div>
         <section class="terminals-view" aria-label="Output">
           <div class="terminals-head" id="terminals-head"></div>
+          <dl class="term-facts" id="terminals-facts" hidden></dl>
           <div class="terminals-screen">
             <pre class="terminals-output" id="terminals-output" tabindex="0" hidden></pre>
             <button class="terminals-follow" id="terminals-follow" type="button" hidden>↓ Follow the output</button>
