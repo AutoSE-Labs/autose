@@ -718,3 +718,16 @@ def test_a_rule_taken_back_after_clearing_the_history_stays_taken_back(make_sess
     reopened = make_session([answer("later")], store=store)
     reopened.restore(store.load(session.session_id))
     assert reopened.allowances == ()
+
+
+def test_a_session_is_titled_by_its_first_request_s_first_paragraph():
+    """A note after the ask (the Terminals panel adds one, DR-064) is detail,
+    not the session's name."""
+    from logic.persistence import TurnRecord, request_title
+
+    assert request_title("  serve this folder\n\n(Asked from the panel …)") == "serve this folder"
+    assert request_title("fix the\nflaky test") == "fix the flaky test"
+    assert request_title("x" * 80) == "x" * 70 + "…"
+    record = SessionRecord(id="s1", turns=(TurnRecord(prompt="start it\n\nmore detail", answer="ok", tier="spark"),))
+    assert record.title == "start it"
+

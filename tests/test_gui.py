@@ -2640,9 +2640,8 @@ def test_a_description_becomes_a_spark_run_with_the_person_s_words_first(scripte
         sent = request["messages"][-1]["content"]
         assert sent.startswith("the dev server\n\n")
         assert "background set to true" in sent
-        assert scripted["model"].requests and bridge.snapshot()["open"][0]["title"].startswith(
-            "the dev server"
-        )
+        # Named after the person's words, not the note added after them.
+        assert bridge.snapshot()["open"][0]["title"] == "the dev server"
         with pytest.raises(BridgeError):
             bridge.ask_for_process("", session_id=None)
     finally:

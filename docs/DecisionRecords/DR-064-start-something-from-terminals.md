@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-20
 - **Decision owners:** AutoSE maintainers
-- **Scope:** `BackgroundProcess.origin` and `links`, `ProcessManager.started_by` and `start(origin=…)`, `_unbuffered_environment` (`src/logic/common/processes.py`); `Session.stream` (`src/logic/session.py`); `SessionBridge.start_process`, `ask_for_process` and the `again` action (`src/gui/bridge.py`); `POST /api/processes` (`src/gui/server.py`); the Terminals panel (`index.html`, `terminals.js`, `app.css`). Extends DR-062; reads DR-012 and DR-042.
+- **Scope:** `BackgroundProcess.origin` and `links`, `ProcessManager.started_by` and `start(origin=…)`, `_unbuffered_environment` (`src/logic/common/processes.py`); `Session.stream` (`src/logic/session.py`); `SessionBridge.start_process`, `ask_for_process` and the `again` action (`src/gui/bridge.py`); `POST /api/processes` (`src/gui/server.py`); `request_title` (`src/logic/persistence.py`) and `session_title` (`src/gui/payloads.py`); the Terminals panel (`index.html`, `terminals.js`, `app.css`). Extends DR-062; reads DR-012 and DR-042.
 
 ## Context
 
@@ -40,9 +40,12 @@ buffer until thousands of requests had filled it.
   anything yet, rather than seeming to wait.
 - **Start something, in words.** `action: "ask"` sends the person's words to
   the chosen session (the focused one by default) as an ordinary Spark run,
-  queued behind a run that is already working. Their words come first, so the
-  session is named after them, followed by a short note asking for
-  `run_command` with `background: true`. What that run executes is asked
+  queued behind a run that is already working. Their words come first,
+  followed by a short note in a paragraph of its own asking for
+  `run_command` with `background: true`. A session is now titled by the
+  first paragraph of its first request (`request_title`, used both for the
+  rail and for stored sessions), so it is named after the person's words and
+  not after the note. What that run executes is asked
   about like any other call (DR-012), so describing a command is never a way
   past the approval gate.
 - **Start something, as a command.** `action: "start"` runs the command

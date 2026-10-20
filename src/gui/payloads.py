@@ -22,7 +22,7 @@ from logic.diagnostics import Diagnosis
 from logic.followups import suggest_follow_ups
 from logic.inference.catalog import ModelInfo
 from logic.inference.discovery import DetectedRuntime
-from logic.persistence import SessionRecord
+from logic.persistence import SessionRecord, request_title
 from logic.session import Turn
 from logic.tiers import TIER_SPECS
 
@@ -243,9 +243,9 @@ def session_title(
     if current and current.get("prompt"):
         prompts.append(str(current["prompt"]))
     for prompt in prompts:
-        first = " ".join(prompt.split())
+        first = request_title(prompt)
         if first:
-            return first[:70] + ("…" if len(first) > 70 else "")
+            return first
     return "New session"
 
 

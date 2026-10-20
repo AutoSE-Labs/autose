@@ -228,6 +228,18 @@ class QueuedRequest:
         )
 
 
+def request_title(prompt: str) -> str:
+    """A request as a one-line label: its first paragraph, cut at 70 characters.
+
+    The first paragraph, because a long request usually opens with the ask
+    and follows with detail, and a note added to a request (as the Terminals
+    panel adds one, DR-064) must not become the session's name. Empty when
+    the request is.
+    """
+    first = " ".join(prompt.strip().split("\n\n", 1)[0].split())
+    return first[:70] + ("…" if len(first) > 70 else "")
+
+
 @dataclass(frozen=True)
 class SessionRecord:
     """One session, as plain data."""
@@ -265,9 +277,9 @@ class SessionRecord:
         if self.name.strip():
             return self.name.strip()
         for turn in self.turns:
-            first = " ".join(turn.prompt.split())
+            first = request_title(turn.prompt)
             if first:
-                return first[:70] + ("…" if len(first) > 70 else "")
+                return first
         return "(no requests yet)"
 
     @property
