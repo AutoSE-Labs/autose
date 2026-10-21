@@ -25,7 +25,9 @@ round and a stray process.
   are kept, readable again from a cursor; a line still being written (a
   prompt, a progress bar) is shown but not counted. Its status is running,
   exited with a code, or stopped. Stopping sends SIGTERM to the whole group
-  and SIGKILL after two seconds. One session may have eight running at once,
+  and SIGKILL after two seconds (Windows, which has no process groups, uses a
+  job object instead; see "Windows" below). One session may have eight
+  running at once,
   so a model that starts its server again every round cannot fill the
   machine. A command that exits but leaves something running in its group
   that still holds its output (`./start.sh` that runs `node server.js &`)
@@ -116,7 +118,39 @@ round and a stray process.
   command itself has ended: nothing holds the pipe, so it is not known to be
   there.
 - Killing AutoSE with SIGKILL, or a crash in the interpreter, still leaves
-  processes running; only an orderly exit can stop them.
-- Process groups are POSIX. Where there are none (Windows), a command meant
-  to keep running is refused with an error rather than started with no way
-  to stop what it starts; ordinary commands run as before.
+  processes running on POSIX; only an orderly exit can stop them. (On
+  Windows the job object ends them when AutoSE's handle to it closes, however
+  AutoSE ends.)
+- A system with neither process groups nor job objects refuses a command
+  meant to keep running with an error rather than starting it with no way to
+  stop what it starts; ordinary commands run as before.
+
+## Windows
+
+Process groups (`start_new_session`, `os.killpg`) are POSIX. On Windows each
+background command is started suspended, in a new process group
+(`CREATE_NEW_PROCESS_GROUP`), put in a job object of its own and only then
+let run, so nothing it starts can slip out before the job holds it. The job
+is what the group is elsewhere:
+
+- **Alive** means the job still has a running process, which covers what a
+  command left running after it exited (`start /b server`).
+- **Stopping** sends CTRL_BREAK to the command's group (the polite ask Node,
+  Python and most servers end on), then ends the whole job after the same
+  two-second grace. CTRL_BREAK only reaches a group that shares AutoSE's
+  console, and is only sent while the shell leading the group still runs (a
+  group id that nothing answers to can reach every process on the console,
+  AutoSE included). Otherwise the stop ends the job at once.
+- **The job ends with AutoSE.** It is made with
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so the processes in it end when
+  AutoSE's handle to it closes, even after a crash or a forced kill.
+- **No console, no window.** When AutoSE has no console of its own (started
+  windowless), a command is started with `CREATE_NO_WINDOW` so a server does
+  not pop up a console window; its stop then goes straight to ending the job.
+- If no job can be made, the command still runs, and a stop falls back to
+  `taskkill /T /F` on the shell's process tree, which reaches only what still
+  descends from a running shell.
+
+A child cannot leave its job (breakaway is not allowed), so the POSIX caveat
+about `setsid` has no Windows counterpart. Commands run through `cmd`, as
+ordinary `run_command` calls already do there.

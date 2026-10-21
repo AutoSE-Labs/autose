@@ -9,7 +9,9 @@ was started is then orphaned with nobody able to see or stop it.
 A :class:`ProcessManager` is where such a command lives instead. Each one
 starts in its own process group inside the workspace; its combined output is
 kept as a bounded tail that can be read again from a cursor; and it can be
-stopped — SIGTERM to the whole group, SIGKILL after a short grace. One manager
+stopped — SIGTERM to the whole group, SIGKILL after a short grace. On Windows
+the group is a job object instead, asked to end with CTRL_BREAK and ended
+outright after the grace (see ``_Job``). One manager
 belongs to one session, and stopping everything it holds is part of closing
 that session, so nothing a run started outlives the session, the dashboard or
 the terminal app. An ``atexit`` hook is the backstop for an exit that skips
@@ -34,6 +36,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 import weakref
@@ -78,10 +81,11 @@ STOP_GRACE_SECONDS = 2.0
 MAX_RUNNING_PER_SESSION = 8
 
 #: Whether this system can keep a command running here at all. Stopping one
-#: with everything it started takes a process group of its own, and process
-#: groups (``start_new_session``, ``os.killpg``) are POSIX: elsewhere a
-#: background command is refused rather than started with no way to stop it.
-SUPPORTED = os.name == "posix"
+#: with everything it started takes a group of its own: a process group
+#: (``start_new_session``, ``os.killpg``) on POSIX, a job object on Windows.
+#: Anywhere else a background command is refused rather than started with no
+#: way to stop it.
+SUPPORTED = os.name == "posix" or sys.platform == "win32"
 
 #: One line of output kept at most, in characters. A minified bundle printed
 #: whole is one "line" of megabytes.
@@ -201,6 +205,12 @@ class BackgroundProcess:
         self._partial = ""
         self._lock = threading.Lock()
         self._popen: subprocess.Popen[bytes] | None = None
+        #: Windows only: the job object holding everything it started, when
+        #: one could be made.
+        self._job: Any = None
+        #: Windows only: whether it shares AutoSE's console, which a
+        #: CTRL_BREAK needs to reach it.
+        self._breakable = False
         self._stop_requested = False
         #: Set once the command has exited and everyone has been told.
         self._exited = threading.Event()
@@ -254,6 +264,10 @@ class BackgroundProcess:
         pid = self.pid
         if pid is None:
             return False
+        if sys.platform == "win32":
+            if self._job is not None:
+                return bool(self._job.active())
+            return self._popen is not None and self._popen.poll() is None
         try:
             os.killpg(pid, 0)
         except ProcessLookupError:
@@ -327,6 +341,24 @@ class BackgroundProcess:
 
     def launch(self) -> None:
         """Start the command in its own process group. Raises ``OSError``."""
+        if sys.platform == "win32":
+            # Suspended, so nothing it starts can run before it is in its job;
+            # a group of its own, so a CTRL_BREAK reaches everything it
+            # started and a ctrl-c meant for AutoSE does not reach it.
+            flags = _Job.creation_flags()
+            self._breakable = not flags & subprocess.CREATE_NO_WINDOW
+            self._popen = subprocess.Popen(  # noqa: S602 - a shell is what was approved
+                self.command,
+                shell=True,
+                cwd=self.cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=_unbuffered_environment(),
+                creationflags=flags,
+            )
+            self._job = _Job.around(self._popen)
+            return
         self._popen = subprocess.Popen(  # noqa: S602 - a shell is what was approved
             self.command,
             shell=True,
@@ -362,7 +394,7 @@ class BackgroundProcess:
                 self._stop_requested = True
             elif self._drained.is_set():
                 return False
-        return self._signal(signal.SIGTERM)
+        return self._signal(hard=False)
 
     def finish_stop(self, deadline: float) -> None:
         """Wait for the group to go until *deadline*, then SIGKILL what is left."""
@@ -370,21 +402,56 @@ class BackgroundProcess:
         self._drained.wait(max(0.0, deadline - time.monotonic()))
         if self._exited.is_set() and self._drained.is_set():
             return
-        self._signal(signal.SIGKILL)
+        self._signal(hard=True)
         self._exited.wait(1.0)
 
-    def _signal(self, signum: int) -> bool:
+    def _signal(self, *, hard: bool) -> bool:
+        """SIGTERM the group, or SIGKILL it when *hard*; whether it was reached."""
         pid = self.pid
         if pid is None:
             return False
+        if sys.platform == "win32":
+            return self._signal_windows(pid, hard=hard)
         # The group's id is the leader's pid (it was started as a new
         # session). It is signalled only while the group may still have a
         # member — the leader running, or something still holding the pipe —
         # so a reused id is never hit.
         try:
-            os.killpg(pid, signum)
+            os.killpg(pid, signal.SIGKILL if hard else signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             return False
+        return True
+
+    def _signal_windows(self, pid: int, *, hard: bool) -> bool:
+        if sys.platform != "win32":
+            return False
+        popen = self._popen
+        leader_runs = popen is not None and popen.poll() is None
+        if not hard and leader_runs and self._breakable:
+            # CTRL_BREAK to its group: the polite ask, which Node, Python and
+            # most servers end on. Only while the shell that leads the group
+            # runs (a group id nothing answers to can reach the whole
+            # console, AutoSE included), and only for a group sharing
+            # AutoSE's console; otherwise the stop goes straight to the end.
+            try:
+                os.kill(pid, signal.CTRL_BREAK_EVENT)
+            except OSError:
+                pass
+            else:
+                return True
+        if self._job is not None:
+            return bool(self._job.terminate())
+        # No job could be made: what still descends from the shell is all
+        # that can be found, and only while the shell itself runs.
+        if not leader_runs:
+            return False
+        taskkill = Path(os.environ.get("SYSTEMROOT", r"C:\Windows"), "System32", "taskkill.exe")
+        subprocess.run(  # noqa: S603 - Windows' own tool, on a pid AutoSE started
+            [str(taskkill), "/T", "/F", "/PID", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
         return True
 
     def _read(self) -> None:
@@ -466,6 +533,175 @@ class BackgroundProcess:
                 self._end_told = True
         if owed and self._on_end is not None:
             self._on_end(self)
+
+
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    _CREATE_SUSPENDED = 0x00000004
+    _PROCESS_TERMINATE = 0x0001
+    _PROCESS_SET_QUOTA = 0x0100
+    _PROCESS_SUSPEND_RESUME = 0x0800
+    _JOB_BASIC_ACCOUNTING = 1
+    _JOB_EXTENDED_LIMITS = 9
+    _KILL_ON_JOB_CLOSE = 0x2000
+
+    class _BasicLimits(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class _ExtendedLimits(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", _BasicLimits),
+            ("IoInfo", ctypes.c_uint64 * 6),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    class _Accounting(ctypes.Structure):
+        _fields_ = [
+            ("TotalUserTime", ctypes.c_int64),
+            ("TotalKernelTime", ctypes.c_int64),
+            ("ThisPeriodTotalUserTime", ctypes.c_int64),
+            ("ThisPeriodTotalKernelTime", ctypes.c_int64),
+            ("TotalPageFaultCount", wintypes.DWORD),
+            ("TotalProcesses", wintypes.DWORD),
+            ("ActiveProcesses", wintypes.DWORD),
+            ("TotalTerminatedProcesses", wintypes.DWORD),
+        ]
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _ntdll = ctypes.WinDLL("ntdll")
+    _kernel32.CreateJobObjectW.argtypes = (wintypes.LPVOID, wintypes.LPCWSTR)
+    _kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    _kernel32.SetInformationJobObject.argtypes = (
+        wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD
+    )
+    _kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    _kernel32.QueryInformationJobObject.argtypes = (
+        wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD, wintypes.LPDWORD
+    )
+    _kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+    _kernel32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+    _kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    _kernel32.TerminateJobObject.argtypes = (wintypes.HANDLE, wintypes.UINT)
+    _kernel32.TerminateJobObject.restype = wintypes.BOOL
+    _kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    _kernel32.OpenProcess.restype = wintypes.HANDLE
+    _kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    _kernel32.CloseHandle.restype = wintypes.BOOL
+    _kernel32.GetConsoleWindow.restype = wintypes.HWND
+    _ntdll.NtResumeProcess.argtypes = (wintypes.HANDLE,)
+    _ntdll.NtResumeProcess.restype = ctypes.c_long
+
+    class _Job:
+        """A Windows job object holding one background command and all it starts.
+
+        Windows has no process groups to signal as one, but a job holds
+        every process started inside it — what a command left running after
+        it exited included — so it can be counted (``active``) and ended
+        (``terminate``) as one. Its handle is set to end everything in it when
+        closed, so even AutoSE being killed outright leaves nothing behind.
+        """
+
+        def __init__(self, handle: int) -> None:
+            self._handle = handle
+
+        @staticmethod
+        def creation_flags() -> int:
+            """How a command is started: suspended until it is in its job, in a
+            group of its own, and windowless when AutoSE has no console."""
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP | _CREATE_SUSPENDED
+            if not _kernel32.GetConsoleWindow():
+                flags |= subprocess.CREATE_NO_WINDOW
+            return flags
+
+        @classmethod
+        def around(cls, popen: subprocess.Popen[bytes]) -> _Job | None:
+            """Put the suspended *popen* in a new job, then let it run.
+
+            ``None`` when no job could be made (a stop then reaches only what
+            still descends from the shell); it runs either way. ``OSError``
+            if it could not be let run, once it has been ended.
+            """
+            job = cls._made()
+            process = _kernel32.OpenProcess(
+                _PROCESS_SET_QUOTA | _PROCESS_TERMINATE | _PROCESS_SUSPEND_RESUME,
+                False,
+                popen.pid,
+            )
+            if not process:
+                popen.kill()
+                raise ctypes.WinError(ctypes.get_last_error())
+            try:
+                if job is not None and not job.take(process):
+                    job.close()
+                    job = None
+                if _ntdll.NtResumeProcess(process) < 0:
+                    popen.kill()
+                    raise OSError("could not resume the command after starting it")
+            finally:
+                _kernel32.CloseHandle(process)
+            return job
+
+        @classmethod
+        def _made(cls) -> _Job | None:
+            handle = _kernel32.CreateJobObjectW(None, None)
+            if not handle:
+                return None
+            limits = _ExtendedLimits()
+            limits.BasicLimitInformation.LimitFlags = _KILL_ON_JOB_CLOSE
+            if not _kernel32.SetInformationJobObject(
+                handle, _JOB_EXTENDED_LIMITS, ctypes.byref(limits), ctypes.sizeof(limits)
+            ):
+                _kernel32.CloseHandle(handle)
+                return None
+            return cls(handle)
+
+        def take(self, process: int) -> bool:
+            """Put the process with handle *process* in the job."""
+            return bool(_kernel32.AssignProcessToJobObject(self._handle, process))
+
+        def active(self) -> bool:
+            """Whether any process in the job is still running."""
+            if not self._handle:
+                return False
+            counts = _Accounting()
+            if not _kernel32.QueryInformationJobObject(
+                self._handle,
+                _JOB_BASIC_ACCOUNTING,
+                ctypes.byref(counts),
+                ctypes.sizeof(counts),
+                None,
+            ):
+                return False
+            return bool(counts.ActiveProcesses > 0)
+
+        def terminate(self) -> bool:
+            """End every process in the job; whether any could be reached."""
+            if not self._handle:
+                return False
+            return bool(_kernel32.TerminateJobObject(self._handle, 1))
+
+        def close(self) -> None:
+            handle, self._handle = self._handle, 0
+            if handle:
+                _kernel32.CloseHandle(handle)
+
+        def __del__(self) -> None:
+            self.close()
 
 
 def _unfinished(raw: str) -> str:

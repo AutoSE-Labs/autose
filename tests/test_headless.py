@@ -12,9 +12,9 @@ import json
 
 import pytest
 
-from logic.common.processes import SUPPORTED
 from logic.inference.catalog import ModelInfo
 from logic.inference.registry import Provider, register_provider
+from tests.support.commands import SLEEP
 from tests.support.fakes import ScriptedChatModel, answer, calls, tool_call
 from tui.headless import EXIT_CONFIGURATION, EXIT_INCOMPLETE, EXIT_OK, run_headless
 
@@ -315,7 +315,6 @@ def test_an_unserialisable_event_does_not_break_the_stream(endpoint, tmp_path, m
     assert line["type"] == "warning"
 
 
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_what_a_headless_run_started_in_the_background_is_stopped_at_the_end(
     endpoint, tmp_path, monkeypatch
 ):
@@ -326,7 +325,7 @@ def test_what_a_headless_run_started_in_the_background_is_stopped_at_the_end(
     code, lines = _run(
         endpoint,
         tmp_path,
-        [calls(tool_call("run_command", command="sleep 30 &")), answer("started")],
+        [calls(tool_call("run_command", command=f"{SLEEP} &")), answer("started")],
         auto_approve=True,
         authorized_by="test",
     )
@@ -336,7 +335,6 @@ def test_what_a_headless_run_started_in_the_background_is_stopped_at_the_end(
     assert exited and exited[0]["data"]["status"] == "stopped"
 
 
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_the_error_stays_the_last_line_when_a_background_command_is_stopped(
     endpoint, tmp_path, monkeypatch
 ):
@@ -350,7 +348,7 @@ def test_the_error_stays_the_last_line_when_a_background_command_is_stopped(
         endpoint,
         tmp_path,
         [
-            calls(tool_call("run_command", command="sleep 30 &")),
+            calls(tool_call("run_command", command=f"{SLEEP} &")),
             InferenceError("the runtime went away"),
         ],
         auto_approve=True,
