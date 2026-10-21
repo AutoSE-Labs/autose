@@ -130,6 +130,7 @@
         <a href="#try">Try it</a>
         <a href="#workflow">How it works</a>
         <a href="#features">Features</a>
+        <a href="#benchmark">Benchmark</a>
         <a href="#editions">Editions</a>
         <a href="research.html">Research</a>
         <a href="https://github.com/AutoSE-Labs/autose" class="nav-ext">GitHub <span aria-hidden="true">↗</span></a>
@@ -549,6 +550,70 @@
             the plan, or stop there.</p>
         </article>
       </div>
+    </div>
+  </section>
+
+  <!-- BENCHMARK: SWE-rebench, June 2026 window -->
+  <section class="section" id="benchmark" aria-labelledby="benchmark-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="lbl eyebrow">Benchmark</p>
+        <h2 class="section-title" id="benchmark-title">42 fresh tasks, small models, one GPU.</h2>
+        <p class="section-lede">We ran the free edition of AutoSE, mini-swe-agent and OpenHands on SWE-rebench's
+          June 2026 window: 42 real issues from 31 repositories, opened between 1 and 30 June 2026. Every agent
+          got the same models, the same instruction and the same three hours per task.</p>
+      </div>
+
+      <div class="sheet bench-sheet">
+        <table class="bench-table">
+          <caption class="lbl">Tasks resolved, out of 42 (all fail-to-pass tests passing)</caption>
+          <thead>
+            <tr>
+              <th scope="col">Agent</th>
+              <th scope="col">Gemma 4 12B</th>
+              <th scope="col">Qwen3.5 9B</th>
+              <th scope="col">Both models</th>
+              <th scope="col">Median time per task</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="bench-us">
+              <th scope="row">AutoSE 0.2.1 <span class="bench-tag">free edition</span></th>
+              <td><strong>2</strong> <span class="bench-pct">4.8%</span></td>
+              <td>4 <span class="bench-pct">9.5%</span></td>
+              <td><strong>6/84</strong> <span class="bench-pct">7.1%</span></td>
+              <td>88 / 78 min</td>
+            </tr>
+            <tr>
+              <th scope="row">mini-swe-agent 2.4.6</th>
+              <td>1 <span class="bench-pct">2.4%</span></td>
+              <td><strong>5</strong> <span class="bench-pct">11.9%</span></td>
+              <td><strong>6/84</strong> <span class="bench-pct">7.1%</span></td>
+              <td>49 / 30 min</td>
+            </tr>
+            <tr>
+              <th scope="row">OpenHands <span class="bench-tag">Agent SDK</span></th>
+              <td>1 <span class="bench-pct">2.4%</span></td>
+              <td>2 <span class="bench-pct">4.8%</span></td>
+              <td>3/84 <span class="bench-pct">3.6%</span></td>
+              <td>13 / 33 min</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <ul class="bench-notes">
+        <li><strong>Tasks.</strong> SWE-rebench's 1 June to 1 July 2026 window: Rust 13, Python 9, Java 8,
+          TypeScript 7, Go 5. Environments and graders come from SWE-rebench's own Harbor dataset; a task counts only
+          when every fail-to-pass test passes.</li>
+        <li><strong>Models.</strong> Gemma 4 12B-it (Google's QAT Q4_0 GGUF) and Qwen3.5-9B (Q4_K_M), served by
+          llama.cpp on a single RTX 6000 Ada shared by both, 128K context per request, thinking off.</li>
+        <li><strong>Harness.</strong> All three agents run through Harbor with their own default settings, the same
+          SWE-rebench-style developer instruction, no step limit and a 3-hour limit per task. OpenHands uses its
+          default context condenser.</li>
+        <li><strong>One run per task.</strong> SWE-rebench's leaderboard averages five; with one run, a difference
+          of one or two tasks is within noise. Trials interrupted by an inference-server outage were rerun.</li>
+      </ul>
     </div>
   </section>
 
