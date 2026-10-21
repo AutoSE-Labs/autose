@@ -13,7 +13,6 @@ from rich.console import Console
 from logic.common.allowances import Allowance
 from logic.common.approval import ApprovalRequest
 from logic.common.events import Event
-from logic.common.processes import SUPPORTED
 from logic.common.workspace import Workspace
 from logic.inference.catalog import ModelInfo
 from logic.inference.discovery import DetectedRuntime
@@ -21,6 +20,7 @@ from logic.inference.registry import Provider, register_provider
 from logic.inference.settings import InferenceSettings
 from logic.session import Session
 from logic.tiers import CRAFT, SPARK
+from tests.support.commands import SLEEP
 from tests.support.fakes import ScriptedChatModel, answer
 from tui.activity import ActivityIndicator
 from tui.approval import TerminalApprovalGate
@@ -1264,13 +1264,12 @@ def test_the_session_list_says_when_requests_wait_in_the_dashboard():
 # -- background commands (DR-062) ---------------------------------------------
 
 
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_terminals_lists_shows_and_stops_background_commands(app):
     dispatch(app, "/terminals")
     assert "nothing has been started" in app.console.file.getvalue()
 
     process = app.session.processes.start(
-        "echo ready; sleep 30", cwd=app.session.workspace.root
+        f"echo ready && {SLEEP}", cwd=app.session.workspace.root
     )
     try:
         dispatch(app, "/terminals")

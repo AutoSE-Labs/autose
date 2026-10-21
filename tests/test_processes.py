@@ -19,7 +19,6 @@ from logic.common.execution import ToolExecutor
 from logic.common.processes import (
     EXITED,
     STOPPED,
-    SUPPORTED,
     ProcessError,
     ProcessManager,
     UnknownProcessError,
@@ -36,23 +35,20 @@ from logic.inference.catalog import ModelInfo
 from logic.inference.registry import Provider, register_provider
 from logic.inference.settings import InferenceSettings
 from logic.session import Session
+from tests.support.commands import (
+    LOOP,
+    PYTHON,
+    SLEEP,
+    WINDOWS,
+    left_running,
+    start_script,
+)
 from tests.support.fakes import ScriptedChatModel, answer, calls, tool_call
 
 PY = f'"{sys.executable}" -u -c'
 
-#: Process groups, and so background commands, are POSIX (DR-062); elsewhere
-#: they are refused, which the last test here checks on every system.
-posix_only = pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
-
-#: Prints a numbered line every 50 ms for far longer than any test waits.
-#: `python3` rather than the interpreter's path: run_command refuses an
-#: absolute path, and every machine that runs these tests has one on PATH.
-LOOP = (
-    'python3 -u -c "import time\n'
-    "for i in range(10000):\n"
-    "    print('tick', i)\n"
-    '    time.sleep(0.05)"'
-)
+#: For what has no Windows counterpart; the reason says which.
+posix_only = pytest.mark.skipif(WINDOWS, reason="needs POSIX sessions or signals")
 
 
 @pytest.fixture
@@ -81,6 +77,18 @@ def _until(check, timeout: float = 2.0) -> bool:
 
 def _gone(pid: int) -> bool:
     """Whether *pid* has ended — a zombie waiting to be reaped counts."""
+    if WINDOWS:
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # query limited
+        if not handle:
+            return True
+        code = ctypes.c_ulong()
+        kernel32.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code))
+        kernel32.CloseHandle(ctypes.c_void_p(handle))
+        return code.value != 259  # STILL_ACTIVE
     stat = Path(f"/proc/{pid}/stat")
     try:
         state = stat.read_text().rsplit(")", 1)[1].split()[0]
@@ -113,7 +121,6 @@ def test_a_trailing_ampersand_asks_to_keep_running(command, expected):
 # -- the manager -----------------------------------------------------------------
 
 
-@posix_only
 def test_output_is_kept_and_the_exit_is_detected(manager, tmp_path):
     process = manager.start(f"{PY} \"print('a'); print('b'); raise SystemExit(3)\"", cwd=tmp_path)
 
@@ -128,7 +135,6 @@ def test_output_is_kept_and_the_exit_is_detected(manager, tmp_path):
     assert exited.data["exit_code"] == 3 and exited.data["status"] == EXITED
 
 
-@posix_only
 def test_only_a_bounded_tail_is_kept_and_a_reader_is_told_what_it_missed(tmp_path):
     small = ProcessManager(max_lines=5)
     process = small.start(f"{PY} \"[print(i) for i in range(20)]\"", cwd=tmp_path)
@@ -139,7 +145,6 @@ def test_only_a_bounded_tail_is_kept_and_a_reader_is_told_what_it_missed(tmp_pat
     assert shown.start == 15 and shown.skipped == 15 and shown.cursor == 20
 
 
-@posix_only
 def test_a_line_still_being_written_is_shown_but_not_counted(manager, tmp_path):
     process = manager.start(
         f"{PY} \"import sys, time; print('x'); sys.stdout.write('half'); "
@@ -151,10 +156,9 @@ def test_a_line_still_being_written_is_shown_but_not_counted(manager, tmp_path):
     manager.stop(process.id)
 
 
-@posix_only
 def test_stop_ends_the_whole_group_not_just_the_shell(manager, tmp_path):
     process = manager.start(
-        f"{PY} \"import subprocess, time; child = subprocess.Popen(['sleep', '30']); "
+        f"{PY} \"import subprocess, sys, time; child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
         f'print(child.pid); time.sleep(30)"',
         cwd=tmp_path,
     )
@@ -168,11 +172,14 @@ def test_stop_ends_the_whole_group_not_just_the_shell(manager, tmp_path):
     assert manager.recorded.of_type("process_exited")[0].data["status"] == STOPPED
 
 
-@posix_only
+#: What a stop asks a command to end with: SIGTERM, or CTRL_BREAK on Windows.
+IGNORED = "SIGBREAK" if WINDOWS else "SIGTERM"
+
+
 def test_a_process_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
     impatient = ProcessManager(stop_grace=0.3)
     process = impatient.start(
-        f"{PY} \"import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        f"{PY} \"import signal, time; signal.signal(signal.{IGNORED}, signal.SIG_IGN); "
         f"print('ready'); time.sleep(30)\"",
         cwd=tmp_path,
     )
@@ -185,13 +192,13 @@ def test_a_process_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
     # -9 where the shell hands over to the command (bash); -15 where it stays
     # as its parent (dash, Ubuntu's sh) and the TERM ends the shell while the
     # command ignoring it is killed. Either way nothing of it is left.
-    assert process.status == STOPPED and process.exit_code in (-9, -15)
-    assert not process.alive
+    assert process.status == STOPPED and not process.alive
+    if not WINDOWS:
+        assert process.exit_code in (-9, -15)
 
 
-@posix_only
 def test_a_running_process_cannot_be_cleared_and_a_finished_one_can(manager, tmp_path):
-    process = manager.start("sleep 30", cwd=tmp_path)
+    process = manager.start(SLEEP, cwd=tmp_path)
     with pytest.raises(ProcessError):
         manager.clear(process.id)
 
@@ -204,7 +211,6 @@ def test_a_running_process_cannot_be_cleared_and_a_finished_one_can(manager, tmp
         manager.get(process.id)
 
 
-@posix_only
 def test_what_an_ended_command_left_running_can_be_stopped_and_is_not_cleared(
     manager, workspace, monkeypatch
 ):
@@ -213,11 +219,8 @@ def test_what_an_ended_command_left_running_can_be_stopped_and_is_not_cleared(
     session still reaches it."""
     # Past the half second an exit waits for the last of the output.
     monkeypatch.setattr(background_tools, "FIRST_LOOK_SECONDS", 1.0)
-    (workspace.root / "start.sh").write_text(
-        f"{LOOP} &\necho started\n", encoding="utf-8"
-    )
     first_look = run_command(
-        "sh start.sh", background=True, workspace=workspace, processes=manager
+        start_script(workspace.root, LOOP), background=True, workspace=workspace, processes=manager
     )
     (process,) = manager.processes()
     assert _until(lambda: not process.running)
@@ -238,12 +241,8 @@ def test_what_an_ended_command_left_running_can_be_stopped_and_is_not_cleared(
     assert manager.processes() == ()
 
 
-@posix_only
 def test_closing_reaches_what_an_ended_command_left_running(manager, workspace):
-    (workspace.root / "start.sh").write_text(
-        f"{LOOP} &\necho started\n", encoding="utf-8"
-    )
-    process = manager.start("sh start.sh", cwd=workspace.root)
+    process = manager.start(start_script(workspace.root, LOOP), cwd=workspace.root)
     assert _until(lambda: not process.running and process.line_count >= 3)
 
     manager.stop_all()
@@ -251,11 +250,10 @@ def test_closing_reaches_what_an_ended_command_left_running(manager, workspace):
     assert _until(lambda: not process.alive)
 
 
-@posix_only
 def test_the_end_of_what_an_ended_command_left_running_is_told(manager, tmp_path):
     """Without it the dashboard, which fetches the list on process events,
     would count the command as running until something else happened."""
-    process = manager.start(f"{LOOP.replace('10000', '12')} & echo started", cwd=tmp_path)
+    process = manager.start(left_running(LOOP.replace("10000", "12")), cwd=tmp_path)
     assert _until(lambda: manager.recorded.of_type("process_exited"))
     assert manager.recorded.of_type("process_exited")[0].data["alive"] is True
 
@@ -266,7 +264,6 @@ def test_the_end_of_what_an_ended_command_left_running_is_told(manager, tmp_path
     assert types == ["process_started", "process_exited", "process_ended"]
 
 
-@posix_only
 def test_an_exit_with_nothing_left_running_owes_no_second_event(manager, tmp_path):
     process = manager.start("echo done", cwd=tmp_path)
     assert process.wait(2.0)
@@ -302,58 +299,52 @@ def test_a_pipe_held_outside_the_group_is_not_offered_a_stop(manager, workspace)
         os.kill(escaped, signal.SIGKILL)
 
 
-@posix_only
 def test_what_an_ended_command_left_running_counts_against_the_limit(workspace):
     capped = ProcessManager(max_running=1, stop_grace=0.5)
-    (workspace.root / "start.sh").write_text(f"{LOOP} &\necho started\n", encoding="utf-8")
-    process = capped.start("sh start.sh", cwd=workspace.root)
+    process = capped.start(start_script(workspace.root, LOOP), cwd=workspace.root)
     try:
         assert _until(lambda: not process.running and process.alive)
         with pytest.raises(ProcessError, match="already running"):
-            capped.start("sleep 30", cwd=workspace.root)
+            capped.start(SLEEP, cwd=workspace.root)
     finally:
         capped.stop_all()
 
 
-@posix_only
 def test_a_session_cannot_fill_the_machine_with_copies(tmp_path):
     capped = ProcessManager(max_running=1)
-    capped.start("sleep 30", cwd=tmp_path)
+    capped.start(SLEEP, cwd=tmp_path)
     try:
         with pytest.raises(ProcessError, match="already running"):
-            capped.start("sleep 30", cwd=tmp_path)
+            capped.start(SLEEP, cwd=tmp_path)
     finally:
         capped.stop_all()
 
 
-@posix_only
 def test_a_closed_manager_starts_nothing_more(manager, workspace):
     """A run still going when its session closes must not start a server
     that nothing would stop any more."""
     manager.stop_all()
 
     with pytest.raises(ProcessError, match="closed"):
-        manager.start("sleep 30", cwd=workspace.root)
-    result = run_command("sleep 30 &", workspace=workspace, processes=manager)
+        manager.start(SLEEP, cwd=workspace.root)
+    result = run_command(f"{SLEEP} &", workspace=workspace, processes=manager)
     assert result.startswith("Error:") and "closed" in result
     assert manager.processes() == ()
 
 
-@posix_only
 def test_stopping_managers_together_closes_them_too(tmp_path):
     first, second = ProcessManager(), ProcessManager()
     stop_managers([first, second])
 
     for closed in (first, second):
         with pytest.raises(ProcessError, match="closed"):
-            closed.start("sleep 30", cwd=tmp_path)
+            closed.start(SLEEP, cwd=tmp_path)
 
 
-@posix_only
 def test_stopping_several_managers_shares_one_grace(tmp_path):
     first, second = ProcessManager(), ProcessManager()
-    one = first.start("sleep 30", cwd=tmp_path)
-    two = second.start("sleep 30", cwd=tmp_path)
+    one = first.start(SLEEP, cwd=tmp_path)
+    two = second.start(SLEEP, cwd=tmp_path)
 
     stop_managers([first, second])
 
@@ -363,7 +354,6 @@ def test_stopping_several_managers_shares_one_grace(tmp_path):
 # -- run_command -----------------------------------------------------------------
 
 
-@posix_only
 def test_a_backgrounded_command_returns_at_once_instead_of_hanging(manager, workspace):
     """Before DR-062 this waited out the whole timeout: the loop held the pipe."""
     started = time.monotonic()
@@ -377,18 +367,16 @@ def test_a_backgrounded_command_returns_at_once_instead_of_hanging(manager, work
     assert f'process_output(process_id="{process.id}")' in result
 
 
-@posix_only
 def test_background_true_does_the_same_without_an_ampersand(manager, workspace):
-    result = run_command("sleep 30", background=True, workspace=workspace, processes=manager)
+    result = run_command(SLEEP, background=True, workspace=workspace, processes=manager)
 
     assert "Started in the background" in result
-    assert [process.command for process in manager.running()] == ["sleep 30"]
+    assert [process.command for process in manager.running()] == [SLEEP]
 
 
-@posix_only
 def test_a_background_command_that_ends_at_once_says_how(manager, workspace):
     result = run_command(
-        "python3 -c \"print('boom'); raise SystemExit(2)\" &",
+        f"{PYTHON} -c \"print('boom'); raise SystemExit(2)\" &",
         workspace=workspace,
         processes=manager,
     )
@@ -416,7 +404,6 @@ def test_the_workspace_checks_still_apply_to_a_background_command(manager, works
     assert manager.processes() == ()
 
 
-@posix_only
 def test_a_model_cannot_supply_its_own_manager(manager, workspace):
     """`processes` is injected, like `workspace`; a model's value is dropped."""
     from functools import partial
@@ -428,7 +415,7 @@ def test_a_model_cannot_supply_its_own_manager(manager, workspace):
     executor = ToolExecutor(
         registry, workspace=workspace, approval_gate=AutoApproveGate(authorized_by="test")
     )
-    result = executor.execute(tool_call("run_command", command="sleep 30 &", processes="mine"))
+    result = executor.execute(tool_call("run_command", command=f"{SLEEP} &", processes="mine"))
 
     assert "Started in the background" in result.content
     assert len(manager.running()) == 1
@@ -437,7 +424,6 @@ def test_a_model_cannot_supply_its_own_manager(manager, workspace):
 # -- reading and stopping, as the model does -----------------------------------------
 
 
-@posix_only
 def test_the_model_can_read_output_later_and_stop_the_process(manager, workspace):
     run_command(f"{LOOP} &", workspace=workspace, processes=manager)
     (process,) = manager.running()
@@ -455,11 +441,10 @@ def test_the_model_can_read_output_later_and_stop_the_process(manager, workspace
     assert "already ended" in again
 
 
-@posix_only
 def test_an_unknown_process_is_an_error_that_lists_the_real_ones(manager, workspace):
-    manager.start("sleep 30", cwd=workspace.root)
+    manager.start(SLEEP, cwd=workspace.root)
     result = stop_process("p999999", workspace=workspace, processes=manager)
-    assert result.startswith("Error:") and "sleep 30" in result
+    assert result.startswith("Error:") and SLEEP in result
 
 
 # -- allowances judge the command without the `&` --------------------------------
@@ -517,7 +502,6 @@ def scripted():
     return holder
 
 
-@posix_only
 def test_a_run_starts_a_server_and_closing_the_session_stops_it(scripted, tmp_path):
     scripted["model"] = ScriptedChatModel(
         [calls(tool_call("run_command", command=f"{LOOP} &")), answer("it is running")]
@@ -583,7 +567,7 @@ def test_a_system_without_process_groups_refuses_rather_than_orphans(
     monkeypatch.setattr(processes_module, "SUPPORTED", False)
     manager = ProcessManager()
 
-    result = run_command("sleep 30 &", workspace=workspace, processes=manager)
+    result = run_command(f"{SLEEP} &", workspace=workspace, processes=manager)
 
     assert result.startswith("Error:") and "trailing '&'" in result
     assert manager.processes() == ()
@@ -593,13 +577,12 @@ def test_a_system_without_process_groups_refuses_rather_than_orphans(
 # -- DR-064: who started it, and where it can be opened -----------------------
 
 
-@posix_only
 def test_a_command_says_who_started_it(manager, tmp_path):
     manager.started_by({"by": "run", "run": 3, "request": "start it"})
-    by_run = manager.start("true", cwd=tmp_path)
-    mine = manager.start("true", cwd=tmp_path, origin={"by": "person"})
+    by_run = manager.start("exit 0", cwd=tmp_path)
+    mine = manager.start("exit 0", cwd=tmp_path, origin={"by": "person"})
     manager.started_by(None)
-    nobody = manager.start("true", cwd=tmp_path)
+    nobody = manager.start("exit 0", cwd=tmp_path)
 
     assert by_run.to_dict()["origin"] == {"by": "run", "run": 3, "request": "start it"}
     assert mine.to_dict()["origin"] == {"by": "person"}
@@ -608,7 +591,6 @@ def test_a_command_says_who_started_it(manager, tmp_path):
     assert started.data["origin"]["run"] == 3
 
 
-@posix_only
 def test_local_addresses_it_prints_are_kept_to_open(manager, tmp_path):
     printed = (
         "Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) ...;"
@@ -627,12 +609,11 @@ def test_local_addresses_it_prints_are_kept_to_open(manager, tmp_path):
     ]
 
 
-@posix_only
 def test_python_output_arrives_while_it_runs_not_when_it_ends(manager, tmp_path):
     """No -u: the command as a person types it. Through a pipe Python would
     hold this line until its buffer filled."""
     process = manager.start(
-        "python3 -c \"import time; print('listening'); time.sleep(30)\"", cwd=tmp_path
+        f"{PYTHON} -c \"import time; print('listening'); time.sleep(30)\"", cwd=tmp_path
     )
     try:
         assert _until(lambda: process.output().lines == ("listening",), timeout=3.0)

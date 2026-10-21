@@ -35,11 +35,11 @@ gui = pytest.importorskip("gui", reason="the GUI adapter is a Pro-edition build"
 
 from gui.bridge import MAX_OPEN_SESSIONS, BridgeError, SessionBridge  # noqa: E402
 from gui.server import STATIC_ROOT, create_dashboard  # noqa: E402
-from logic.common.processes import SUPPORTED  # noqa: E402
 from logic.config import AutoSEConfig, load_config  # noqa: E402
 from logic.inference.catalog import ModelInfo  # noqa: E402
 from logic.inference.registry import Provider, register_provider  # noqa: E402
 from logic.inference.settings import InferenceSettings  # noqa: E402
+from tests.support.commands import PYTHON, SLEEP  # noqa: E402
 from tests.support.fakes import ScriptedChatModel, answer, calls, tool_call  # noqa: E402
 
 _MODEL = ModelInfo(
@@ -2468,14 +2468,13 @@ def _settles(check, timeout: float = 3.0) -> bool:
     return check()
 
 
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_a_backgrounded_command_is_listed_read_stopped_and_cleared(
     scripted, tmp_path, monkeypatch
 ):
     from logic.common.tools import background
 
     monkeypatch.setattr(background, "FIRST_LOOK_SECONDS", 0.1)
-    command = "python3 -u -c \"import time; print('ready'); time.sleep(30)\""
+    command = f"{PYTHON} -u -c \"import time; print('ready'); time.sleep(30)\""
     bridge = _bridge(
         scripted,
         tmp_path,
@@ -2515,11 +2514,10 @@ def test_a_backgrounded_command_is_listed_read_stopped_and_cleared(
         bridge.shutdown()
 
 
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_closing_a_session_stops_what_it_started(scripted, tmp_path):
     bridge = _bridge(scripted, tmp_path, [answer("x")])
     first = bridge.snapshot()["focus"]
-    process = bridge._target(first).session.processes.start("sleep 30", cwd=tmp_path)
+    process = bridge._target(first).session.processes.start(SLEEP, cwd=tmp_path)
     bridge.new_session()
 
     bridge.close_session(first)
@@ -2528,12 +2526,11 @@ def test_closing_a_session_stops_what_it_started(scripted, tmp_path):
     assert bridge.processes()["processes"] == []
 
 
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_shutting_the_dashboard_down_stops_every_session_s_processes(scripted, tmp_path):
     bridge = _bridge(scripted, tmp_path, [answer("x")])
-    first = bridge._target(None).session.processes.start("sleep 30", cwd=tmp_path)
+    first = bridge._target(None).session.processes.start(SLEEP, cwd=tmp_path)
     bridge.new_session()
-    second = bridge._target(None).session.processes.start("sleep 30", cwd=tmp_path)
+    second = bridge._target(None).session.processes.start(SLEEP, cwd=tmp_path)
     assert bridge.processes()["running"] == 2
 
     bridge.shutdown()
@@ -2553,7 +2550,6 @@ def test_processes_are_read_and_changed_over_http(served):
     assert status == 404
 
 
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_a_run_still_going_at_shutdown_cannot_start_a_server_after_it(
     scripted, tmp_path, monkeypatch
 ):
@@ -2567,7 +2563,7 @@ def test_a_run_still_going_at_shutdown_cannot_start_a_server_after_it(
     monkeypatch.setattr(background, "FIRST_LOOK_SECONDS", 0.1)
     hold = threading.Event()
     slow = _Gated(
-        [calls(tool_call("run_command", command="sleep 30 &")), answer("x")], gate=hold
+        [calls(tool_call("run_command", command=f"{SLEEP} &")), answer("x")], gate=hold
     )
     scripted["model"] = slow
     config = replace(_config(tmp_path), auto_approve=True, auto_approve_authorized_by="test")
@@ -2590,7 +2586,6 @@ def test_a_run_still_going_at_shutdown_cannot_start_a_server_after_it(
 # -- DR-064: starting something from the Terminals panel ----------------------
 
 
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_a_command_the_person_types_runs_as_typed_and_says_who_started_it(scripted, tmp_path):
     bridge = _bridge(scripted, tmp_path, [answer("x")])
     focus = bridge.snapshot()["focus"]
@@ -2617,7 +2612,6 @@ def test_a_command_the_person_types_runs_as_typed_and_says_who_started_it(script
         bridge.shutdown()
 
 
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_a_finished_command_runs_again_in_place_of_the_old_row(scripted, tmp_path):
     bridge = _bridge(scripted, tmp_path, [answer("x")])
     try:
@@ -2630,7 +2624,7 @@ def test_a_finished_command_runs_again_in_place_of_the_old_row(scripted, tmp_pat
         assert row["id"] == payload["started"] != first
         assert row["origin"] == {"by": "person", "again_of": first}
 
-        running = bridge.start_process("sleep 30", session_id=None)["started"]
+        running = bridge.start_process(SLEEP, session_id=None)["started"]
         with pytest.raises(BridgeError) as refused:
             bridge.process_action("again", running)
         assert refused.value.status == 409
@@ -2657,7 +2651,6 @@ def test_a_description_becomes_a_spark_run_with_the_person_s_words_first(scripte
         bridge.shutdown()
 
 
-@pytest.mark.skipif(not SUPPORTED, reason="process groups are POSIX")
 def test_what_a_run_starts_is_marked_with_the_run_and_its_request(
     scripted, tmp_path, monkeypatch
 ):
@@ -2667,7 +2660,7 @@ def test_what_a_run_starts_is_marked_with_the_run_and_its_request(
     bridge = _bridge(
         scripted,
         tmp_path,
-        [calls(tool_call("run_command", command="sleep 30 &")), answer("it runs")],
+        [calls(tool_call("run_command", command=f"{SLEEP} &")), answer("it runs")],
     )
     subscriber = bridge.subscribe()
     try:
@@ -2679,7 +2672,7 @@ def test_what_a_run_starts_is_marked_with_the_run_and_its_request(
         assert row["origin"] == {"by": "run", "run": 1, "request": "start the server"}
         # Between runs nobody is starting anything: the person's own start
         # is never mistaken for the last run's.
-        typed = bridge.start_process("sleep 30", session_id=None)["started"]
+        typed = bridge.start_process(SLEEP, session_id=None)["started"]
         mine = next(item for item in bridge.processes()["processes"] if item["id"] == typed)
         assert mine["origin"] == {"by": "person"}
     finally:
