@@ -564,6 +564,30 @@
           Every agent got the same model, the same instruction and the same three hours per task.</p>
       </div>
 
+      <figure class="sheet bench-sheet bench-chart" aria-labelledby="bench-chart-title">
+        <figcaption class="lbl" id="bench-chart-title">Target tests passed, pooled over 20 tasks (1020 tests)</figcaption>
+        <div class="bench-bars" role="list">
+          <div class="bench-bar-row" role="listitem" tabindex="0" data-tip="AutoSE 0.2.5: 297 of 1020 target tests (29.1%)">
+            <span class="bench-bar-name">AutoSE 0.2.5</span>
+            <span class="bench-bar-track"><span class="bench-bar" style="--v: 29.1"></span></span>
+            <span class="bench-bar-val">29.1%</span>
+          </div>
+          <div class="bench-bar-row" role="listitem" tabindex="0" data-tip="OpenHands: 19 of 1020 target tests (1.9%)">
+            <span class="bench-bar-name">OpenHands</span>
+            <span class="bench-bar-track"><span class="bench-bar" style="--v: 1.9"></span></span>
+            <span class="bench-bar-val">1.9%</span>
+          </div>
+          <div class="bench-bar-row" role="listitem" tabindex="0" data-tip="mini-swe-agent 2.4.6: 0 of 1020 target tests (0%)">
+            <span class="bench-bar-name">mini-swe-agent</span>
+            <span class="bench-bar-track"><span class="bench-bar" style="--v: 0"></span></span>
+            <span class="bench-bar-val">0%</span>
+          </div>
+        </div>
+        <div class="bench-axis" aria-hidden="true">
+          <span style="--t: 0">0%</span><span style="--t: 10">10%</span><span style="--t: 20">20%</span><span style="--t: 30">30%</span>
+        </div>
+      </figure>
+
       <div class="sheet bench-sheet">
         <table class="bench-table">
           <caption class="lbl">DeepSWE 1.1, 20-task subset, Qwen3.8-27B</caption>
@@ -608,7 +632,7 @@
           per request, thinking off. All three agents sample at temperature 0.7, Qwen's recommended setting.</li>
         <li><strong>Harness.</strong> Harbor, DeepSWE's 3-hour limit and no step limit. AutoSE is the free edition at
           main <code>a0febd2</code>. Many runs reached the time limit: 9 for AutoSE, 10 for mini-swe-agent and 13 for
-          OpenHands. Five AutoSE runs ended early when the inference server could not parse a tool call.</li>
+          OpenHands.</li>
       </ul>
     </div>
   </section>

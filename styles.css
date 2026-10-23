@@ -1503,3 +1503,127 @@ ol {
   color: var(--text);
 }
 
+
+/* --- benchmark bar chart --------------------------------------- */
+.bench-chart {
+  --bench-bar: #2552fc;
+  --bench-max: 30; /* percent at the right end of the axis */
+  margin: 28px 0 0;
+  padding: 16px 22px 18px;
+}
+
+:root[data-theme="dark"] .bench-chart {
+  --bench-bar: #5f92ee;
+}
+
+.bench-chart figcaption {
+  padding: 0 0 14px;
+}
+
+.bench-bars {
+  display: grid;
+  gap: 10px;
+}
+
+.bench-bar-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 9.5rem 1fr 3.5rem;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+  border-radius: 6px;
+  outline: none;
+}
+
+.bench-bar-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.bench-bar-track {
+  position: relative;
+  height: 22px;
+  background-image: linear-gradient(to right, var(--pencil) 1px, transparent 1px);
+  background-size: calc(100% / 3) 100%;
+  border-left: 1px solid var(--text-2);
+}
+
+.bench-bar {
+  position: absolute;
+  inset: 3px auto 3px 0;
+  width: calc(var(--v) / var(--bench-max) * 100%);
+  min-width: 0;
+  background: var(--bench-bar);
+  border-radius: 0 4px 4px 0;
+}
+
+.bench-bar-val {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.bench-bar-row:hover .bench-bar,
+.bench-bar-row:focus-visible .bench-bar {
+  filter: brightness(1.12);
+}
+
+.bench-bar-row::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 10.5rem;
+  bottom: calc(100% + 2px);
+  z-index: 2;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--sheet);
+  font-size: 13px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.bench-bar-row:hover::after,
+.bench-bar-row:focus-visible::after {
+  opacity: 1;
+}
+
+.bench-axis {
+  position: relative;
+  height: 18px;
+  margin: 6px 0 0 calc(9.5rem + 12px);
+  margin-right: calc(3.5rem + 12px);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.bench-axis span {
+  position: absolute;
+  left: calc(var(--t) / 30 * 100%);
+  transform: translateX(-50%);
+}
+
+@media (max-width: 560px) {
+  .bench-bar-row {
+    grid-template-columns: 6.5rem 1fr 3rem;
+    gap: 8px;
+  }
+  .bench-bar-name {
+    font-size: 13.5px;
+  }
+  .bench-axis {
+    margin-left: calc(6.5rem + 8px);
+    margin-right: calc(3rem + 8px);
+  }
+  .bench-bar-row::after {
+    left: 0;
+    white-space: normal;
+    max-width: 100%;
+  }
+}
