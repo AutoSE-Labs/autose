@@ -1503,16 +1503,3 @@ ol {
   color: var(--text);
 }
 
-.bench-sub {
-  margin: 56px 0 0;
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.bench-sub-lede {
-  max-width: 70ch;
-  margin: 10px 0 0;
-  font-size: 16px;
-  color: var(--text-2);
-}
