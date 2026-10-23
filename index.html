@@ -614,6 +614,62 @@
         <li><strong>One run per task.</strong> SWE-rebench's leaderboard averages five; with one run, a difference
           of one or two tasks is within noise. Trials interrupted by an inference-server outage were rerun.</li>
       </ul>
+
+      <h3 class="bench-sub" id="benchmark-deepswe">DeepSWE: 20 long-horizon tasks, Qwen3.8 27B</h3>
+      <p class="bench-sub-lede">DeepSWE asks for whole features in active open-source projects, graded by hidden
+        tests on the work the agent commits. On a 20-task subset none of the three agents finished a task, so the
+        table also shows how far each got.</p>
+
+      <div class="sheet bench-sheet">
+        <table class="bench-table">
+          <caption class="lbl">DeepSWE 1.1, 20-task subset, Qwen3.8-27B</caption>
+          <thead>
+            <tr>
+              <th scope="col">Agent</th>
+              <th scope="col">Tasks resolved</th>
+              <th scope="col">Target tests passed</th>
+              <th scope="col">Work committed</th>
+              <th scope="col">Median time per task</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="bench-us">
+              <th scope="row">AutoSE 0.2.5 <span class="bench-tag">free edition</span></th>
+              <td>0/20</td>
+              <td><strong>297/1020</strong> <span class="bench-pct">29%</span></td>
+              <td><strong>12/20</strong></td>
+              <td>160 min</td>
+            </tr>
+            <tr>
+              <th scope="row">mini-swe-agent 2.4.6</th>
+              <td>0/20</td>
+              <td>0/1020 <span class="bench-pct">0%</span></td>
+              <td>1/20</td>
+              <td>156 min</td>
+            </tr>
+            <tr>
+              <th scope="row">OpenHands <span class="bench-tag">Agent SDK</span></th>
+              <td>0/20</td>
+              <td>19/1020 <span class="bench-pct">1.9%</span></td>
+              <td>1/20</td>
+              <td>180 min</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <ul class="bench-notes">
+        <li><strong>Tasks.</strong> 20 of DeepSWE's 113 tasks (Go, Python, TypeScript, JavaScript and Rust), run with
+          DeepSWE's own instruction and environments. The agent has no internet access; grading applies the agent's
+          committed changes in a fresh container and runs the hidden tests, so uncommitted work scores nothing.</li>
+        <li><strong>Measures.</strong> A task is resolved when all of its tests pass. Target tests are the
+          fail-to-pass tests that check the requested feature, pooled over the 20 tasks.</li>
+        <li><strong>Model.</strong> Qwen3.8-27B (Q4_K_M GGUF) served by llama.cpp, one replica per GPU, 128K context
+          per request, thinking off. All three agents sample at temperature 0.7, Qwen's recommended setting.</li>
+        <li><strong>Harness.</strong> Harbor, DeepSWE's 3-hour limit and no step limit. AutoSE is the free edition at
+          main <code>a0febd2</code>. Many runs reached the time limit: 9 for AutoSE, 10 for mini-swe-agent and 13 for
+          OpenHands. Five AutoSE runs ended early when the inference server could not parse a tool call.</li>
+      </ul>
     </div>
   </section>
 
