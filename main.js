@@ -81,4 +81,21 @@
     });
   }, { threshold: 0.08, rootMargin: "0px 0px -6% 0px" });
   reveals.forEach(function (el) { io.observe(el); });
+
+  // Benchmark bars grow in when their chart scrolls into view.
+  var charts = [].slice.call(document.querySelectorAll(".bench-chart"));
+  charts.forEach(function (el) { el.classList.add("bench-wait"); });
+  var chartIo = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.remove("bench-wait");
+        chartIo.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0, rootMargin: "0px 0px -20% 0px" });
+  charts.forEach(function (el) { chartIo.observe(el); });
+  // Never leave a chart empty if the observer does not report it.
+  setTimeout(function () {
+    charts.forEach(function (el) { el.classList.remove("bench-wait"); });
+  }, 6000);
 })();

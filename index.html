@@ -566,25 +566,27 @@
 
       <figure class="sheet bench-sheet bench-chart" aria-labelledby="bench-chart-title">
         <figcaption class="lbl" id="bench-chart-title">Target tests passed, pooled over 20 tasks (1020 tests)</figcaption>
-        <div class="bench-bars" role="list">
-          <div class="bench-bar-row" role="listitem" tabindex="0" data-tip="AutoSE 0.2.5: 297 of 1020 target tests (29.1%)">
-            <span class="bench-bar-name">AutoSE 0.2.5</span>
-            <span class="bench-bar-track"><span class="bench-bar" style="--v: 29.1"></span></span>
-            <span class="bench-bar-val">29.1%</span>
+        <div class="bench-plot">
+          <div class="bench-yaxis" aria-hidden="true">
+            <span style="--t: 30">30%</span><span style="--t: 20">20%</span><span style="--t: 10">10%</span><span style="--t: 0">0%</span>
           </div>
-          <div class="bench-bar-row" role="listitem" tabindex="0" data-tip="OpenHands: 19 of 1020 target tests (1.9%)">
-            <span class="bench-bar-name">OpenHands</span>
-            <span class="bench-bar-track"><span class="bench-bar" style="--v: 1.9"></span></span>
-            <span class="bench-bar-val">1.9%</span>
+          <div class="bench-cols" role="list">
+          <div class="bench-col bench-col-us" role="listitem" tabindex="0" style="--v: 29.1; --i: 0"
+               data-tip="AutoSE 0.2.5: 297 of 1020 target tests (29.1%)">
+            <span class="bench-col-bar"><span class="bench-col-val">29.1%</span></span>
+            <span class="bench-col-name">AutoSE 0.2.5</span>
           </div>
-          <div class="bench-bar-row" role="listitem" tabindex="0" data-tip="mini-swe-agent 2.4.6: 0 of 1020 target tests (0%)">
-            <span class="bench-bar-name">mini-swe-agent</span>
-            <span class="bench-bar-track"><span class="bench-bar" style="--v: 0"></span></span>
-            <span class="bench-bar-val">0%</span>
+          <div class="bench-col" role="listitem" tabindex="0" style="--v: 1.9; --i: 1"
+               data-tip="OpenHands: 19 of 1020 target tests (1.9%)">
+            <span class="bench-col-bar"><span class="bench-col-val">1.9%</span></span>
+            <span class="bench-col-name">OpenHands</span>
           </div>
-        </div>
-        <div class="bench-axis" aria-hidden="true">
-          <span style="--t: 0">0%</span><span style="--t: 10">10%</span><span style="--t: 20">20%</span><span style="--t: 30">30%</span>
+          <div class="bench-col" role="listitem" tabindex="0" style="--v: 0; --i: 2"
+               data-tip="mini-swe-agent: 0 of 1020 target tests (0%)">
+            <span class="bench-col-bar"><span class="bench-col-val">0%</span></span>
+            <span class="bench-col-name">mini-swe-agent</span>
+          </div>
+          </div>
         </div>
       </figure>
 

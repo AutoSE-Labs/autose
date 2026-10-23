@@ -1503,127 +1503,158 @@ ol {
   color: var(--text);
 }
 
-
 /* --- benchmark bar chart --------------------------------------- */
 .bench-chart {
-  --bench-bar: #2552fc;
-  --bench-max: 30; /* percent at the right end of the axis */
+  --bench-us: #2552fc;
+  --bench-other: #7d879c;
+  --bench-max: 30; /* percent at the top of the axis */
+  --bench-h: 240px; /* plot height */
   margin: 28px 0 0;
   padding: 16px 22px 18px;
 }
 
 :root[data-theme="dark"] .bench-chart {
-  --bench-bar: #5f92ee;
+  --bench-us: #5f92ee;
+  --bench-other: #7f849c;
 }
 
 .bench-chart figcaption {
-  padding: 0 0 14px;
+  padding: 0 0 18px;
 }
 
-.bench-bars {
+.bench-plot {
   display: grid;
+  grid-template-columns: 3rem 1fr;
   gap: 10px;
+  padding-top: 18px; /* room for the tallest bar's value */
 }
 
-.bench-bar-row {
+.bench-yaxis {
   position: relative;
-  display: grid;
-  grid-template-columns: 9.5rem 1fr 3.5rem;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 0;
-  border-radius: 6px;
-  outline: none;
-}
-
-.bench-bar-name {
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--text);
-}
-
-.bench-bar-track {
-  position: relative;
-  height: 22px;
-  background-image: linear-gradient(to right, var(--pencil) 1px, transparent 1px);
-  background-size: calc(100% / 3) 100%;
-  border-left: 1px solid var(--text-2);
-}
-
-.bench-bar {
-  position: absolute;
-  inset: 3px auto 3px 0;
-  width: calc(var(--v) / var(--bench-max) * 100%);
-  min-width: 0;
-  background: var(--bench-bar);
-  border-radius: 0 4px 4px 0;
-}
-
-.bench-bar-val {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-
-.bench-bar-row:hover .bench-bar,
-.bench-bar-row:focus-visible .bench-bar {
-  filter: brightness(1.12);
-}
-
-.bench-bar-row::after {
-  content: attr(data-tip);
-  position: absolute;
-  left: 10.5rem;
-  bottom: calc(100% + 2px);
-  z-index: 2;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--text);
-  color: var(--sheet);
-  font-size: 13px;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-
-.bench-bar-row:hover::after,
-.bench-bar-row:focus-visible::after {
-  opacity: 1;
-}
-
-.bench-axis {
-  position: relative;
-  height: 18px;
-  margin: 6px 0 0 calc(9.5rem + 12px);
-  margin-right: calc(3.5rem + 12px);
+  height: var(--bench-h);
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--text-2);
 }
 
-.bench-axis span {
+.bench-yaxis span {
   position: absolute;
-  left: calc(var(--t) / 30 * 100%);
+  right: 0;
+  bottom: calc(var(--t) / var(--bench-max) * 100%);
+  transform: translateY(50%);
+}
+
+.bench-cols {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 9rem));
+  justify-content: space-around;
+  gap: 16px;
+  /* gridlines at 0, 10, 20 and 30 percent, behind the bars */
+  background:
+    linear-gradient(to top, var(--text-2) 1px, transparent 1px) 0 calc(var(--bench-h) - 1px) / 100% 1px no-repeat,
+    repeating-linear-gradient(to top, transparent 0 calc(var(--bench-h) / 3 - 1px), var(--pencil) calc(var(--bench-h) / 3 - 1px) calc(var(--bench-h) / 3)) 0 0 / 100% var(--bench-h) no-repeat;
+}
+
+.bench-col {
+  position: relative;
+  display: grid;
+  grid-template-rows: var(--bench-h) auto;
+  border-radius: 6px;
+  outline: none;
+}
+
+.bench-col-bar {
+  position: relative;
+  align-self: end;
+  justify-self: center;
+  width: min(100%, 4.5rem);
+  height: calc(var(--v) / var(--bench-max) * var(--bench-h));
+  background: var(--bench-other);
+  border-radius: 4px 4px 0 0;
+  transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--i) * 0.15s), filter 0.15s;
+}
+
+.bench-col-us .bench-col-bar {
+  background: var(--bench-us);
+}
+
+.bench-col-val {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
   transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: opacity 0.3s calc(0.6s + var(--i) * 0.15s);
+}
+
+.bench-col-name {
+  padding-top: 10px;
+  text-align: center;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Bars wait at zero until the chart scrolls into view (main.js); without the
+ * script, or with reduced motion, they are drawn at full height. */
+.bench-chart.bench-wait .bench-col-bar {
+  height: 0;
+}
+
+.bench-chart.bench-wait .bench-col-val {
+  opacity: 0;
+}
+
+.bench-col:hover .bench-col-bar,
+.bench-col:focus-visible .bench-col-bar {
+  filter: brightness(1.12);
+}
+
+.bench-col::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - var(--bench-h) + var(--v) / var(--bench-max) * var(--bench-h) + 32px);
+  transform: translateX(-50%);
+  z-index: 2;
+  width: max-content;
+  max-width: 15rem;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--sheet);
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.bench-col:hover::after,
+.bench-col:focus-visible::after {
+  opacity: 1;
 }
 
 @media (max-width: 560px) {
-  .bench-bar-row {
-    grid-template-columns: 6.5rem 1fr 3rem;
+  .bench-chart {
+    --bench-h: 200px;
+    padding: 14px 14px 16px;
+  }
+  .bench-plot {
+    grid-template-columns: 2.4rem 1fr;
+    gap: 6px;
+  }
+  .bench-cols {
     gap: 8px;
   }
-  .bench-bar-name {
-    font-size: 13.5px;
+  .bench-col-name {
+    font-size: 12.5px;
   }
-  .bench-axis {
-    margin-left: calc(6.5rem + 8px);
-    margin-right: calc(3rem + 8px);
-  }
-  .bench-bar-row::after {
-    left: 0;
-    white-space: normal;
-    max-width: 100%;
+  .bench-col::after {
+    max-width: 9rem;
   }
 }
