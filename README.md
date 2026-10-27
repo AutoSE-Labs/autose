@@ -40,8 +40,14 @@ system-wide. Run it again at any time to update.
 
 Environment variables: `AUTOSE_HOME` (where to clone, default `~/.autose-cli`),
 `AUTOSE_BIN_DIR` (where the launchers go), `AUTOSE_REF` (a git ref to
-check out), `AUTOSE_REPO` (the repository to clone), `AUTOSE_NO_SHORTCUT=1` and
-`AUTOSE_NO_LAUNCH=1`.
+check out), `AUTOSE_REPO` (the repository to clone), `AUTOSE_NO_SHORTCUT=1`,
+`AUTOSE_NO_LAUNCH=1` and `AUTOSE_NO_COUNT=1`.
+
+Each successful install or update is counted: the installer downloads one tiny file from
+the `install-counter` release of the AutoSE repository (`install-linux.txt`,
+`update-windows.txt` and so on), and GitHub counts the downloads. The file's name is all it
+says: install or update, and the system. A fork is not counted, and `AUTOSE_NO_COUNT=1`
+skips it. AutoSE itself sends nothing anywhere.
 
 The desktop shortcut takes its icon from this site: `favicon.svg` on Linux, `favicon.ico` on
 Windows.
