@@ -14,6 +14,7 @@
 #   AUTOSE_REPO         repository to clone            (default: the AutoSE GitHub repo)
 #   AUTOSE_NO_SHORTCUT  set to 1 to skip the desktop shortcut
 #   AUTOSE_NO_LAUNCH    set to 1 to skip opening the dashboard at the end
+#   AUTOSE_NO_COUNT     set to 1 to skip counting this install (see "Count" below)
 
 set -eu
 
@@ -22,6 +23,9 @@ INSTALL_DIR="${AUTOSE_HOME:-$HOME/.autose-cli}"
 BIN_DIR="${AUTOSE_BIN_DIR:-$HOME/.local/bin}"
 REF="${AUTOSE_REF:-}"
 OS="$(uname -s)"
+DEFAULT_REPO="https://github.com/AutoSE-Labs/autose.git"
+COUNT_URL="${AUTOSE_COUNT_URL:-https://github.com/AutoSE-Labs/autose/releases/download/install-counter}"
+KIND="install"
 
 # Pretty output
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -70,6 +74,7 @@ UV="$(command -v uv)"
 
 # Fetch
 if [ -d "$INSTALL_DIR/.git" ]; then
+  KIND="update"
   step "Updating AutoSE in $INSTALL_DIR"
   git -C "$INSTALL_DIR" remote set-url origin "$REPO_URL"
   git -C "$INSTALL_DIR" fetch -q --depth 1 origin "${REF:-HEAD}" >/dev/null 2>&1 \
@@ -201,6 +206,20 @@ EOF
   fi
 fi
 
+# Count: one tiny download from AutoSE's GitHub releases, so we know how many
+# installs and updates there are on each system. The file's name says only
+# install or update and the system; GitHub sees the request as it saw the
+# clone above. Not for a fork, and never when the install failed.
+COUNTED=""
+if [ "${AUTOSE_NO_COUNT:-}" != "1" ] && [ "$REPO_URL" = "$DEFAULT_REPO" ]; then
+  case "$OS" in
+    Darwin) SYSTEM="macos" ;;
+    Linux) SYSTEM="linux" ;;
+    *) SYSTEM="other" ;;
+  esac
+  curl -fsSL -m 5 -o /dev/null "$COUNT_URL/$KIND-$SYSTEM.txt" >/dev/null 2>&1 && COUNTED=1 || true
+fi
+
 # Done
 say ""
 say "${OK}${BOLD}AutoSE is installed.${RESET}"
@@ -223,6 +242,7 @@ esac
 say ""
 say "AutoSE runs on a model you host. No model yet? Install Ollama from https://ollama.com"
 say "and run  ${BOLD}ollama pull qwen2.5-coder:14b${RESET} . AutoSE finds it by itself."
+[ -n "$COUNTED" ] && say "${DIM}This $KIND was counted: one download that names only your system. AUTOSE_NO_COUNT=1 skips it.${RESET}"
 say ""
 
 # Open the dashboard now, where there is a screen to open it on.

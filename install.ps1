@@ -13,6 +13,7 @@
 #   AUTOSE_REPO         repository to clone            (default: the AutoSE GitHub repo)
 #   AUTOSE_NO_SHORTCUT  set to 1 to skip the desktop and Start menu shortcuts
 #   AUTOSE_NO_LAUNCH    set to 1 to skip opening the dashboard at the end
+#   AUTOSE_NO_COUNT     set to 1 to skip counting this install (see "Count" below)
 
 $ErrorActionPreference = 'Stop'
 
@@ -21,6 +22,9 @@ $InstallDir = if ($env:AUTOSE_HOME)    { $env:AUTOSE_HOME }    else { Join-Path 
 $BinDir     = if ($env:AUTOSE_BIN_DIR) { $env:AUTOSE_BIN_DIR } else { Join-Path $env:LOCALAPPDATA 'AutoSE\bin' }
 $DataDir    = Join-Path $env:LOCALAPPDATA 'AutoSE'
 $Ref        = $env:AUTOSE_REF
+$DefaultRepo = 'https://github.com/AutoSE-Labs/autose.git'
+$CountUrl   = if ($env:AUTOSE_COUNT_URL) { $env:AUTOSE_COUNT_URL } else { 'https://github.com/AutoSE-Labs/autose/releases/download/install-counter' }
+$Kind       = 'install'
 
 function Step($m) {
   Write-Host '> ' -ForegroundColor DarkYellow -NoNewline
@@ -79,6 +83,7 @@ $Uv = (Get-Command uv).Source
 
 # Fetch
 if (Test-Path (Join-Path $InstallDir '.git')) {
+  $Kind = 'update'
   Step "Updating AutoSE in $InstallDir"
   $target = if ($Ref) { $Ref } else { 'HEAD' }
   Invoke-Quiet { git -C $InstallDir remote set-url origin $RepoUrl } | Out-Null
@@ -191,6 +196,18 @@ if (($userPath -split [IO.Path]::PathSeparator) -notcontains $BinDir) {
   $pathNote = $true
 }
 
+# Count: one tiny download from AutoSE's GitHub releases, so we know how many
+# installs and updates there are on each system. The file's name says only
+# install or update and the system; GitHub sees the request as it saw the
+# clone above. Not for a fork, and never when the install failed.
+$counted = $false
+if ($env:AUTOSE_NO_COUNT -ne '1' -and $RepoUrl -eq $DefaultRepo) {
+  try {
+    Invoke-WebRequest -Uri "$CountUrl/$Kind-windows.txt" -UseBasicParsing -TimeoutSec 5 | Out-Null
+    $counted = $true
+  } catch { }
+}
+
 # Done
 Write-Host ''
 Write-Host 'AutoSE is installed.' -ForegroundColor Green
@@ -201,6 +218,7 @@ if ($pathNote) { Write-Host 'Open a new terminal first so the updated PATH takes
 Write-Host ''
 Write-Host 'AutoSE runs on a model you host. No model yet? Install Ollama from https://ollama.com'
 Write-Host 'and run  ollama pull qwen2.5-coder:14b . AutoSE finds it by itself.'
+if ($counted) { Write-Host "This $Kind was counted: one download that names only your system. AUTOSE_NO_COUNT=1 skips it." -ForegroundColor DarkGray }
 Write-Host ''
 
 if ($env:AUTOSE_NO_LAUNCH -ne '1') {
