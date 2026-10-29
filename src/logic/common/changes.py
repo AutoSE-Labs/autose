@@ -11,7 +11,9 @@ A :class:`ChangeJournal` closes that. It wraps a mutating handler on an
 agent's own cloned registry (DR-008's instrumentation seam), snapshots the
 file either side of the call, and keeps the pair. From those pairs it can
 render a unified diff of everything a turn did, and restore the workspace to
-what it was before.
+what it was before. The wrappers are `write_file` and `edit_file` only. An
+approved ``run_command`` can change other files; those are not journalled,
+and the summary, ``/diff``, and the dashboard say so (DR-024).
 
 Three properties are load-bearing:
 

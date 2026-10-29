@@ -987,6 +987,14 @@ def test_the_page_learns_a_turn_is_running_from_the_busy_frame():
     assert "state.running = Boolean(frame.running)" in busy
 
 
+def test_the_undo_panel_says_shell_changes_are_not_restored():
+    """DR-024: the dashboard states what undo can put back."""
+    page = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+
+    assert "approved shell command" in page
+    assert "not restored" in page
+
+
 def test_the_dashboard_fetches_nothing_from_the_network():
     """Local-first is a property of the page too, not only of inference."""
     for name in ("index.html", "app.css", "app.js", "inspector.js", "settings.js", "notify.js", "automation.js", "route.js", "life.js", "diff.js", "files.js", "palette.js", "steps.js", "terminals.js"):

@@ -136,6 +136,13 @@ def test_the_summary_distinguishes_a_new_file():
 def test_the_summary_says_how_to_review_and_undo():
     text = _render(changes_summary((FileChange(path="m.py", before=b"a", after=b"b"),)))
     assert "/diff" in text and "/undo" in text
+    assert "shell" in text
+
+
+def test_the_diff_says_shell_changes_are_not_restored():
+    text = _render(diff_panel((FileChange(path="m.py", before=b"a\n", after=b"b\n"),)))
+    assert "shell" in text
+    assert "not restored" in text
 
 
 def test_a_change_too_large_to_record_is_labelled_rather_than_counted():

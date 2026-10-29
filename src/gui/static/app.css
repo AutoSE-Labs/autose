@@ -3387,6 +3387,10 @@ select {
   min-width: 0;
 }
 
+.diff-titles .panel-note {
+  margin-top: 6px;
+}
+
 .diff-top select {
   max-width: 420px;
   padding: 6px 10px;

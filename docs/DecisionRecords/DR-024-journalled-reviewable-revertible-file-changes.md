@@ -59,6 +59,30 @@ still run underneath, and only their *accepted* writes are recorded. A refused
 write returns an `Error:` string, which is how a refusal is distinguished from
 a change.
 
+### Shell writes stay outside the journal, and the diff says so
+
+`run_command` stays approval-gated (DR-012). It is not a journalled write.
+`track_changes` wraps `write_file` and `edit_file` only, so a file a shell
+command creates or rewrites never becomes a `FileChange`. `/undo` leaves it
+where the command put it. A per-file undo (DR-061) cannot reach it either,
+because the record does not contain it.
+
+Which files a command touches is not known until it has run. Recording them
+would mean snapshotting the workspace before and after, which this decision
+rejects below. The user already approved the command; the journal's job is
+the file tools.
+
+The boundary is stated where someone is looking at what can be restored, and nowhere else:
+
+- The turn summary: `/diff` to review, `/undo` to put these back — file tools only, not a shell command.
+- The `/diff` panel: only `write_file` and `edit_file`; a shell command's files are not listed and are not restored.
+- The dashboard file-changes panel, under "What it wrote", beside Undo.
+
+A file the command changes *after* a file tool wrote it is still protected by
+conflict-aware undo: its bytes no longer match the journal, so that file is
+skipped and named rather than overwritten. The command's own write is still
+not a recorded edit.
+
 ### Per file, first-before and last-after
 
 Five edits to one file coalesce into one change whose `before` is what the
@@ -109,6 +133,9 @@ by passing `note_file_changed` as an observer alongside the journal.
 
 - A change is reviewable as a diff (`/diff`), summarised with line counts
   after every turn, and revertible in one word (`/undo`).
+- The summary, the diff, and the dashboard say that undo covers the file
+  tools only, so a shell command's writes are a visible limit rather than a
+  surprise after `/undo`.
 - `spark` finally reports its edits, closing a gap where the fastest tier was
   also the least transparent.
 - Undo works on an uncommitted working tree, which is exactly the state a user
@@ -124,6 +151,8 @@ by passing `note_file_changed` as an observer alongside the journal.
   real cost that did not exist before.
 - Undo is not a general history: it reverts the most recent turn that wrote,
   not an arbitrary point.
+- An approved shell command can change files that `/undo` will not put back.
+  The interface says so; it does not record those files.
 - Adding `path` to the approval summary keys means an approval-required call
   with no command, URL, or query is now described by its path rather than by
   its full argument JSON. That is an improvement for edits and a change in
@@ -169,7 +198,17 @@ rendered.
 
 Rejected. The cost scales with repository size rather than with what was
 actually changed, which is precisely backwards, and it would copy build
-artifacts and virtual environments to protect a two-line edit.
+artifacts and virtual environments to protect a two-line edit. The same
+rejection covers journaling a shell command by snapshotting before and after
+it: the command does not name its outputs, and a filesystem watch would
+record build artifacts and anything else the process happened to touch.
+
+### Leave the shell boundary implicit
+
+Rejected. `track_changes` already wraps only `write_file` and `edit_file`,
+but a reader of this record — and a user looking at `/undo` — cannot tell
+that from the summary "you can undo what it changed." The surfaces listed
+above say the limit in the place the decision is used.
 
 ### Store snapshots on disk under `.autose/` rather than in memory
 

@@ -614,7 +614,10 @@ def changes_summary(changes: tuple[FileChange, ...]) -> RenderableType:
             Text(label, style=style),
         )
 
-    hint = Text("  /diff to review, /undo to put it back", style=THEME.muted)
+    hint = Text(
+        "  /diff to review, /undo to put these back — file tools only, not a shell command",
+        style=THEME.muted,
+    )
     return Group(table, hint)
 
 
@@ -628,11 +631,18 @@ def diff_panel(changes: tuple[FileChange, ...], *, context: int = 3) -> Renderab
         if blocks:
             blocks.append(Text(""))
         blocks.append(_diff_text(change, context=context))
-    return Panel(
-        Group(*blocks),
-        title=_diff_title(changes),
-        border_style=THEME.rule,
-        padding=(0, 2),
+    note = Text(
+        "  only write_file and edit_file — a shell command's files are not here and are not restored",
+        style=THEME.muted,
+    )
+    return Group(
+        Panel(
+            Group(*blocks),
+            title=_diff_title(changes),
+            border_style=THEME.rule,
+            padding=(0, 2),
+        ),
+        note,
     )
 
 

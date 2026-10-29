@@ -14,7 +14,13 @@ from logic.inference.settings import InferenceSettings
 from logic.persistence import FileSessionStore, SessionRecord, TurnRecord
 from logic.session import Session
 from logic.tiers import SPARK
-from tests.support.fakes import ScriptedChatModel, answer, calls, tool_call
+from tests.support.fakes import (
+    RecordingApprovalGate,
+    ScriptedChatModel,
+    answer,
+    calls,
+    tool_call,
+)
 
 _MODEL = ModelInfo(name="gemma4:12b", context_length=262144, supports_tools=True)
 
@@ -108,6 +114,44 @@ def test_undo_puts_the_file_back(scripted, tmp_path):
 
     assert report is not None and report.restored == ("m.py",)
     assert target.read_text(encoding="utf-8") == "value = 1\n"
+
+
+def test_an_approved_shell_write_is_left_out_of_the_journal(scripted, tmp_path):
+    """DR-024: undo restores file-tool edits. A shell command's file stays."""
+    target = tmp_path / "m.py"
+    target.write_text("value = 1\n", encoding="utf-8", newline="")
+    session = _session(
+        scripted,
+        tmp_path,
+        [
+            calls(
+                tool_call(
+                    "edit_file",
+                    call_id="edit-1",
+                    path="m.py",
+                    edits=[{"old_str": "value = 1", "new_str": "value = 2"}],
+                ),
+                tool_call(
+                    "run_command",
+                    call_id="shell-1",
+                    command="printf 'from shell\\n' > other.txt",
+                ),
+            ),
+            answer("Done."),
+        ],
+        approval_gate=RecordingApprovalGate(default=True),
+    )
+
+    turn = session.run("bump it and note it")
+
+    assert [change.path for change in turn.changes] == ["m.py"]
+    assert (tmp_path / "other.txt").read_text(encoding="utf-8") == "from shell\n"
+
+    report = session.undo_last_change()
+
+    assert report is not None and report.restored == ("m.py",)
+    assert target.read_text(encoding="utf-8") == "value = 1\n"
+    assert (tmp_path / "other.txt").read_text(encoding="utf-8") == "from shell\n"
 
 
 def test_undo_with_nothing_to_undo_returns_none(scripted, tmp_path):
