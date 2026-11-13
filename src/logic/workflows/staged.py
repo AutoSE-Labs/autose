@@ -64,6 +64,7 @@ from ..requirements import (
 )
 from ..tuning import Tuning
 from .base import WorkflowOutcome, WorkflowRequest
+from .named_files import named_files_section
 from .review import PlanDecision, PlanReview
 from .stages import (
     DESIGN,
@@ -692,6 +693,16 @@ class StagedWorkflow:
                 "# Requirements ledger (carry these IDs forward exactly)\n\n"
                 + format_requirements(list(memory.requirements))
             )
+
+        if stage.name == EXECUTE and memory.has("plan"):
+            # DR-069: the files the plan names, as they are now, so Execute
+            # edits real paths and real text instead of guessing them.
+            named = memory.get("plan") + "\n" + format_requirements(
+                list(memory.requirements)
+            )
+            files = named_files_section(named, request.workspace)
+            if files:
+                parts.append(files)
 
         digest = memory.retry_digest(stage.name)
         if digest:
