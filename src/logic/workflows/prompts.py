@@ -20,9 +20,19 @@ from ..requirements import (
     VALIDATE_LEDGER_INSTRUCTION,
 )
 
-__all__ = ["DESIGN_PROMPT", "PLAN_PROMPT", "EXECUTE_PROMPT", "VALIDATE_PROMPT"]
+__all__ = [
+    "SHARED_PROMPT",
+    "DESIGN_PROMPT",
+    "PLAN_PROMPT",
+    "EXECUTE_PROMPT",
+    "VALIDATE_PROMPT",
+]
 
-_SHARED = """\
+#: The opening every stage shares. Only this is sent as the system message;
+#: the rest of a stage's prompt goes at the start of its first user message,
+#: after the tool list, so a local runtime can reuse what it already read for
+#: the previous stage (DR-067).
+SHARED_PROMPT = _SHARED = """\
 You are AutoSE, working inside this workspace:
   {workspace}
 

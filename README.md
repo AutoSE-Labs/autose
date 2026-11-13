@@ -134,6 +134,7 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-064](docs/DecisionRecords/DR-064-start-something-from-terminals.md) | The Terminals panel starts things, in words or as a command, and says who started each one |
 | [DR-065](docs/DecisionRecords/DR-065-installs-are-counted-by-the-installers.md) | Installs are counted by the installers (one tiny download per install), not by AutoSE |
 | [DR-066](docs/DecisionRecords/DR-066-a-no-op-entry-in-an-edit-batch-is-skipped.md) | A no-op entry in an edit batch is skipped, not fatal |
+| [DR-067](docs/DecisionRecords/DR-067-stages-share-one-system-message.md) | Stages share one system message; each stage's rules lead its first user message |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
 

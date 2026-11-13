@@ -390,6 +390,19 @@ class BaseAgent:
             f"{type(self).__name__} must implement system_prompt()"
         )
 
+    def stage_rules(self) -> str:
+        """Instructions sent at the start of the first user message.
+
+        Empty by default. A stage whose system message is shared with other
+        stages puts its own rules here, after the tool list the runtime has
+        already read (DR-067).
+        """
+        return ""
+
+    def _with_stage_rules(self, prompt: str) -> str:
+        rules = self.stage_rules()
+        return f"{rules}\n\n{prompt}" if rules else prompt
+
     # -- introspection ---------------------------------------------------
 
     @property
@@ -463,7 +476,7 @@ class BaseAgent:
     ) -> Generator[str, None, None]:
         memory = AgentMemory()
         memory.seed(self.system_prompt(), session_context)
-        memory.add_user(prompt)
+        memory.add_user(self._with_stage_rules(prompt))
 
         usage = Usage()
         metrics: list[ContextMetrics] = []
@@ -1159,7 +1172,7 @@ class BaseAgent:
         """
         messages = [
             {"role": "system", "content": self.system_prompt()},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": self._with_stage_rules(prompt)},
             {"role": "assistant", "content": previous},
             {
                 "role": "user",

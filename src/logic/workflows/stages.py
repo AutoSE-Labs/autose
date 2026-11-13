@@ -36,7 +36,13 @@ from ..requirements import (
     PLAN_STATUSES,
     VALIDATE_STATUSES,
 )
-from .prompts import DESIGN_PROMPT, EXECUTE_PROMPT, PLAN_PROMPT, VALIDATE_PROMPT
+from .prompts import (
+    DESIGN_PROMPT,
+    EXECUTE_PROMPT,
+    PLAN_PROMPT,
+    SHARED_PROMPT,
+    VALIDATE_PROMPT,
+)
 
 __all__ = [
     "DESIGN",
@@ -303,4 +309,22 @@ class StageAgent(BaseAgent):
             self.forced_answer_notice = _FORCED_VERDICT_NOTICE
 
     def system_prompt(self) -> str:
-        return format_prompt(self._system_prompt_template, workspace=self.workspace.root)
+        return self._split_prompt()[0]
+
+    def stage_rules(self) -> str:
+        return self._split_prompt()[1]
+
+    def _split_prompt(self) -> tuple[str, str]:
+        """The shared opening, and this stage's own rules (DR-067).
+
+        Every stage's system message is the same text, so the tool list that
+        follows it is the same too, and a local runtime reading the next stage
+        can reuse what it read for the last one instead of starting over. A
+        configured prompt that does not begin with the shared opening (DR-021)
+        is sent whole as the system message, as before.
+        """
+        full = format_prompt(self._system_prompt_template, workspace=self.workspace.root)
+        shared = format_prompt(SHARED_PROMPT, workspace=self.workspace.root)
+        if not full.startswith(shared):
+            return full, ""
+        return shared, full[len(shared) :].strip()
