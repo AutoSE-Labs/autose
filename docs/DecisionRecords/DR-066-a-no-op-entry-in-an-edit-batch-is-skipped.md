@@ -24,7 +24,9 @@ Small local models list unchanged context this way often. They are the models Au
 
 An entry whose `old_str` equals its `new_str` is skipped. The other entries are validated and applied exactly as DR-007 describes, and the result names the skipped entries: `Edited 1 block(s) in calc.py (skipped edits[1]: old_str and new_str were identical, so there was nothing to change — do not resend it)`.
 
-A batch made up only of such entries is still an error, because the model believes it changed the file and has to be told it did not.
+A batch made up only of such entries is still an error, because the model believes it changed the file and has to be told it did not. The error says whether that text is already in the file. If it is, it tells the model that if this is the result it wants, the edit is already done and it should go on; if it meant to change the text, it must send a `new_str` that differs. If the text is not in the file, the error says so and asks for a `new_str` that differs.
+
+This was added after a later qwen3:8b run. Execute made its edit, then sent the finished text back as both `old_str` and `new_str` to check it had landed. The error `would make no change` did not tell it the text was there. It read the error as a failure and went back to resending its original edit, which was then "not found" because it had already been made. It alternated between the two until the stall guard ended the stage, about two minutes later. Whether the text is in the file is a fact the tool can state, and stating it does not claim anything the tool cannot see.
 
 Every other problem still rejects the whole batch.
 

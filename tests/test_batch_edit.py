@@ -93,9 +93,37 @@ def test_empty_old_str_is_refused(workspace):
 
 def test_no_op_replacement_is_refused(workspace):
     _write(workspace, "m.txt", "same")
-    assert "would make no change" in edit_file(
+    result = edit_file(
         "m.txt", [{"old_str": "same", "new_str": "same"}], workspace=workspace
     )
+    assert result.startswith("Error: edits[0] changes nothing")
+
+
+def test_a_no_op_of_text_already_in_the_file_says_the_edit_is_done(workspace):
+    """Seen with qwen3:8b: after its edit landed, it resent the new text as
+    both old and new, read "would make no change" as a failure, and went back
+    to resending the edit it had already made, until the stall guard."""
+    finished = "def test_divide_by_zero():\n    with pytest.raises(ValueError):\n"
+    path = _write(workspace, "test_calc.py", "import pytest\n\n\n" + finished)
+    result = edit_file(
+        "test_calc.py",
+        [{"old_str": finished, "new_str": finished}],
+        workspace=workspace,
+    )
+    assert result.startswith("Error:")
+    assert "already in test_calc.py" in result
+    assert "the edit is already done" in result
+    assert "do not send it again" in result
+    assert path.read_text() == "import pytest\n\n\n" + finished
+
+
+def test_a_no_op_of_text_not_in_the_file_does_not_say_done(workspace):
+    _write(workspace, "m.txt", "hello\n")
+    result = edit_file(
+        "m.txt", [{"old_str": "goodbye", "new_str": "goodbye"}], workspace=workspace
+    )
+    assert "not in m.txt" in result
+    assert "already done" not in result
 
 
 def test_a_batch_of_only_no_op_entries_is_refused(workspace):
@@ -106,8 +134,8 @@ def test_a_batch_of_only_no_op_entries_is_refused(workspace):
         [{"old_str": "a", "new_str": "a"}, {"old_str": "b", "new_str": "b"}],
         workspace=workspace,
     )
-    assert result.startswith("Error:")
-    assert "would make no change" in result
+    assert result.startswith("Error: No edit in this batch changes anything")
+    assert "already in m.txt" in result
     assert path.read_text() == "a\nb\n"
 
 

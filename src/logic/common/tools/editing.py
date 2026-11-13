@@ -101,9 +101,8 @@ def edit_file(
     if not planned:
         # Nothing in the batch changes anything: still an error, because the
         # model believes it changed the file and has to be told it did not.
-        if len(skipped) == 1:
-            return f"Error: edits[{skipped[0]}] would make no change."
-        return "Error: every edit in this batch would make no change."
+        present = all(_text_of(edits[index], crlf_only) in content for index in skipped)
+        return _no_change_message(skipped, path, already_present=present)
 
     ordered = sorted(planned, key=lambda item: item.start)
     for previous, current in pairwise(ordered):
@@ -130,6 +129,38 @@ def edit_file(
             "there was nothing to change — do not resend it)"
         )
     return message
+
+
+def _text_of(edit: dict, crlf_only: bool) -> str:
+    """The text of a no-op entry, normalised the way the file content is."""
+    text = str(edit["old_str"])
+    return text.replace("\r\n", "\n") if crlf_only else text
+
+
+def _no_change_message(skipped: list[int], path: str, *, already_present: bool) -> str:
+    """Say a batch changed nothing, and whether that text is already there.
+
+    A small model that sends its finished text again, as old and new, is
+    checking its edit landed. "Would make no change" did not tell it so:
+    qwen3:8b read it as a failure and alternated between resending the edit it
+    had already made and this no-op until the stall guard stopped the stage
+    (DR-066). Whether the text is in the file is a fact the tool can state.
+    """
+    if len(skipped) == 1:
+        subject = f"edits[{skipped[0]}] changes nothing: its old_str and new_str are"
+    else:
+        subject = "No edit in this batch changes anything: each old_str and new_str are"
+    if not already_present:
+        return (
+            f"Error: {subject} identical, and that text is not in {path}. "
+            "If you meant to change something, send a new_str that differs."
+        )
+    return (
+        f"Error: {subject} identical, and that text is already in {path}. If "
+        "that is the result you want, the edit is already done: do not send it "
+        "again, and go on to your next step. If you meant to change it, send a "
+        "new_str that differs."
+    )
 
 
 # -- validation ---------------------------------------------------------
