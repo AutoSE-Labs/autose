@@ -65,23 +65,6 @@ EXECUTE = "execute"
 #: legitimately writes nothing switch it off.
 EXECUTE_REQUIRES_CHANGES = True
 
-#: How many extra, independent validation passes must also approve before a
-#: pass ends the run. One validator approving its own reading of the request
-#: let through rules the request stated plainly ("unknown attributes are
-#: ignored") while runs still had half an hour left. Tests switch it off.
-CONFIRMING_VALIDATION_PASSES = 1
-
-#: What the confirming validator is told. It does not see the first report:
-#: the point is a second reading, not a second signature on the first.
-CONFIRMING_VALIDATION_NOTICE = (
-    "An earlier validation pass approved this work. You are an independent "
-    "second check, and your job is to find what it missed. Go through the "
-    "original request sentence by sentence. For every rule it states — what "
-    "to accept, reject or ignore, exact output formats and separators, and "
-    "each edge case it names — write a scratch script that feeds that exact "
-    "case to the code and compare the result with the request's wording, not "
-    "with the implementation's own tests. Fail the round for any mismatch."
-)
 VALIDATE = "validate"
 
 #: Sent to a validator that stalled, with its tools removed. It may only

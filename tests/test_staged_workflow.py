@@ -638,13 +638,11 @@ def test_validate_scratch_scripts_are_removed_and_not_reported(tmp_path):
     assert not any(VALIDATE_SCRATCH_DIRECTORY in str(f) for f in outcome.files_changed)
 
 
-def test_a_later_validation_pass_reruns_earlier_checks(tmp_path, monkeypatch):
+def test_a_later_validation_pass_reruns_earlier_checks(tmp_path):
     from logic.inference.types import ToolCall
-    from logic.workflows import stages
     from logic.workflows.staged import EARLIER_CHECKS_NOTICE
     from logic.workflows.stages import VALIDATE_SCRATCH_DIRECTORY
 
-    monkeypatch.setattr(stages, "CONFIRMING_VALIDATION_PASSES", 1)
     script_call = CompletionResult(
         content="",
         finish_reason="tool_calls",
@@ -666,7 +664,12 @@ def test_a_later_validation_pass_reruns_earlier_checks(tmp_path, monkeypatch):
             _answer(plan("R1")),
             _answer(execute("R1")),
             script_call,
-            _answer(validate("R1")),
+            _answer(
+                validate(
+                    "R1", status="Failed", verdict="VERDICT: FAIL execute — misses a rule"
+                )
+            ),
+            _answer(execute("R1")),
             _answer(validate("R1")),
         ]
     )
@@ -689,48 +692,24 @@ def test_a_later_validation_pass_reruns_earlier_checks(tmp_path, monkeypatch):
     outcome = CraftWorkflow().run(request)
 
     assert outcome.succeeded
-    # Absent while the first pass ran, back for the confirming pass.
-    assert seen == [False, False, False, False, True]
+    # Absent while the first pass ran, back for the pass after the loopback.
+    assert seen == [False, False, False, False, False, True]
     last_prompt = str(model.requests[-1]["messages"])
     assert EARLIER_CHECKS_NOTICE.split(".")[0] in last_prompt
     assert not (tmp_path / VALIDATE_SCRATCH_DIRECTORY).exists()
 
 
-def test_a_pass_must_be_confirmed_by_an_independent_validation(tmp_path, monkeypatch):
-    from logic.workflows import stages
-
-    monkeypatch.setattr(stages, "CONFIRMING_VALIDATION_PASSES", 1)
+def test_one_approving_validation_ends_the_run(tmp_path):
+    """DR-068: no second, confirming validation pass after an approval."""
     events = RecordingEventSink()
     request = _request(
-        tmp_path,
-        [plan("R1"), execute("R1"), validate("R1"), validate("R1")],
-        events=events,
+        tmp_path, [plan("R1"), execute("R1"), validate("R1")], events=events
     )
     outcome = CraftWorkflow().run(request)
 
     assert outcome.succeeded
     starts = [event.data["stage"] for event in events.of_type("stage_started")]
-    assert starts == [PLAN, EXECUTE, VALIDATE, VALIDATE]
-    assert len(events.of_type("validation_confirmation")) == 1
-
-
-def test_a_confirming_validation_that_fails_sends_work_back(tmp_path, monkeypatch):
-    from logic.workflows import stages
-
-    monkeypatch.setattr(stages, "CONFIRMING_VALIDATION_PASSES", 1)
-    events = RecordingEventSink()
-    failed = validate("R1", status="Failed", verdict="VERDICT: FAIL execute — misses a rule")
-    request = _request(
-        tmp_path,
-        [plan("R1"), execute("R1"), validate("R1"), failed, execute("R1"), validate("R1")],
-        events=events,
-    )
-    outcome = CraftWorkflow().run(request)
-
-    assert outcome.succeeded
-    assert [event.data["target"] for event in events.of_type("loopback")] == [EXECUTE]
-    # Confirmed once per run, not again after the loopback.
-    assert len(events.of_type("validation_confirmation")) == 1
+    assert starts == [PLAN, EXECUTE, VALIDATE]
 
 
 # -- DR-038: the outcome carries the final ledger ------------------------------

@@ -63,7 +63,6 @@ from ..requirements import (
     summarise,
 )
 from ..tuning import Tuning
-from . import stages as _stages
 from .base import WorkflowOutcome, WorkflowRequest
 from .review import PlanDecision, PlanReview
 from .stages import (
@@ -250,8 +249,6 @@ class StagedWorkflow:
         # Whether the last loopback re-ran validation. Only one in a row: a
         # validator that twice cannot check something hands it to execute.
         rechecked = False
-        # Independent validation passes that approved after the first one.
-        confirmations = 0
         # Check scripts earlier validation passes wrote, kept across rounds.
         # The scratch directory is emptied after every pass, so without this a
         # later pass never re-runs them — and a fix for one finding broke what
@@ -304,12 +301,8 @@ class StagedWorkflow:
                     verdict = self._judge(result.content, memory)
                     emit.verdict(verdict, memory)
                     if verdict.passed:
-                        if confirmations >= _stages.CONFIRMING_VALIDATION_PASSES:
-                            break
-                        confirmations += 1
-                        feedback = _stages.CONFIRMING_VALIDATION_NOTICE
-                        emit.confirmation(confirmations)
-                        continue
+                        # One approving pass ends the run (DR-068).
+                        break
                     loopbacks += 1
                     cap = bounds.validation_iterations
                     if cap is not None and loopbacks >= cap:
@@ -984,14 +977,6 @@ class _Emitter:
             unmet=list(verdict.unmet),
             feedback=verdict.feedback,
             requirements=summarise(list(memory.requirements)),
-        )
-
-    def confirmation(self, number: int) -> None:
-        self._emit(
-            "validation_confirmation",
-            f"approved; running independent check {number}",
-            tier=self._tier,
-            number=number,
         )
 
     def plan_review_requested(self, review: PlanReview) -> None:
