@@ -216,6 +216,28 @@ _REPEATED_CALL_NOTICE = (
     "answer now."
 )
 
+#: How many times one failed write may be *sent* with the exact same arguments
+#: before the call is ended (DR-070). The first send runs and fails; the second
+#: is refused without running; the third ends the call. A failed write changes
+#: nothing, so the same arguments against the same files fail the same way, and
+#: the model is told the same error each time — on qwen3:8b one Execute stage
+#: sent one failing edit seven times in a row, another six times with re-reads
+#: in between, and only the six-round stall guard ended it, about 1.5–2
+#: minutes later.
+_MAX_SENDS_OF_A_FAILED_WRITE = 3
+
+_REPEATED_FAILED_WRITE_NOTICE = (
+    "Refused: you already sent this exact {tool} call for {path} and it "
+    "failed. No file has changed since, so it would fail the same way, and it "
+    "was not run. Do not send it again: re-read the file and send a different "
+    "call, or move on to your next step."
+)
+
+_REPEATED_FAILED_WRITE_STALL = (
+    "{name} stopped after sending the same failing {tool} call for {path} "
+    "{count} times"
+)
+
 
 def _window_bounded_handlers(
     tools: Mapping[str, Tool],
@@ -525,6 +547,11 @@ class BaseAgent:
         # file name in jest's output made every run look like new evidence.
         # Output is compared with each copy's name put back to the original's.
         copy_names: dict[str, str] = {}
+        # How many times each failed write (keyed like `repeat_counts`) has
+        # been sent since it failed. Cleared whenever a write succeeds or a
+        # shell command runs, since either may change what the same write
+        # would now do (DR-070).
+        failed_writes: dict[tuple[str, str], int] = {}
         stalled_rounds = 0
         # How many of the current no-progress rounds were also rounds the
         # budget had to drop history from. When the two counts agree, the
@@ -716,6 +743,9 @@ class BaseAgent:
             # Whether this round taught the model anything it did not already
             # have. A round of refused repeats and re-reads leaves it False.
             progressed = False
+            # Set when a failed write is sent for the last allowed time; the
+            # call then ends as stalled after this round (DR-070).
+            repeated_write_stop: str | None = None
             for call in completion.tool_calls:
                 if self._cancel.requested:
                     # Stop between calls, never mid-call. The ones not reached
@@ -749,12 +779,43 @@ class BaseAgent:
                         continue
                     result = self._executor.execute(call)
                     memory.add_tool_result(call.id, result.content)
+                    # A command may have changed the files a failed write
+                    # targets, so the same write could now succeed.
+                    failed_writes.clear()
                     if self._is_new_evidence(
                         call, result.content, seen_results, copy_names
                     ):
                         progressed = True
                     continue
                 if call.name not in READ_ONLY_TOOL_NAMES:
+                    write_key = self._repeat_key(call)
+                    sends = failed_writes.get(write_key, 0) if write_key else 0
+                    if sends:
+                        # The same arguments against unchanged files: running
+                        # it again can only return the same error.
+                        sends += 1
+                        assert write_key is not None  # narrowed by `sends`
+                        failed_writes[write_key] = sends
+                        path = call.arguments.get("path", "")
+                        self._emit(
+                            "tool_call_repeated",
+                            f"refused a repeat of a failed {call.name} on {path}",
+                            stage=self.name,
+                            tool=call.name,
+                            path=path,
+                            count=sends,
+                        )
+                        memory.add_tool_result(
+                            call.id,
+                            _REPEATED_FAILED_WRITE_NOTICE.format(
+                                tool=call.name, path=path
+                            ),
+                        )
+                        if sends >= _MAX_SENDS_OF_A_FAILED_WRITE:
+                            repeated_write_stop = _REPEATED_FAILED_WRITE_STALL.format(
+                                name=self.name, tool=call.name, path=path, count=sends
+                            )
+                        continue
                     result = self._executor.execute(call)
                     if not _is_error_result(result.content) and self._is_revert(
                         call, file_versions, written_contents, copy_names
@@ -769,6 +830,7 @@ class BaseAgent:
                             ),
                         )
                         changes_made += 1
+                        failed_writes.clear()
                         continue
                     memory.add_tool_result(call.id, result.content)
                     if _is_error_result(result.content):
@@ -776,10 +838,13 @@ class BaseAgent:
                         # failure again is no progress. Clearing them on every
                         # mutating call let a model resend a failing write
                         # hundreds of times without tripping the stall guard.
+                        if write_key is not None:
+                            failed_writes[write_key] = 1
                         if self._is_new_evidence(call, result.content, seen_results):
                             progressed = True
                         continue
                     changes_made += 1
+                    failed_writes.clear()
                     # State may just have changed under whatever a read-only
                     # call returned earlier, so neither its repeat count nor
                     # its result is evidence of stalling any more.
@@ -814,19 +879,23 @@ class BaseAgent:
                 if self._is_new_evidence(call, result.content, seen_results):
                     progressed = True
 
-            if progressed:
-                stalled_rounds = 0
-                evicting_rounds = 0
-                continue
-            stalled_rounds += 1
-            if stalled_rounds < _MAX_STALLED_ROUNDS:
-                continue
+            if repeated_write_stop is None:
+                if progressed:
+                    stalled_rounds = 0
+                    evicting_rounds = 0
+                    continue
+                stalled_rounds += 1
+                if stalled_rounds < _MAX_STALLED_ROUNDS:
+                    continue
             # Unlimited rounds (DR-030) means nothing else would ever end this
             # call: the model is answering every refusal with another call the
             # refusal already covered. Surface what it has rather than spend
             # the user's machine on a round that cannot differ from the last.
+            # A failed write sent a third time is the same loop, seen sooner:
+            # its cause is the model, not the window (DR-070).
             thrashing = (
-                evicting_rounds >= stalled_rounds
+                repeated_write_stop is None
+                and evicting_rounds >= stalled_rounds
                 and last_metrics is not None
                 and last_metrics.context_limit is not None
             )
@@ -849,6 +918,15 @@ class BaseAgent:
                         last_metrics.estimated_tool_schema_tokens
                     ),
                     reserved_output_tokens=last_metrics.reserved_output_tokens,
+                )
+            elif repeated_write_stop is not None:
+                self._emit(
+                    "agent_stalled",
+                    repeated_write_stop,
+                    stage=self.name,
+                    round=round_number,
+                    stalled_rounds=stalled_rounds,
+                    evicting_rounds=evicting_rounds,
                 )
             else:
                 notice = _STALLED_NOTICE.format(

@@ -884,6 +884,162 @@ def test_resending_a_failing_write_is_stopped_as_a_stall(workspace):
     assert result.rounds < 10
 
 
+# -- a failed write sent again (DR-070) -----------------------------------------
+
+
+def _bad_edit(old: str = "assert divide(10, 2) == 5", new: str = "x"):
+    """An edit whose old text is not in t.py, as qwen3:8b kept sending."""
+    return calls(
+        tool_call("edit_file", path="t.py", edits=[{"old_str": old, "new_str": new}]),
+        content="editing",
+    )
+
+
+def _editing_agent(workspace, script, **kwargs) -> tuple[_Stage, RecordingEventSink]:
+    (workspace.root / "t.py").write_text("def test_add():\n    pass\n", encoding="utf-8")
+    events = RecordingEventSink()
+    agent = _Stage(
+        model=ScriptedChatModel(script),
+        tools=kwargs.pop("tools", catalog_subset("edit_file", "write_file", "read_file")),
+        workspace=workspace,
+        events=events,
+        **kwargs,
+    )
+    return agent, events
+
+
+def _edits_run(events: RecordingEventSink) -> int:
+    return sum(1 for e in events.of_type("tool_called") if e.data.get("tool") == "edit_file")
+
+
+def test_a_failed_edit_sent_again_is_refused_without_running(workspace):
+    """The same edit against unchanged files can only fail the same way.
+
+    A read in between changes no file, so it does not make the repeat worth
+    running: on qwen3:8b the model re-read the file and then sent the same
+    failing edit again.
+    """
+    agent, events = _editing_agent(
+        workspace,
+        [
+            _bad_edit(),
+            calls(tool_call("read_file", path="t.py"), content="looking"),
+            _bad_edit(),
+            answer("done"),
+        ],
+    )
+    result = agent.run("fix it")
+
+    assert result.content == "done"
+    assert _edits_run(events) == 1
+    refused = events.of_type("tool_call_repeated")
+    assert len(refused) == 1
+    assert refused[0].data["tool"] == "edit_file"
+    assert refused[0].data["count"] == 2
+    assert not events.of_type("agent_stalled")
+
+
+def test_the_refusal_tells_the_model_not_to_resend_it(workspace):
+    model = ScriptedChatModel([_bad_edit(), _bad_edit(), answer("done")])
+    (workspace.root / "t.py").write_text("x\n", encoding="utf-8")
+    _Stage(
+        model=model,
+        tools=catalog_subset("edit_file", "read_file"),
+        workspace=workspace,
+        events=RecordingEventSink(),
+    ).run("fix it")
+
+    last_request = model.requests[-1]
+    refusal = last_request["messages"][-1]["content"]
+    assert refusal.startswith("Refused: you already sent this exact edit_file call for t.py")
+    assert "it was not run" in refusal
+
+
+def test_a_failed_edit_sent_a_third_time_ends_the_stage(workspace):
+    """The third send ends the call at once, not six stalled rounds later.
+
+    It ends the way a stall does, with one request for the answer and the
+    tools removed, so the stage still reports what it did.
+    """
+    agent, events = _editing_agent(
+        workspace, [_bad_edit(), _bad_edit(), _bad_edit(), answer("what I did")]
+    )
+    result = agent.run("fix it")
+
+    assert result.stop_reason == "answered"
+    assert result.content == "what I did"
+    assert result.rounds == 3
+    assert _edits_run(events) == 1
+    (stalled,) = events.of_type("agent_stalled")
+    assert stalled.message == (
+        "test-stage stopped after sending the same failing edit_file call for "
+        "t.py 3 times"
+    )
+    assert not events.of_type("agent_context_thrashing")
+
+
+def test_two_different_failed_edits_both_run(workspace):
+    agent, events = _editing_agent(
+        workspace, [_bad_edit("a"), _bad_edit("b"), answer("done")]
+    )
+    agent.run("fix it")
+
+    assert _edits_run(events) == 2
+    assert not events.of_type("tool_call_repeated")
+
+
+def test_two_failed_edits_alternated_are_each_refused_on_their_second_send(workspace):
+    """One run alternated two failing edits; each is its own repeat."""
+    agent, events = _editing_agent(
+        workspace,
+        [_bad_edit("a"), _bad_edit("b"), _bad_edit("a"), _bad_edit("b"), answer("done")],
+    )
+    result = agent.run("fix it")
+
+    assert result.content == "done"
+    assert _edits_run(events) == 2
+    assert [e.data["count"] for e in events.of_type("tool_call_repeated")] == [2, 2]
+    assert not events.of_type("agent_stalled")
+
+
+def test_a_failed_edit_runs_again_once_a_write_has_changed_the_file(workspace):
+    """After a write succeeds, the same edit may now match, so it runs."""
+    agent, events = _editing_agent(
+        workspace,
+        [
+            _bad_edit("old", "new"),
+            calls(tool_call("write_file", path="t.py", content="old\n"), content="writing"),
+            _bad_edit("old", "new"),
+            answer("done"),
+        ],
+    )
+    agent.run("fix it")
+
+    assert _edits_run(events) == 2
+    assert not events.of_type("tool_call_repeated")
+    assert (workspace.root / "t.py").read_text(encoding="utf-8") == "new\n"
+
+
+def test_a_failed_edit_runs_again_once_a_command_has_run(workspace):
+    """A shell command may change files, so it clears the record too."""
+    agent, events = _editing_agent(
+        workspace,
+        [
+            _bad_edit("old", "new"),
+            calls(tool_call("run_command", command="echo old > t.py"), content="fixing"),
+            _bad_edit("old", "new"),
+            answer("done"),
+        ],
+        tools=catalog_subset("edit_file", "read_file", "run_command"),
+        approval_gate=RecordingApprovalGate(default=True),
+    )
+    agent.run("fix it")
+
+    assert _edits_run(events) == 2
+    assert not events.of_type("tool_call_repeated")
+    assert (workspace.root / "t.py").read_text(encoding="utf-8") == "new\n"
+
+
 def test_a_repeated_shell_command_with_the_same_output_is_stopped_as_a_stall(workspace):
     """A command re-run without any edit in between teaches nothing new."""
     same = calls(tool_call("run_command", command="echo hi"), content="checking")
