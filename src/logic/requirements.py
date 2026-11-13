@@ -297,8 +297,9 @@ or
 VERDICT: FAIL execute — one sentence saying what must change
 
 Allowed statuses: Verified, Failed, Unverified. Mark `Verified` only for
-something you actually confirmed by reading the file or running a command — not
-because the implementation claimed it. `Failed` means you observed a defect;
+something you actually confirmed by reading the file, running a command, or
+from the diff or command output AutoSE put in your input — not because the
+implementation claimed it. `Failed` means you observed a defect;
 `Unverified` means you could not get a check to run, which is never a pass. The VERDICT target is one of design, plan, or
 execute.
 """

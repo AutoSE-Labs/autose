@@ -98,6 +98,11 @@ _MAX_RETRY_DIGEST = 3
 #: Characters of feedback kept per retry attempt.
 _MAX_RETRY_FEEDBACK_CHARS = 400
 
+#: Commands kept since the last write (DR-072), and characters of each one's
+#: output: the end, where a test runner prints its summary and exit code.
+_MAX_COMMANDS_KEPT = 3
+_MAX_COMMAND_OUTPUT_CHARS = 2_000
+
 
 class ArtifactTooLargeError(Exception):
     """A stage produced an artifact past its slot's cap (DR-004)."""
@@ -142,6 +147,8 @@ class RequestMemory:
         self.requirements: tuple = ()
         #: Files this request changed, in the order they were first touched.
         self._files_changed: list[str] = []
+        #: Commands run since the last accepted write, with their output.
+        self._commands: list[tuple[str, str]] = []
 
     # -- artifacts -------------------------------------------------------
 
@@ -201,12 +208,27 @@ class RequestMemory:
     # -- changed files ------------------------------------------------------
 
     def note_file_changed(self, path: str) -> None:
+        # A command run before this write describes code that is gone.
+        self._commands.clear()
         if path not in self._files_changed:
             self._files_changed.append(path)
 
     @property
     def files_changed(self) -> tuple[str, ...]:
         return tuple(self._files_changed)
+
+    # -- commands since the last write -------------------------------------
+
+    def note_command(self, command: str, output: str) -> None:
+        """Keep a finished command's output until the next write (DR-072)."""
+        if len(output) > _MAX_COMMAND_OUTPUT_CHARS:
+            output = "…" + output[-_MAX_COMMAND_OUTPUT_CHARS:]
+        self._commands.append((command, output))
+        del self._commands[:-_MAX_COMMANDS_KEPT]
+
+    @property
+    def commands_since_change(self) -> tuple[tuple[str, str], ...]:
+        return tuple(self._commands)
 
 
 class SessionMemory:

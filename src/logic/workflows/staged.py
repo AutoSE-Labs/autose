@@ -25,6 +25,7 @@ Three rules the runner owns, which no stage is trusted to self-enforce:
 
 from __future__ import annotations
 
+import re
 import shutil
 import time
 from collections.abc import Callable, Generator, Sequence
@@ -66,6 +67,7 @@ from ..tuning import Tuning
 from .base import WorkflowOutcome, WorkflowRequest
 from .named_files import named_files_section
 from .review import PlanDecision, PlanReview
+from .run_changes import commands_section, run_changes
 from .stages import (
     DESIGN,
     EXECUTE,
@@ -631,6 +633,7 @@ class StagedWorkflow:
             # stage-specific restriction still applies and only its accepted
             # writes are reported as changed files.
             _track_changes(agent, memory, request.journal)
+            _track_commands(agent, memory)
         return agent
 
     def _adopt(
@@ -687,6 +690,18 @@ class StagedWorkflow:
             if not self._precedes(name, stage.name):
                 continue
             parts.append(f"# {heading}\n\n{memory.get(name)}")
+
+        if stage.name == VALIDATE:
+            # DR-071: the change itself, so Validate neither re-reads the
+            # files to find it nor takes Execute's word for it.
+            changes = run_changes(request.journal, request.workspace)
+            if changes.section:
+                parts.append(changes.section)
+            # DR-072: test output AutoSE recorded after the last edit, so a
+            # passing run counts as a check without being run again.
+            ran = commands_section(memory.commands_since_change)
+            if ran:
+                parts.append(ran)
 
         if memory.requirements and stage.owns_ledger:
             parts.append(
@@ -858,6 +873,31 @@ def _track_changes(
     refusal is told apart from a change.
     """
     track_changes(agent, journal, on_change=memory.note_file_changed)
+
+
+def _track_commands(agent: StageAgent, memory: RequestMemory) -> None:
+    """Keep each command that ran to the end, with its output (DR-072).
+
+    Only a result ending in its exit code counts: a refusal, a timeout or a
+    command left running in the background has no final output to judge.
+    """
+    if not agent.has_tool("run_command"):
+        return
+
+    def wrap(handler: Callable[..., str]) -> Callable[..., str]:
+        def recording(command: str = "", *args: object, **kwargs: object) -> str:
+            result = handler(command, *args, **kwargs)
+            if isinstance(result, str) and _FINISHED.search(result):
+                memory.note_command(command, result)
+            return result
+
+        return recording
+
+    agent.instrument("run_command", wrap)
+
+
+#: The last line of a command `run_command` ran to the end.
+_FINISHED = re.compile(r"(?:^|\n)Exit code: -?\d+$")
 
 
 def _cancellation_message(stage: str, memory: RequestMemory, reason: str) -> str:

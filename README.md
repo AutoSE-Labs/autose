@@ -138,6 +138,8 @@ Every notable decision behind this project — architecture, product scope, non-
 | [DR-068](docs/DecisionRecords/DR-068-one-approving-validation-ends-the-run.md) | One approving validation pass ends the run; no second, confirming pass |
 | [DR-069](docs/DecisionRecords/DR-069-execute-starts-with-the-files-the-plan-names.md) | Execute starts with the current contents of the files the plan names |
 | [DR-070](docs/DecisionRecords/DR-070-a-failed-write-sent-again-is-refused.md) | A failed write sent again is refused; a third send ends the call |
+| [DR-071](docs/DecisionRecords/DR-071-validate-gets-the-run-s-diff.md) | Validate gets the run's diff |
+| [DR-072](docs/DecisionRecords/DR-072-one-short-validate-prompt-and-the-test-output.md) | One short Validate prompt, and the output of commands run after the last edit |
 
 DR-018 and DR-028 describe Pro-only features and are kept in the Pro repository.
 
