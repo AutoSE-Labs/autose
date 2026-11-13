@@ -10,6 +10,9 @@ guarantees DR-007 requires, and what each one buys:
   happened to list the edits in.
 * **Any problem rejects the whole batch**, leaving the file byte-for-byte
   unchanged. There is no partial application to reason about or clean up.
+  The one exception is an entry whose ``old_str`` equals its ``new_str``: it
+  is skipped and named in the result, because it changes nothing either way
+  (DR-066). A batch of nothing but such entries is still an error.
 * **Replacements apply back-to-front** in a single pass, so earlier offsets
   stay valid without bookkeeping.
 * **Encoding characteristics survive**: a UTF-8 BOM is preserved, and a
@@ -85,11 +88,22 @@ def edit_file(
     content = original.replace("\r\n", "\n") if crlf_only else original
 
     planned: list[_Replacement] = []
+    skipped: list[int] = []
     for index, edit in enumerate(edits):
         outcome = _plan_replacement(edit, index, content, crlf_only, path)
+        if outcome is _NO_OP:
+            skipped.append(index)
+            continue
         if isinstance(outcome, str):
             return outcome
+        assert isinstance(outcome, _Replacement)
         planned.append(outcome)
+    if not planned:
+        # Nothing in the batch changes anything: still an error, because the
+        # model believes it changed the file and has to be told it did not.
+        if len(skipped) == 1:
+            return f"Error: edits[{skipped[0]}] would make no change."
+        return "Error: every edit in this batch would make no change."
 
     ordered = sorted(planned, key=lambda item: item.start)
     for previous, current in pairwise(ordered):
@@ -108,7 +122,14 @@ def edit_file(
         updated = updated.replace("\n", "\r\n")
 
     _write_once(target, updated, has_bom=has_bom)
-    return f"Edited {len(planned)} block(s) in {workspace.display(target)}"
+    message = f"Edited {len(planned)} block(s) in {workspace.display(target)}"
+    if skipped:
+        names = ", ".join(f"edits[{index}]" for index in skipped)
+        message += (
+            f" (skipped {names}: old_str and new_str were identical, so "
+            "there was nothing to change — do not resend it)"
+        )
+    return message
 
 
 # -- validation ---------------------------------------------------------
@@ -135,9 +156,15 @@ def _validate_batch_shape(
     return None
 
 
+#: Returned by `_plan_replacement` for an entry whose ``old_str`` equals its
+#: ``new_str`` (DR-066). Small models list an unchanged line as an "edit" to
+#: say "keep this"; that entry changes nothing whether it is applied or not.
+_NO_OP = object()
+
+
 def _plan_replacement(
     edit: Any, index: int, content: str, crlf_only: bool, path: str
-) -> _Replacement | str:
+) -> _Replacement | str | object:
     if not isinstance(edit, dict):
         return f"Error: edits[{index}] must be an object with old_str and new_str."
     old = edit.get("old_str")
@@ -150,7 +177,7 @@ def _plan_replacement(
     if not old:
         return f"Error: edits[{index}].old_str cannot be empty."
     if old == new:
-        return f"Error: edits[{index}] would make no change."
+        return _NO_OP
 
     count = content.count(old)
     if count == 0:

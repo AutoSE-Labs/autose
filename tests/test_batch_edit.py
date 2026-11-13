@@ -98,6 +98,61 @@ def test_no_op_replacement_is_refused(workspace):
     )
 
 
+def test_a_batch_of_only_no_op_entries_is_refused(workspace):
+    """DR-066: the model believes it changed something, so it must be told."""
+    path = _write(workspace, "m.txt", "a\nb\n")
+    result = edit_file(
+        "m.txt",
+        [{"old_str": "a", "new_str": "a"}, {"old_str": "b", "new_str": "b"}],
+        workspace=workspace,
+    )
+    assert result.startswith("Error:")
+    assert "would make no change" in result
+    assert path.read_text() == "a\nb\n"
+
+
+def test_a_no_op_entry_beside_a_real_edit_is_skipped_not_fatal(workspace):
+    """DR-066: a small model lists an unchanged line to mean "keep this".
+
+    Seen with qwen3:8b: the real fix plus ``return a / b`` -> ``return a / b``.
+    Rejecting the batch for that entry discarded the fix, and the model resent
+    the same pair until the stall guard ended the stage.
+    """
+    path = _write(workspace, "calc.py", "def divide(a, b):\n    return a / b\n")
+    result = edit_file(
+        "calc.py",
+        [
+            {
+                "old_str": "def divide(a, b):",
+                "new_str": "def divide(a, b):\n    if b == 0:\n        raise ValueError",
+            },
+            {"old_str": "    return a / b", "new_str": "    return a / b"},
+        ],
+        workspace=workspace,
+    )
+    assert result.startswith("Edited 1 block(s)")
+    assert "skipped edits[1]" in result
+    assert path.read_text() == (
+        "def divide(a, b):\n    if b == 0:\n        raise ValueError\n"
+        "    return a / b\n"
+    )
+
+
+def test_a_no_op_entry_does_not_excuse_a_real_entry_that_fails(workspace):
+    """Only the no-op is forgiven; any other problem still rejects the batch."""
+    path = _write(workspace, "m.txt", "hello\n")
+    result = edit_file(
+        "m.txt",
+        [
+            {"old_str": "hello", "new_str": "hello"},
+            {"old_str": "missing", "new_str": "x"},
+        ],
+        workspace=workspace,
+    )
+    assert "was not found" in result
+    assert path.read_text() == "hello\n"
+
+
 def test_overlapping_ranges_are_refused(workspace):
     path = _write(workspace, "m.txt", "abcdef")
     result = edit_file(

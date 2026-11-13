@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-29
 - **Decision owners:** AutoSE maintainers
-- **Scope:** File-editing tool exposed to implementation-capable agents
+- **Scope:** File-editing tool exposed to implementation-capable agents. **Amended by [DR-066](DR-066-a-no-op-entry-in-an-edit-batch-is-skipped.md): a no-op entry (`old_str` equal to `new_str`) is now skipped and named in the result instead of rejecting the batch; a batch of only no-op entries is still rejected, and every other rule below stands.**
 
 ## Context
 
